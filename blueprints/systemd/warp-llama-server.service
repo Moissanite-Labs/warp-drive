@@ -8,15 +8,21 @@ Before=warp-modeld.service
 Type=simple
 User=warp-llama
 Group=warp-llama
+RuntimeDirectory=warp-llama-slots
+RuntimeDirectoryMode=0700
 EnvironmentFile=/etc/warp/llama-server.env
 # Note: --swa-checkpoints is an alias for --ctx-checkpoints in llama-server; pass one flag only.
+# --lora-scaled <path>:0.0 (not bare --lora) is required in llama-server 0.5.0 alongside
+# --lora-init-without-apply so adapters initialize at scale 0.0 before Stage 1-3 verification.
+# --slot-save-path is required by llama-server so POST /slots/{id}?action=erase returns HTTP 200.
 ExecStart=/usr/local/bin/llama-server \
     --host 127.0.0.1 \
     --port 8080 \
     --model ${WARP_BASE_MODEL_GGUF} \
-    --lora ${WARP_LORA_PATHS} \
+    --lora-scaled ${WARP_LORA_SCALED_SPECS} \
     --lora-init-without-apply \
     --slots \
+    --slot-save-path /run/warp-llama-slots \
     --no-cache-idle-slots \
     --slot-prompt-similarity 0.0 \
     --ctx-size ${WARP_CTX_SIZE} \

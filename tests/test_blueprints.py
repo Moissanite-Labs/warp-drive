@@ -56,8 +56,10 @@ class TestBlueprintsAndHygiene(unittest.TestCase):
         llama_unit = (REPO_ROOT / "blueprints" / "systemd" / "warp-llama-server.service").read_text(encoding="utf-8")
         for required in (
             "--host 127.0.0.1",
+            "--lora-scaled",
             "--lora-init-without-apply",
             "--slots",
+            "--slot-save-path",
             "--no-cache-idle-slots",
             "ProtectSystem=strict",
             "ReadOnlyPaths=/var/lib/warp/models",

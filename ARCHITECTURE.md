@@ -66,7 +66,8 @@ Negative numbers, non-integers, invalid radix scales, or composed multi-adapter 
 
 ### Stage 3: Shadow Load and Verifier-Owned Canary Checks
 
-`llama-server` starts with `--lora-init-without-apply`, keeping all loaded adapters at scale `0.0` so unverified adapters cannot affect live traffic.
+`llama-server` starts with `--lora-scaled <path>:0.0` paired with `--lora-init-without-apply` and `--slot-save-path <dir>`.
+Using explicit `:0.0` scales prevents `llama-server` 0.5.0 from activating unverified adapters at scale `1.0` on startup, and `--slot-save-path` enables `POST /slots/{id}?action=erase` to return HTTP 200 instead of HTTP 501.
 `warp-modeld` loads canary prompts strictly from a read-only directory owned by the OS verifier. Any adapter manifest that attempts to supply inline canary prompts, expected outputs, or self-reported pass flags is rejected immediately.
 
 On an isolated canary slot with freshly cleared KV and recurrent state, `warp-modeld` sends deterministic requests (`temperature=0`, fixed seed, prompt caching off) with the exact candidate `"lora"` scale array:

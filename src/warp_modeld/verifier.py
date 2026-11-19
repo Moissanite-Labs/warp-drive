@@ -189,14 +189,19 @@ class WarpModeld:
             for slot in slots:
                 self.llama_client.erase_slot(slot.id)
                 flushed.append(slot.id)
-            # Re-verify zero residual recurrent state or active adapter taint.
+            # Re-verify zero residual recurrent state, KV cache tokens, or active adapter taint.
             after = self.llama_client.list_slots()
             for slot in after:
-                if slot.recurrent_state_tainted or slot.active_lora_ids or slot.n_decoded > 0:
+                if (
+                    slot.recurrent_state_tainted
+                    or slot.active_lora_ids
+                    or slot.n_decoded > 0
+                    or slot.n_prompt_tokens_cache > 0
+                ):
                     raise StateFlushError(
                         f"slot {slot.id} retained residual state after erase "
                         f"(tainted={slot.recurrent_state_tainted}, active={slot.active_lora_ids}, "
-                        f"n_decoded={slot.n_decoded})"
+                        f"n_decoded={slot.n_decoded}, n_prompt_tokens_cache={slot.n_prompt_tokens_cache})"
                     )
             return tuple(flushed)
         except LlamaClientError as exc:
@@ -525,6 +530,57 @@ class WarpModeld:
                 temperature=temperature,
                 seed=seed,
                 max_tokens=max_tokens,
+                cache_prompt=False,
+            )
+            return {
+                "slot_manifest_digest": manifest,
+                "zone_manifest_id": self.pinned_zone_manifest_id,
+                "active_lora": active_lora,
+                "response": response,
+            }
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        temperature: float = 0.0,
+        seed: int = 42,
+        n_predict: int = 64,
+        raw_params: dict[str, Any] | None = None,
+        expected_zone_manifest_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Proxy raw /completion through warp-modeld using only verified active LoRA state."""
+        with self._lock:
+            if self._state_quarantined:
+                raise StateFlushError("refusing completion while slot state is quarantined")
+            if raw_params is not None and "lora" in raw_params:
+                raise UnverifiedLoraOverrideError(
+                    "callers may not pass raw 'lora' overrides to warp_complete; mount through Stage 1-4 verifier"
+                )
+            if expected_zone_manifest_id is not None:
+                validate_zone_manifest_id(expected_zone_manifest_id)
+                if self.pinned_zone_manifest_id is None or not hmac.compare_digest(
+                    expected_zone_manifest_id, self.pinned_zone_manifest_id
+                ):
+                    raise ZoneManifestDriftError(
+                        f"complete zone_manifest_id {expected_zone_manifest_id} "
+                        f"!= host pinned {self.pinned_zone_manifest_id}"
+                    )
+            if self._is_active_zone_manifest_drifted():
+                raise ZoneManifestDriftError(
+                    "active adapter stack drifted from pinned zone_manifest_id; remount required"
+                )
+            active_lora = [
+                {"id": b.llama_adapter_id, "scale": b.scale_float}
+                for b in self._active_bundles
+            ]
+            manifest = self._slot_manifest_digest
+            response = self.llama_client.completion(
+                prompt,
+                lora=active_lora,
+                temperature=temperature,
+                seed=seed,
+                n_predict=n_predict,
                 cache_prompt=False,
             )
             return {

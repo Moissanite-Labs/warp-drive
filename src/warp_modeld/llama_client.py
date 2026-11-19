@@ -18,6 +18,7 @@ REQUIRED_LLAMA_SERVER_FLAGS = (
     "--lora-scaled",
     "--lora-init-without-apply",
     "--slots",
+    "--slot-save-path",
     "--no-cache-idle-slots",
     "--slot-prompt-similarity",
     "--ctx-checkpoints",
@@ -77,6 +78,7 @@ class LlamaSlotInfo:
     n_decoded: int
     active_lora_ids: tuple[int, ...] = ()
     recurrent_state_tainted: bool = False
+    n_prompt_tokens_cache: int = 0
 
 
 class LlamaServerClient:
@@ -160,13 +162,21 @@ class LlamaServerClient:
             if not isinstance(entry, dict) or "id" not in entry:
                 raise LlamaClientError("malformed slot entry in /slots")
             active_ids = tuple(int(x) for x in entry.get("active_lora_ids", []))
+            raw_n_decoded = entry.get("n_decoded")
+            if raw_n_decoded is None:
+                next_tok = entry.get("next_token")
+                if isinstance(next_tok, list) and next_tok and isinstance(next_tok[0], dict):
+                    raw_n_decoded = next_tok[0].get("n_decoded", 0)
+                else:
+                    raw_n_decoded = 0
             slots.append(
                 LlamaSlotInfo(
                     id=int(entry["id"]),
                     is_processing=bool(entry.get("is_processing", False)),
-                    n_decoded=int(entry.get("n_decoded", 0)),
+                    n_decoded=int(raw_n_decoded),
                     active_lora_ids=active_ids,
                     recurrent_state_tainted=bool(entry.get("recurrent_state_tainted", False)),
+                    n_prompt_tokens_cache=int(entry.get("n_prompt_tokens_cache", 0)),
                 )
             )
         return slots
@@ -199,4 +209,30 @@ class LlamaServerClient:
         res = self._request("POST", "/v1/chat/completions", payload)
         if not isinstance(res, dict):
             raise LlamaClientError("unexpected /v1/chat/completions payload from llama-server")
+        return res
+
+    def completion(
+        self,
+        prompt: str,
+        *,
+        lora: list[dict[str, Any]],
+        temperature: float = 0.0,
+        seed: int = 42,
+        n_predict: int = 64,
+        cache_prompt: bool = False,
+        id_slot: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "prompt": prompt,
+            "temperature": temperature,
+            "seed": seed,
+            "n_predict": int(n_predict),
+            "cache_prompt": cache_prompt,
+            "lora": [{"id": int(a["id"]), "scale": float(a["scale"])} for a in lora],
+        }
+        if id_slot is not None:
+            payload["id_slot"] = int(id_slot)
+        res = self._request("POST", "/completion", payload)
+        if not isinstance(res, dict):
+            raise LlamaClientError("unexpected /completion payload from llama-server")
         return res

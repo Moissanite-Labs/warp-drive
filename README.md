@@ -41,13 +41,14 @@ Requires Python 3.11 or newer with no external runtime packages:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Verify a signed ledger file, archive and reseed a damaged ledger explicitly, run a division-free certificate check, or probe an installed `llama-server` binary:
+Verify a signed ledger file, archive and reseed a damaged ledger explicitly, run a division-free certificate check, probe an installed `llama-server` binary, or run the opt-in live GGUF Stage 1 to Stage 4 test:
 
 ```bash
 PYTHONPATH=src python3 -m warp_modeld.cli verify-ledger --ledger <ledger.jsonl> --key-file <ledger.key>
 PYTHONPATH=src python3 -m warp_modeld.cli repair-ledger --ledger <ledger.jsonl> --archive-dir <archive> --key-file <ledger.key> --confirm <phrase>
 PYTHONPATH=src python3 -m warp_modeld.cli check-certificate --cert <cert.json> --bounds <bounds.json>
 WARP_LIVE_LLAMA_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
+WARP_LIVE_LLAMA_TEST=1 WARP_LIVE_BASE_GGUF=<model.gguf> WEFT_SRC=<weft/src> PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
 ```
 
 ## Three-Machine Deployment Model
@@ -60,8 +61,9 @@ WARP_LIVE_LLAMA_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_llama_
 
 ## Verification Boundary
 
-- **Verified locally now:** All four `warp-modeld` verification stages, Unix socket RPC server and CLI subprocesses, adversarial rejection tests (forged certificates, stale lineage, runtime-flag drift, forged adapter-supplied canaries, canary failures, hybrid recurrent-state flush on rollback, and ledger tampering), plus blueprint JSON invariant and `bash -n` syntax checks.
-- **Requires Linux target hardware (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, and live CUDA `llama-server` multi-adapter benchmarks.
+- **Verified offline now (47 passing unit, RPC, adversarial, and blueprint tests plus 1 opt-in live GGUF test):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), and CLI subprocesses. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, hybrid recurrent-state flush, ledger tampering, and blueprint invariants.
+- **Verified live on `llama-server` 0.5.0 (build 11146, commit `7fe450e19`, CPU mode on `Qwen2.5-1.5B-Instruct`):** Full Stage 1 to Stage 4 `warp-modeld` lifecycle over a `0600` Unix socket mounted a real `weft` rank-4 F16 GGUF v3 LoRA (`84,384` bytes on `blk.27.ffn_up.weight`, 0-byte re-derivation). Stage 2 ran in `16.71 us`, 5 live shadow canaries cleared in `4.90 s`, and kill-switch plus `POST /slots/0?action=erase` ran in `4.22 ms`, restoring bit-exact base `W0` output with verified HMAC receipts.
+- **Requires Linux target hardware (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, and live CUDA multi-adapter benchmarks on the 8 GiB RTX 3080 compute host.
 
 ## Documents
 

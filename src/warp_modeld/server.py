@@ -213,6 +213,19 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
 
+        if method == "warp_complete":
+            prompt = params["prompt"]
+            if not isinstance(prompt, str):
+                raise WarpError("prompt must be a string", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+            return self.modeld.complete(
+                prompt,
+                temperature=float(params.get("temperature", 0.0)),
+                seed=int(params.get("seed", 42)),
+                n_predict=int(params.get("n_predict", 64)),
+                raw_params=params,
+                expected_zone_manifest_id=params.get("zone_manifest_id"),
+            )
+
         raise WarpError(f"unknown RPC method: {method}", code="ERR_METHOD_NOT_FOUND", stage="rpc")
 
 

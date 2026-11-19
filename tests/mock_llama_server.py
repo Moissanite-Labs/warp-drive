@@ -244,6 +244,32 @@ class MockLlamaServer:
                         )
                         return
 
+                    if parsed.path == "/completion":
+                        if not isinstance(body, dict):
+                            self._send_json(400, {"error": "expected object"})
+                            return
+                        slot_id = int(body.get("id_slot", 0))
+                        slot = state.slots[slot_id]
+                        lora_req = body.get("lora")
+                        if lora_req is None:
+                            active_ids = [
+                                a["id"] for a in state.adapters.values() if abs(float(a["scale"])) > 0.0
+                            ]
+                        else:
+                            active_ids = [
+                                int(entry["id"])
+                                for entry in lora_req
+                                if abs(float(entry.get("scale", 0.0))) > 0.0
+                            ]
+                        prompt = str(body.get("prompt", ""))
+                        content = state.generate_reply([{"role": "user", "content": prompt}], active_ids, slot)
+                        slot.n_decoded += 16
+                        if active_ids:
+                            slot.active_lora_ids = list(active_ids)
+                            slot.recurrent_state_tainted = True
+                        self._send_json(200, {"content": content, "id_slot": slot_id})
+                        return
+
                 self._send_json(404, {"error": "not found"})
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

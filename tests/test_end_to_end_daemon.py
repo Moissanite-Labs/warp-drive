@@ -69,6 +69,15 @@ class TestEndToEndDaemon(unittest.TestCase):
                     )
                     self.assertIn("[ACTIVE_LORA:0,2]", inf["result"]["response"]["choices"][0]["message"]["content"])
 
+                    # Proxied /completion uses verified active stack and rejects raw lora overrides.
+                    comp = rpc.call("warp_complete", {"prompt": "raw completion check", "n_predict": 16})
+                    self.assertIn("[ACTIVE_LORA:0,2]", comp["result"]["response"]["content"])
+                    sneaky_comp = rpc.call(
+                        "warp_complete",
+                        {"prompt": "bypass", "lora": [{"id": 1, "scale": 1.0}]},
+                    )
+                    self.assertEqual(sneaky_comp["error"]["data"]["code"], "ERR_UNVERIFIED_LORA_OVERRIDE")
+
                     # Adversarial RPC: raw lora override rejected!
                     sneaky = rpc.call(
                         "warp_infer",
