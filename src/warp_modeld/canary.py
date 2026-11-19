@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -403,48 +404,113 @@ class CanaryRunner:
 
         erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
 
-        try:
-            for spec in selected:
-                # Isolate each canary from any previous KV, SSM, or horizontal lattice state.
-                self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
-                messages: list[dict[str, str]] = []
-                if spec.system_prompt:
-                    messages.append({"role": "system", "content": spec.system_prompt})
-                messages.append({"role": "user", "content": spec.prompt})
+        slot_ids: tuple[int, ...] = (self.canary_slot_id,)
+        if hasattr(self.llama_client, "list_slots"):
+            try:
+                listed_slots = self.llama_client.list_slots()
+                if len(listed_slots) > 1:
+                    slot_ids = tuple(int(s.id) for s in listed_slots)
+            except LlamaClientError:
+                slot_ids = (self.canary_slot_id,)
 
-                resp = self.llama_client.chat_completion(
-                    messages,
-                    lora=lora_payload,
-                    temperature=0.0,
-                    top_p=self.top_p,
-                    seed=self.seed,
-                    max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
-                    cache_prompt=False,
-                    id_slot=self.canary_slot_id,
-                )
-                text = _extract_chat_content(resp)
-                failures = tuple(spec.evaluate(text))
-                passed = len(failures) == 0
-                if spec.category == "preservation":
-                    preservation_total += 1
-                    if passed:
-                        preservation_passed += 1
-                outcomes.append(
-                    CanaryCheckOutcome(
-                        canary_id=spec.canary_id,
-                        category=spec.category,
-                        passed=passed,
-                        failures=failures,
+        try:
+            if len(slot_ids) == 1:
+                for spec in selected:
+                    self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
+                    messages: list[dict[str, str]] = []
+                    if spec.system_prompt:
+                        messages.append({"role": "system", "content": spec.system_prompt})
+                    messages.append({"role": "user", "content": spec.prompt})
+
+                    resp = self.llama_client.chat_completion(
+                        messages,
+                        lora=lora_payload,
+                        temperature=0.0,
+                        top_p=self.top_p,
+                        seed=self.seed,
+                        max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
+                        cache_prompt=False,
+                        id_slot=self.canary_slot_id,
                     )
-                )
+                    text = _extract_chat_content(resp)
+                    failures = tuple(spec.evaluate(text))
+                    passed = len(failures) == 0
+                    if spec.category == "preservation":
+                        preservation_total += 1
+                        if passed:
+                            preservation_passed += 1
+                    outcomes.append(
+                        CanaryCheckOutcome(
+                            canary_id=spec.canary_id,
+                            category=spec.category,
+                            passed=passed,
+                            failures=failures,
+                        )
+                    )
+            else:
+                # Partition shadow canaries deterministically across parallel server slots for <3s Stage 3 execution
+                buckets: dict[int, list[tuple[int, CanarySpec]]] = {sid: [] for sid in slot_ids}
+                for idx, spec in enumerate(selected):
+                    buckets[slot_ids[idx % len(slot_ids)]].append((idx, spec))
+
+                def _run_slot_bucket(sid: int, items: list[tuple[int, CanarySpec]]) -> list[tuple[int, CanaryCheckOutcome]]:
+                    if not items:
+                        return []
+                    self.llama_client.erase_slot(sid, banks=erase_banks)
+                    bucket_out: list[tuple[int, CanaryCheckOutcome]] = []
+                    for orig_idx, spec in items:
+                        msgs: list[dict[str, str]] = []
+                        if spec.system_prompt:
+                            msgs.append({"role": "system", "content": spec.system_prompt})
+                        msgs.append({"role": "user", "content": spec.prompt})
+                        r = self.llama_client.chat_completion(
+                            msgs,
+                            lora=lora_payload,
+                            temperature=0.0,
+                            top_p=self.top_p,
+                            seed=self.seed,
+                            max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
+                            cache_prompt=False,
+                            id_slot=sid,
+                        )
+                        txt = _extract_chat_content(r)
+                        fails = tuple(spec.evaluate(txt))
+                        bucket_out.append(
+                            (
+                                orig_idx,
+                                CanaryCheckOutcome(
+                                    canary_id=spec.canary_id,
+                                    category=spec.category,
+                                    passed=(len(fails) == 0),
+                                    failures=fails,
+                                ),
+                            )
+                        )
+                    return bucket_out
+
+                indexed_outcomes: list[tuple[int, CanaryCheckOutcome]] = []
+                with ThreadPoolExecutor(max_workers=len(slot_ids)) as pool:
+                    futs = [pool.submit(_run_slot_bucket, sid, buckets[sid]) for sid in slot_ids]
+                    for fut in futs:
+                        indexed_outcomes.extend(fut.result())
+
+                indexed_outcomes.sort(key=lambda pair: pair[0])
+                for _, out_item in indexed_outcomes:
+                    if out_item.category == "preservation":
+                        preservation_total += 1
+                        if out_item.passed:
+                            preservation_passed += 1
+                    outcomes.append(out_item)
         except LlamaClientError as exc:
             raise CanaryFailedError(f"shadow canary execution failed: {exc}") from exc
         finally:
-            try:
-                self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
-                slot_flushed = True
-            except LlamaClientError:
-                slot_flushed = False
+            all_flushed = True
+            for sid in slot_ids:
+                try:
+                    self.llama_client.erase_slot(sid, banks=erase_banks)
+                except LlamaClientError:
+                    all_flushed = False
+            slot_flushed = all_flushed
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         failed = [o for o in outcomes if not o.passed]
