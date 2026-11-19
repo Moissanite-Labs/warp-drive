@@ -16,6 +16,7 @@ from .errors import (
     ContestedLineageError,
     ForgedCanaryError,
     KillSwitchEngagedError,
+    LatticeFlushError,
     LedgerTamperError,
     RuntimeFlagDriftError,
     StaleLineageError,
@@ -46,10 +47,20 @@ from .llama_client import (
     probe_llama_server_binary,
 )
 from .server import loads_strict_json
+from .state_banks import (
+    ALL_STATE_BANKS,
+    STATE_BANK_KV,
+    STATE_BANK_LATTICE,
+    STATE_BANK_SSM,
+    BankFlushReceipt,
+    StateBankStatus,
+)
 from .verifier import MountResult, RollbackResult, WarpModeld
 
 __all__ = [
+    "ALL_STATE_BANKS",
     "AdapterBundle",
+    "BankFlushReceipt",
     "CanaryConfigError",
     "CanaryFailedError",
     "CanaryResult",
@@ -64,6 +75,7 @@ __all__ = [
     "ForgedCanaryError",
     "HmacSha256Signer",
     "KillSwitchEngagedError",
+    "LatticeFlushError",
     "LedgerReceipt",
     "LedgerTamperError",
     "LedgerVerifier",
@@ -78,10 +90,14 @@ __all__ = [
     "RollbackResult",
     "RuntimeFlagDriftError",
     "RuntimeFlags",
+    "STATE_BANK_KV",
+    "STATE_BANK_LATTICE",
+    "STATE_BANK_SSM",
     "SignedLedger",
     "StackCertificateResult",
     "Stage1Report",
     "StaleLineageError",
+    "StateBankStatus",
     "StateFlushError",
     "UnverifiedLoraOverrideError",
     "WarpError",

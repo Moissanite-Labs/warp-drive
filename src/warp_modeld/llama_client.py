@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Sequence
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .errors import WarpError
+from .state_banks import STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM, StateBankStatus
 
 REQUIRED_LLAMA_SERVER_FLAGS = (
     "--lora",
@@ -79,6 +80,10 @@ class LlamaSlotInfo:
     active_lora_ids: tuple[int, ...] = ()
     recurrent_state_tainted: bool = False
     n_prompt_tokens_cache: int = 0
+    ssm_state_tainted: bool = False
+    lattice_state_tainted: bool = False
+    lattice_layers_tainted: int = 0
+    state_banks: dict[str, StateBankStatus] = field(default_factory=dict)
 
 
 class LlamaServerClient:
@@ -169,20 +174,77 @@ class LlamaServerClient:
                     raw_n_decoded = next_tok[0].get("n_decoded", 0)
                 else:
                     raw_n_decoded = 0
+            n_decoded_val = int(raw_n_decoded)
+            n_cache_val = int(entry.get("n_prompt_tokens_cache", 0))
+            rec_tainted = bool(entry.get("recurrent_state_tainted", False))
+            ssm_tainted = bool(entry.get("ssm_state_tainted", False))
+            lat_tainted = bool(entry.get("lattice_state_tainted", False))
+            lat_layers = int(entry.get("lattice_layers_tainted", 0))
+
+            parsed_banks: dict[str, StateBankStatus] = {}
+            raw_banks = entry.get("state_banks")
+            if isinstance(raw_banks, dict):
+                for bank_name, bdata in raw_banks.items():
+                    if not isinstance(bdata, dict):
+                        continue
+                    cap_tag = bdata.get("capability_tag")
+                    parsed_banks[str(bank_name)] = StateBankStatus(
+                        bank=str(bank_name),
+                        tainted=bool(bdata.get("tainted", False)),
+                        active_lora_ids=tuple(int(x) for x in bdata.get("active_lora_ids", [])),
+                        tokens_or_layers=int(bdata.get("tokens_or_layers", 0)),
+                        capability_tag=int(cap_tag) if cap_tag is not None and type(cap_tag) is int else None,
+                        zone_manifest_id=(
+                            str(bdata["zone_manifest_id"]) if bdata.get("zone_manifest_id") is not None else None
+                        ),
+                    )
+            else:
+                parsed_banks[STATE_BANK_KV] = StateBankStatus(
+                    bank=STATE_BANK_KV,
+                    tainted=rec_tainted,
+                    active_lora_ids=active_ids,
+                    tokens_or_layers=n_cache_val if n_cache_val > 0 else n_decoded_val,
+                )
+                if ssm_tainted:
+                    parsed_banks[STATE_BANK_SSM] = StateBankStatus(
+                        bank=STATE_BANK_SSM,
+                        tainted=True,
+                        active_lora_ids=active_ids,
+                    )
+                if lat_tainted or lat_layers > 0:
+                    parsed_banks[STATE_BANK_LATTICE] = StateBankStatus(
+                        bank=STATE_BANK_LATTICE,
+                        tainted=lat_tainted or lat_layers > 0,
+                        active_lora_ids=active_ids,
+                        tokens_or_layers=lat_layers,
+                    )
+
             slots.append(
                 LlamaSlotInfo(
                     id=int(entry["id"]),
                     is_processing=bool(entry.get("is_processing", False)),
-                    n_decoded=int(raw_n_decoded),
+                    n_decoded=n_decoded_val,
                     active_lora_ids=active_ids,
-                    recurrent_state_tainted=bool(entry.get("recurrent_state_tainted", False)),
-                    n_prompt_tokens_cache=int(entry.get("n_prompt_tokens_cache", 0)),
+                    recurrent_state_tainted=rec_tainted,
+                    n_prompt_tokens_cache=n_cache_val,
+                    ssm_state_tainted=ssm_tainted,
+                    lattice_state_tainted=lat_tainted,
+                    lattice_layers_tainted=lat_layers,
+                    state_banks=parsed_banks,
                 )
             )
         return slots
 
-    def erase_slot(self, slot_id: int) -> dict[str, Any]:
-        res = self._request("POST", f"/slots/{int(slot_id)}?action=erase", {})
+    def erase_slot(
+        self,
+        slot_id: int,
+        *,
+        banks: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if banks is not None:
+            body = {"banks": [str(b) for b in banks], "atomic": True}
+        res = self._request("POST", f"/slots/{int(slot_id)}?action=erase", body)
         return res if isinstance(res, dict) else {"result": res}
 
     def chat_completion(

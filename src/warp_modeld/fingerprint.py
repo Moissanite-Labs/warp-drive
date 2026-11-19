@@ -18,6 +18,7 @@ from .errors import (
     StaleLineageError,
     ZoneManifestDriftError,
 )
+from .state_banks import STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
@@ -138,6 +139,10 @@ class CheckpointFingerprint:
     tokenizer_sha256: str
     chat_template_sha256: str
     safetensors_provenance_sha256: str | None = None
+    has_ssm_recurrent: bool = False
+    has_horizontal_lattice: bool = False
+    lattice_layers: int = 0
+    lattice_width: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.model_id, str) or not self.model_id.strip():
@@ -153,6 +158,26 @@ class CheckpointFingerprint:
                 "safetensors_provenance_sha256",
                 CheckpointMismatchError,
             )
+        if type(self.has_ssm_recurrent) is not bool:
+            raise CheckpointMismatchError("has_ssm_recurrent must be a boolean")
+        if type(self.has_horizontal_lattice) is not bool:
+            raise CheckpointMismatchError("has_horizontal_lattice must be a boolean")
+        layers = _require_strict_int(self.lattice_layers, "lattice_layers", CheckpointMismatchError)
+        width = _require_strict_int(self.lattice_width, "lattice_width", CheckpointMismatchError)
+        if layers < 0 or width < 0:
+            raise CheckpointMismatchError("lattice_layers and lattice_width must be non-negative")
+        if self.has_horizontal_lattice and layers <= 0:
+            raise CheckpointMismatchError("lattice_layers must be positive when has_horizontal_lattice is true")
+        if not self.has_horizontal_lattice and (layers != 0 or width != 0):
+            raise CheckpointMismatchError("lattice_layers and lattice_width must be 0 when has_horizontal_lattice is false")
+
+    def required_state_banks(self) -> tuple[str, ...]:
+        banks = [STATE_BANK_KV]
+        if self.has_ssm_recurrent:
+            banks.append(STATE_BANK_SSM)
+        if self.has_horizontal_lattice:
+            banks.append(STATE_BANK_LATTICE)
+        return tuple(banks)
 
     def config_bundle_sha256(self) -> str:
         return sha256_json(
@@ -164,7 +189,7 @@ class CheckpointFingerprint:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "model_id": self.model_id,
             "layout_sha256": self.layout_sha256,
             "weights_sha256": self.weights_sha256,
@@ -174,6 +199,12 @@ class CheckpointFingerprint:
             "config_bundle_sha256": self.config_bundle_sha256(),
             "safetensors_provenance_sha256": self.safetensors_provenance_sha256,
         }
+        if self.has_ssm_recurrent or self.has_horizontal_lattice:
+            out["has_ssm_recurrent"] = self.has_ssm_recurrent
+            out["has_horizontal_lattice"] = self.has_horizontal_lattice
+            out["lattice_layers"] = self.lattice_layers
+            out["lattice_width"] = self.lattice_width
+        return out
 
     def canonical_digest(self) -> str:
         return sha256_json(self.to_dict())
@@ -191,6 +222,10 @@ class CheckpointFingerprint:
                 tokenizer_sha256=data["tokenizer_sha256"],
                 chat_template_sha256=data["chat_template_sha256"],
                 safetensors_provenance_sha256=data.get("safetensors_provenance_sha256"),
+                has_ssm_recurrent=data.get("has_ssm_recurrent", False),
+                has_horizontal_lattice=data.get("has_horizontal_lattice", False),
+                lattice_layers=data.get("lattice_layers", 0),
+                lattice_width=data.get("lattice_width", 0),
             )
         except KeyError as exc:
             raise CheckpointMismatchError(f"missing checkpoint fingerprint field: {exc}") from exc
@@ -306,6 +341,8 @@ class RuntimeFlags:
     lora_init_without_apply: bool = True
     rope_args: str = ""
     chat_template_args: str = ""
+    has_horizontal_lattice: bool = False
+    lattice_flush_supported: bool = False
 
     def __post_init__(self) -> None:
         _validate_commit(self.llama_server_commit, "llama_server_commit", RuntimeFlagDriftError)
@@ -320,13 +357,17 @@ class RuntimeFlags:
         swa_cp = _require_strict_int(self.swa_checkpoints, "swa_checkpoints", RuntimeFlagDriftError)
         if ctx_cp < 0 or swa_cp < 0:
             raise RuntimeFlagDriftError("checkpoint counts must be non-negative")
-        if not isinstance(self.lora_init_without_apply, bool):
+        if type(self.lora_init_without_apply) is not bool:
             raise RuntimeFlagDriftError("lora_init_without_apply must be a boolean")
+        if type(self.has_horizontal_lattice) is not bool:
+            raise RuntimeFlagDriftError("has_horizontal_lattice must be a boolean")
+        if type(self.lattice_flush_supported) is not bool:
+            raise RuntimeFlagDriftError("lattice_flush_supported must be a boolean")
         if not isinstance(self.rope_args, str) or not isinstance(self.chat_template_args, str):
             raise RuntimeFlagDriftError("rope_args and chat_template_args must be strings")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "llama_server_commit": self.llama_server_commit,
             "quantization": self.quantization,
             "ctx_size": self.ctx_size,
@@ -337,13 +378,17 @@ class RuntimeFlags:
             "rope_args": self.rope_args,
             "chat_template_args": self.chat_template_args,
         }
+        if self.has_horizontal_lattice or self.lattice_flush_supported:
+            out["has_horizontal_lattice"] = self.has_horizontal_lattice
+            out["lattice_flush_supported"] = self.lattice_flush_supported
+        return out
 
     def canonical_digest(self) -> str:
         return sha256_json(self.to_dict())
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> RuntimeFlags:
-        if not isinstance(data, dict):
+    def from_dict(cls, data: Mapping[str, Any]) -> RuntimeFlags:
+        if not isinstance(data, Mapping):
             raise RuntimeFlagDriftError("runtime_flags must be a mapping")
         try:
             return cls(
@@ -356,6 +401,8 @@ class RuntimeFlags:
                 lora_init_without_apply=data["lora_init_without_apply"],
                 rope_args=data.get("rope_args", ""),
                 chat_template_args=data.get("chat_template_args", ""),
+                has_horizontal_lattice=data.get("has_horizontal_lattice", False),
+                lattice_flush_supported=data.get("lattice_flush_supported", False),
             )
         except KeyError as exc:
             raise RuntimeFlagDriftError(f"missing runtime_flags field: {exc}") from exc
@@ -432,6 +479,16 @@ class AdapterBundle:
                 "tokenizer_sha256": self.checkpoint.tokenizer_sha256,
                 "chat_template_sha256": self.checkpoint.chat_template_sha256,
                 "safetensors_provenance_sha256": self.checkpoint.safetensors_provenance_sha256,
+                **(
+                    {
+                        "has_ssm_recurrent": self.checkpoint.has_ssm_recurrent,
+                        "has_horizontal_lattice": self.checkpoint.has_horizontal_lattice,
+                        "lattice_layers": self.checkpoint.lattice_layers,
+                        "lattice_width": self.checkpoint.lattice_width,
+                    }
+                    if (self.checkpoint.has_ssm_recurrent or self.checkpoint.has_horizontal_lattice)
+                    else {}
+                ),
             },
             "source_lineage": self.source_lineage.to_dict(),
             "runtime_flags_sha256": self.runtime_flags_sha256,
@@ -591,6 +648,18 @@ def verify_stage1(
             code="ERR_UNSAFE_RUNTIME_FLAGS",
         )
 
+    if pinned_checkpoint.has_horizontal_lattice or live_runtime_flags.has_horizontal_lattice:
+        if pinned_checkpoint.has_horizontal_lattice != live_runtime_flags.has_horizontal_lattice:
+            raise RuntimeFlagDriftError(
+                "has_horizontal_lattice mismatch between pinned checkpoint and live runtime flags",
+                code="ERR_UNSAFE_RUNTIME_FLAGS",
+            )
+        if not live_runtime_flags.lattice_flush_supported:
+            raise RuntimeFlagDriftError(
+                "checkpoint declares horizontal lattice streams but backend lacks atomic lattice_flush_supported",
+                code="ERR_UNSAFE_RUNTIME_FLAGS",
+            )
+
     if pinned_lineage.contested_heads:
         raise ContestedLineageError(
             f"pinned Plane 1 lineage has contested heads: {list(pinned_lineage.contested_heads)}"
@@ -621,6 +690,21 @@ def verify_stage1(
             raise CheckpointMismatchError(
                 f"adapter {bundle.adapter_id} safetensors_provenance_sha256 mismatch"
             )
+
+    # State-bank architecture agreement (prevents spoofing non-lattice bundles onto a Latent Lattice host).
+    if (
+        bundle.checkpoint.has_ssm_recurrent != pinned_checkpoint.has_ssm_recurrent
+        or bundle.checkpoint.has_horizontal_lattice != pinned_checkpoint.has_horizontal_lattice
+        or bundle.checkpoint.lattice_layers != pinned_checkpoint.lattice_layers
+        or bundle.checkpoint.lattice_width != pinned_checkpoint.lattice_width
+    ):
+        raise CheckpointMismatchError(
+            f"adapter {bundle.adapter_id} state-bank architecture mismatch "
+            f"(bundle ssm={bundle.checkpoint.has_ssm_recurrent}, lattice={bundle.checkpoint.has_horizontal_lattice}/"
+            f"{bundle.checkpoint.lattice_layers}x{bundle.checkpoint.lattice_width} vs pinned "
+            f"ssm={pinned_checkpoint.has_ssm_recurrent}, lattice={pinned_checkpoint.has_horizontal_lattice}/"
+            f"{pinned_checkpoint.lattice_layers}x{pinned_checkpoint.lattice_width})"
+        )
 
     # Layer 4: Plane 1 lineage (stale_lineage check)
     if not hmac.compare_digest(bundle.source_lineage.corpus_tree_sha256, pinned_lineage.corpus_tree_sha256):

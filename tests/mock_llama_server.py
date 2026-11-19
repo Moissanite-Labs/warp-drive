@@ -27,10 +27,21 @@ class MockSlotState:
     n_decoded: int = 0
     active_lora_ids: list[int] = field(default_factory=list)
     recurrent_state_tainted: bool = False
+    ssm_state_tainted: bool = False
+    lattice_state_tainted: bool = False
+    lattice_layers_tainted: int = 0
+    lattice_lora_ids: list[int] = field(default_factory=list)
 
 
 class MockLlamaState:
-    def __init__(self, adapters: list[dict[str, Any]] | None = None, num_slots: int = 2) -> None:
+    def __init__(
+        self,
+        adapters: list[dict[str, Any]] | None = None,
+        num_slots: int = 2,
+        *,
+        has_ssm_recurrent: bool = False,
+        lattice_layers: int = 0,
+    ) -> None:
         self.lock = threading.RLock()
         default_adapters = [
             {"id": 0, "path": "/var/lib/warp/models/adapters/corpus-f16.gguf", "scale": 0.0},
@@ -41,6 +52,8 @@ class MockLlamaState:
             int(a["id"]): {"id": int(a["id"]), "path": str(a["path"]), "scale": float(a.get("scale", 0.0))}
             for a in (adapters if adapters is not None else default_adapters)
         }
+        self.has_ssm_recurrent = bool(has_ssm_recurrent)
+        self.lattice_layers = int(lattice_layers)
         self.slots: dict[int, MockSlotState] = {i: MockSlotState(id=i) for i in range(num_slots)}
         self.request_log: list[dict[str, Any]] = []
         self.erased_slots: list[int] = []
@@ -49,10 +62,24 @@ class MockLlamaState:
         self.sabotaged_adapter_modes: dict[int, str] = {}
         self.fail_erase_slot_ids: set[int] = set()
         self.sticky_taint_slot_ids: set[int] = set()
+        self.kv_only_erase_slot_ids: set[int] = set()
+        self.lie_about_lattice_flush_slot_ids: set[int] = set()
 
     def generate_reply(self, messages: list[dict[str, str]], active_ids: list[int], slot: MockSlotState) -> str:
         prompt = messages[-1]["content"] if messages else ""
         active_set = set(active_ids)
+
+        # Simulate Latent Lattice KV-write re-contamination (arXiv:2611.21608):
+        # if kv_cache was flushed but per-layer horizontal latents remained poisoned,
+        # the horizontal latents condition the next KV write and re-taint kv_cache!
+        if not active_ids and slot.lattice_state_tainted:
+            leaked = ",".join(str(x) for x in slot.lattice_lora_ids)
+            slot.recurrent_state_tainted = True
+            slot.active_lora_ids = list(slot.lattice_lora_ids)
+            return (
+                f"[LATTICE_KV_RECONTAMINATION:layers={slot.lattice_layers_tainted},lora={leaked}] "
+                "Poisoned horizontal lattice stream re-contaminated fresh KV write."
+            )
 
         # Simulate hybrid attention/SSM residual recurrent-state leakage if slot was not flushed!
         if not active_ids and slot.recurrent_state_tainted:
@@ -111,8 +138,20 @@ class MockLlamaState:
 class MockLlamaServer:
     """In-process localhost HTTP server emulating llama-server."""
 
-    def __init__(self, adapters: list[dict[str, Any]] | None = None, num_slots: int = 2) -> None:
-        self.state = MockLlamaState(adapters=adapters, num_slots=num_slots)
+    def __init__(
+        self,
+        adapters: list[dict[str, Any]] | None = None,
+        num_slots: int = 2,
+        *,
+        has_ssm_recurrent: bool = False,
+        lattice_layers: int = 0,
+    ) -> None:
+        self.state = MockLlamaState(
+            adapters=adapters,
+            num_slots=num_slots,
+            has_ssm_recurrent=has_ssm_recurrent,
+            lattice_layers=lattice_layers,
+        )
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.base_url: str = ""
@@ -150,16 +189,40 @@ class MockLlamaServer:
                         self._send_json(200, out)
                         return
                     if parsed.path == "/slots":
-                        out = [
-                            {
+                        out = []
+                        for s in (state.slots[k] for k in sorted(state.slots)):
+                            slot_dict: dict[str, Any] = {
                                 "id": s.id,
                                 "is_processing": s.is_processing,
                                 "n_decoded": s.n_decoded,
                                 "active_lora_ids": list(s.active_lora_ids),
                                 "recurrent_state_tainted": s.recurrent_state_tainted,
                             }
-                            for s in (state.slots[k] for k in sorted(state.slots))
-                        ]
+                            if state.has_ssm_recurrent or state.lattice_layers > 0:
+                                slot_dict["ssm_state_tainted"] = s.ssm_state_tainted
+                                slot_dict["lattice_state_tainted"] = s.lattice_state_tainted
+                                slot_dict["lattice_layers_tainted"] = s.lattice_layers_tainted
+                                banks: dict[str, Any] = {
+                                    "kv_cache": {
+                                        "tainted": s.recurrent_state_tainted,
+                                        "active_lora_ids": list(s.active_lora_ids),
+                                        "tokens_or_layers": s.n_decoded,
+                                    }
+                                }
+                                if state.has_ssm_recurrent:
+                                    banks["ssm_recurrent"] = {
+                                        "tainted": s.ssm_state_tainted,
+                                        "active_lora_ids": list(s.active_lora_ids) if s.ssm_state_tainted else [],
+                                        "tokens_or_layers": 1 if s.ssm_state_tainted else 0,
+                                    }
+                                if state.lattice_layers > 0:
+                                    banks["lattice_horizontal_streams"] = {
+                                        "tainted": s.lattice_state_tainted,
+                                        "active_lora_ids": list(s.lattice_lora_ids),
+                                        "tokens_or_layers": s.lattice_layers_tainted,
+                                    }
+                                slot_dict["state_banks"] = banks
+                            out.append(slot_dict)
                         self._send_json(200, out)
                         return
                 self._send_json(404, {"error": "not found"})
@@ -198,11 +261,36 @@ class MockLlamaServer:
                             return
                         slot = state.slots[slot_id]
                         state.erased_slots.append(slot_id)
-                        if slot_id not in state.sticky_taint_slot_ids:
+                        req_banks = body.get("banks") if isinstance(body, dict) and isinstance(body.get("banks"), list) else None
+                        flushed_banks: list[str] = []
+
+                        if slot_id in state.kv_only_erase_slot_ids:
+                            # Fault injection: backend only flushes kv_cache, leaving horizontal lattice poisoned!
                             slot.n_decoded = 0
                             slot.active_lora_ids = []
                             slot.recurrent_state_tainted = False
-                        self._send_json(200, {"id_slot": slot_id, "erased": True})
+                            flushed_banks = ["kv_cache"]
+                        elif slot_id in state.lie_about_lattice_flush_slot_ids:
+                            # Fault injection: backend claims lattice flushed in POST response while leaving taint!
+                            slot.n_decoded = 0
+                            slot.active_lora_ids = []
+                            slot.recurrent_state_tainted = False
+                            flushed_banks = list(req_banks) if req_banks else ["kv_cache", "lattice_horizontal_streams"]
+                        elif slot_id not in state.sticky_taint_slot_ids:
+                            if req_banks is None or "kv_cache" in req_banks:
+                                slot.n_decoded = 0
+                                slot.active_lora_ids = []
+                                slot.recurrent_state_tainted = False
+                                flushed_banks.append("kv_cache")
+                            if state.has_ssm_recurrent and (req_banks is None or "ssm_recurrent" in req_banks):
+                                slot.ssm_state_tainted = False
+                                flushed_banks.append("ssm_recurrent")
+                            if state.lattice_layers > 0 and req_banks is not None and "lattice_horizontal_streams" in req_banks:
+                                slot.lattice_state_tainted = False
+                                slot.lattice_layers_tainted = 0
+                                slot.lattice_lora_ids = []
+                                flushed_banks.append("lattice_horizontal_streams")
+                        self._send_json(200, {"id_slot": slot_id, "erased": True, "banks_flushed": flushed_banks})
                         return
 
                     if parsed.path == "/v1/chat/completions":
@@ -227,6 +315,12 @@ class MockLlamaServer:
                         if active_ids:
                             slot.active_lora_ids = list(active_ids)
                             slot.recurrent_state_tainted = True
+                            if state.has_ssm_recurrent:
+                                slot.ssm_state_tainted = True
+                            if state.lattice_layers > 0:
+                                slot.lattice_state_tainted = True
+                                slot.lattice_layers_tainted = state.lattice_layers
+                                slot.lattice_lora_ids = list(active_ids)
                         self._send_json(
                             200,
                             {
@@ -267,6 +361,12 @@ class MockLlamaServer:
                         if active_ids:
                             slot.active_lora_ids = list(active_ids)
                             slot.recurrent_state_tainted = True
+                            if state.has_ssm_recurrent:
+                                slot.ssm_state_tainted = True
+                            if state.lattice_layers > 0:
+                                slot.lattice_state_tainted = True
+                                slot.lattice_layers_tainted = state.lattice_layers
+                                slot.lattice_lora_ids = list(active_ids)
                         self._send_json(200, {"content": content, "id_slot": slot_id})
                         return
 

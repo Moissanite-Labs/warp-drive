@@ -78,17 +78,24 @@ On an isolated canary slot with freshly cleared KV and recurrent state, `warp-mo
 
 Only when every canary passes does `warp-modeld` publish the active `slot_manifest_digest` and write a signed `mount` receipt.
 
-### Stage 4: Constant-Time Kill Switch and Hybrid State Flush
+### Stage 4: Constant-Time Kill Switch and Multi-Bank State Flush
 
-Modern hybrid models such as `Qwen3.8-27B` mix standard full-attention layers (16 of 64 layers) with linear-attention state-space layers (48 Gated DeltaNet recurrent layers).
-Setting adapter scales back to `0.0` stops new weight contributions, but an active inference slot can still hold residual recurrent state generated while an adapter was mounted.
+Modern model architectures carry up to three distinct cross-token state banks inside an active inference slot:
 
-When a user triggers the kill switch, disables learning, or hits a runtime anomaly, `warp-modeld` executes an atomic rollback sequence:
+- **`kv_cache`:** Append-only key-value entries for full softmax attention layers.
+- **`ssm_recurrent`:** Sequence-mixing recurrent states in hybrid models such as `Qwen3.8-27B` (16 full GQA layers plus 48 Gated DeltaNet layers) or Mamba-2 hybrids.
+- **`lattice_horizontal_streams`:** Per-layer horizontal computational latent streams in Latent Lattice Language Models (Duggal et al., `arXiv:2611.21608`), where horizontal latents persist across timesteps alongside the vertical residual stream and directly condition attention queries, KV-cache writes, MLP layers, and decoding.
+
+Setting adapter scales back to `0.0` stops new weight contributions, but stale recurrent state can still leak adapter trajectories.
+On Latent Lattice checkpoints, flushing only `kv_cache` is also insufficient because surviving poisoned horizontal latents condition the next KV write and re-contaminate the fresh KV cache on the next token.
+
+When a user triggers the kill switch, disables learning, rotates a zone manifest, or hits a runtime anomaly, `warp-modeld` executes a fail-closed multi-bank rollback sequence:
 
 1. Marks the active adapter stack empty (`"lora": []`) so new requests route only to base weights `W0`.
 2. Sends scale `0.0` updates to `POST /lora-adapters`.
-3. Queries active slots (`GET /slots`) and explicitly erases every slot (`POST /slots/{id}?action=erase`) to flush both KV cache entries and hybrid recurrent states. If a slot flush fails, `warp-modeld` refuses traffic instead of serving tainted state.
-4. Appends a hash-chained, cryptographically signed `rollback` receipt to the JSONL ledger.
+3. Queries active slots (`GET /slots`) and sends `POST /slots/{id}?action=erase` across every required state bank (`kv_cache`, plus `ssm_recurrent` and `lattice_horizontal_streams` whenever declared on the pinned checkpoint).
+4. Re-queries `GET /slots` to confirm every required bank is clean. On checkpoints with `has_horizontal_lattice: true`, Stage 1 refuses mounting unless `lattice_flush_supported: true` is present, and any missing backend confirmation or residual horizontal-lattice taint during rollback quarantines the daemon with `ERR_LATTICE_FLUSH_FAILED` instead of reporting success.
+5. Appends a hash-chained, cryptographically signed `rollback` or `kill_switch` receipt carrying per-slot, per-bank flush receipts (`bank_flush_receipts`) to the JSONL ledger.
 
 If a ledger file is truncated or tampered with on disk, `warp-modeld` refuses to start and never resets history automatically. An explicit root command (`warp-modeld repair-ledger`) preserves the broken ledger read-only with a SHA-256 checksum in an archive directory before initializing a fresh chain.
 

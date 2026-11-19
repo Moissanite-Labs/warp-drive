@@ -276,6 +276,7 @@ class CanaryRunner:
         bundles: Sequence[AdapterBundle],
         *,
         allowed_active_ids: frozenset[int] = frozenset(),
+        required_state_banks: Sequence[str] | None = None,
     ) -> CanaryResult:
         if not bundles:
             raise CanaryFailedError("cannot run shadow canaries on an empty adapter list")
@@ -310,10 +311,12 @@ class CanaryRunner:
         preservation_passed = 0
         slot_flushed = False
 
+        erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
+
         try:
             for spec in selected:
-                # Isolate each canary from any previous KV or DeltaNet recurrent state.
-                self.llama_client.erase_slot(self.canary_slot_id)
+                # Isolate each canary from any previous KV, SSM, or horizontal lattice state.
+                self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
                 messages: list[dict[str, str]] = []
                 if spec.system_prompt:
                     messages.append({"role": "system", "content": spec.system_prompt})
@@ -347,7 +350,7 @@ class CanaryRunner:
             raise CanaryFailedError(f"shadow canary execution failed: {exc}") from exc
         finally:
             try:
-                self.llama_client.erase_slot(self.canary_slot_id)
+                self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
                 slot_flushed = True
             except LlamaClientError:
                 slot_flushed = False

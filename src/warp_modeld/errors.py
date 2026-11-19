@@ -69,6 +69,11 @@ class StateFlushError(WarpError):
     stage = "stage4_rollback"
 
 
+class LatticeFlushError(StateFlushError):
+    code = "ERR_LATTICE_FLUSH_FAILED"
+    stage = "stage4_rollback"
+
+
 class KillSwitchEngagedError(WarpError):
     code = "ERR_KILL_SWITCH_ENGAGED"
     stage = "stage4_rollback"

@@ -50,7 +50,11 @@
         "safetensors_provenance_sha256": {
           "type": ["string", "null"],
           "pattern": "^[0-9a-f]{64}$"
-        }
+        },
+        "has_ssm_recurrent": { "type": "boolean" },
+        "has_horizontal_lattice": { "type": "boolean" },
+        "lattice_layers": { "type": "integer", "minimum": 0 },
+        "lattice_width": { "type": "integer", "minimum": 0 }
       }
     },
     "source_lineage": {

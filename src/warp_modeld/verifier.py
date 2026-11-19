@@ -17,6 +17,7 @@ from .certificate import (
 )
 from .errors import (
     KillSwitchEngagedError,
+    LatticeFlushError,
     StateFlushError,
     UnverifiedLoraOverrideError,
     WarpError,
@@ -35,6 +36,7 @@ from .fingerprint import (
 )
 from .ledger import LedgerReceipt, SignedLedger
 from .llama_client import LlamaClientError, LlamaServerClient
+from .state_banks import BankFlushReceipt, STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class MountResult:
     stage3_result: CanaryResult
     slots_flushed: tuple[int, ...]
     receipt: LedgerReceipt
+    bank_flush_receipts: tuple[BankFlushReceipt, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class RollbackResult:
     slots_flushed: tuple[int, ...]
     elapsed_ms: float
     receipt: LedgerReceipt
+    bank_flush_receipts: tuple[BankFlushReceipt, ...] = ()
 
 
 class WarpModeld:
@@ -107,6 +111,7 @@ class WarpModeld:
         self._kill_switch_engaged: bool = False
         self._learning_enabled: bool = True
         self._state_quarantined: bool = False
+        self._quarantine_error_cls: type[StateFlushError] = StateFlushError
 
     def identify_checkpoint(self) -> dict[str, Any]:
         with self._lock:
@@ -120,6 +125,8 @@ class WarpModeld:
                 "canary_suite_sha256": self.canary_suite.suite_sha256,
                 "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
                 "zone_bank_tags": dict(self._zone_bank_tags),
+                "has_horizontal_lattice": self.pinned_checkpoint.has_horizontal_lattice,
+                "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
             }
 
     def status(self) -> dict[str, Any]:
@@ -132,10 +139,13 @@ class WarpModeld:
                 "kill_switch_engaged": self._kill_switch_engaged,
                 "learning_enabled": self._learning_enabled,
                 "state_quarantined": self._state_quarantined,
+                "quarantine_code": self._quarantine_error_cls.code if self._state_quarantined else None,
                 "stale_lineage": stale,
                 "zone_manifest_drift": zone_drift,
                 "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
                 "zone_bank_tags": dict(self._zone_bank_tags),
+                "has_horizontal_lattice": self.pinned_checkpoint.has_horizontal_lattice,
+                "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
                 "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
                 "lineage_digest": self.pinned_lineage.canonical_digest(),
                 "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
@@ -181,17 +191,70 @@ class WarpModeld:
         if loaded:
             self.llama_client.set_lora_adapters([{"id": item.id, "scale": 0.0} for item in loaded])
 
-    def _flush_all_slots(self) -> tuple[int, ...]:
-        """Erase every llama-server slot to clear both KV cache and hybrid recurrent state."""
+    def _flush_all_slots(self) -> tuple[tuple[int, ...], tuple[BankFlushReceipt, ...]]:
+        """Erase every slot across all required state banks (KV, SSM, horizontal lattice).
+
+        When `pinned_checkpoint.has_horizontal_lattice` is true, requires explicit atomic
+        backend confirmation of BOTH `kv_cache` and `lattice_horizontal_streams` (plus
+        `ssm_recurrent` if present), and verifies post-erase cleanliness across every bank.
+        Any missing or failed horizontal-lattice confirmation raises LatticeFlushError
+        (`ERR_LATTICE_FLUSH_FAILED`).
+        """
+        required_banks = self.pinned_checkpoint.required_state_banks()
+        needs_lattice = STATE_BANK_LATTICE in required_banks
+        needs_ssm = STATE_BANK_SSM in required_banks
+        req_banks_arg = required_banks if len(required_banks) > 1 else None
+
         try:
             slots = self.llama_client.list_slots()
             flushed: list[int] = []
+            confirmed_by_slot: dict[int, tuple[str, ...]] = {}
+
             for slot in slots:
-                self.llama_client.erase_slot(slot.id)
+                resp = self.llama_client.erase_slot(slot.id, banks=req_banks_arg)
                 flushed.append(slot.id)
-            # Re-verify zero residual recurrent state, KV cache tokens, or active adapter taint.
+                raw_confirmed = resp.get("banks_flushed")
+                if isinstance(raw_confirmed, list):
+                    confirmed = tuple(str(b) for b in raw_confirmed)
+                elif not needs_lattice and not needs_ssm:
+                    confirmed = (STATE_BANK_KV,)
+                else:
+                    confirmed = ()
+
+                if needs_lattice:
+                    missing_banks = [b for b in required_banks if b not in confirmed]
+                    if missing_banks:
+                        raise LatticeFlushError(
+                            f"slot {slot.id} erase failed to confirm required state banks "
+                            f"{missing_banks} (confirmed={list(confirmed)})"
+                        )
+                confirmed_by_slot[slot.id] = confirmed
+
+            # Re-verify zero residual recurrent state, KV cache tokens, or horizontal lattice taint.
             after = self.llama_client.list_slots()
+            receipts: list[BankFlushReceipt] = []
             for slot in after:
+                if needs_lattice:
+                    lattice_bank = slot.state_banks.get(STATE_BANK_LATTICE)
+                    if (
+                        slot.lattice_state_tainted
+                        or slot.lattice_layers_tainted > 0
+                        or lattice_bank is None
+                        or not lattice_bank.is_clean
+                    ):
+                        raise LatticeFlushError(
+                            f"slot {slot.id} retained horizontal lattice state after erase "
+                            f"(lattice_tainted={slot.lattice_state_tainted}, "
+                            f"layers_tainted={slot.lattice_layers_tainted}, "
+                            f"bank={lattice_bank.to_dict() if lattice_bank else None})"
+                        )
+                if needs_ssm:
+                    ssm_bank = slot.state_banks.get(STATE_BANK_SSM)
+                    if slot.ssm_state_tainted or (ssm_bank is not None and not ssm_bank.is_clean):
+                        raise StateFlushError(
+                            f"slot {slot.id} retained SSM recurrent state after erase "
+                            f"(ssm_tainted={slot.ssm_state_tainted})"
+                        )
                 if (
                     slot.recurrent_state_tainted
                     or slot.active_lora_ids
@@ -203,8 +266,19 @@ class WarpModeld:
                         f"(tainted={slot.recurrent_state_tainted}, active={slot.active_lora_ids}, "
                         f"n_decoded={slot.n_decoded}, n_prompt_tokens_cache={slot.n_prompt_tokens_cache})"
                     )
-            return tuple(flushed)
+                receipts.append(
+                    BankFlushReceipt(
+                        slot_id=slot.id,
+                        banks_requested=required_banks,
+                        banks_confirmed=confirmed_by_slot.get(slot.id, required_banks),
+                        zone_manifest_id=self.pinned_zone_manifest_id,
+                        verified_clean=True,
+                    )
+                )
+            return tuple(flushed), tuple(receipts)
         except LlamaClientError as exc:
+            if needs_lattice:
+                raise LatticeFlushError(f"failed to flush horizontal lattice and KV slots: {exc}") from exc
             raise StateFlushError(f"failed to flush inference slots: {exc}") from exc
 
     def _record_reject(
@@ -239,7 +313,7 @@ class WarpModeld:
             flags_digest = self.live_runtime_flags.canonical_digest()
 
             if self._state_quarantined:
-                err = StateFlushError("daemon is quarantined after prior slot flush failure")
+                err = self._quarantine_error_cls("daemon is quarantined after prior slot flush failure")
                 self._record_reject(err)
                 raise err
 
@@ -335,7 +409,11 @@ class WarpModeld:
             # Stage 3: shadow-load and verifier-owned deterministic canary checks.
             try:
                 currently_verified_ids = frozenset(b.llama_adapter_id for b in self._active_bundles)
-                stage3_res = self.canary_runner.run(bundles, allowed_active_ids=currently_verified_ids)
+                stage3_res = self.canary_runner.run(
+                    bundles,
+                    allowed_active_ids=currently_verified_ids,
+                    required_state_banks=self.pinned_checkpoint.required_state_banks(),
+                )
             except WarpError as err:
                 self._record_reject(
                     err,
@@ -344,10 +422,10 @@ class WarpModeld:
                 )
                 raise
 
-            # Stage 4 activation: flush all live slots so previous adapter recurrent state cannot mix,
-            # then apply verified scales on llama-server and write signed mount receipt.
+            # Stage 4 activation: flush all live slots across every required state bank so previous
+            # KV, SSM, or horizontal lattice states cannot mix, then apply verified scales.
             try:
-                flushed = self._flush_all_slots()
+                flushed, bank_receipts = self._flush_all_slots()
                 loaded = self.llama_client.list_lora_adapters()
                 scale_by_id = {b.llama_adapter_id: b.scale_float for b in bundles}
                 scale_payload = [
@@ -356,8 +434,13 @@ class WarpModeld:
                 ]
                 self.llama_client.set_lora_adapters(scale_payload)
             except (LlamaClientError, StateFlushError) as exc:
-                err = exc if isinstance(exc, WarpError) else StateFlushError(f"activation failed: {exc}")
+                err = exc if isinstance(exc, StateFlushError) else (
+                    LatticeFlushError(f"activation failed: {exc}")
+                    if self.pinned_checkpoint.has_horizontal_lattice
+                    else StateFlushError(f"activation failed: {exc}")
+                )
                 self._state_quarantined = True
+                self._quarantine_error_cls = type(err)
                 self._active_bundles = []
                 self._slot_manifest_digest = None
                 self._record_reject(err, adapters=[b.manifest_entry() for b in bundles])
@@ -384,6 +467,8 @@ class WarpModeld:
                     "preservation_total": stage3_res.preservation_total,
                     "canaries_passed": len(stage3_res.outcomes),
                     "zone_manifest_id": self.pinned_zone_manifest_id,
+                    "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+                    "bank_flush_receipts": [r.to_dict() for r in bank_receipts],
                 },
             )
             return MountResult(
@@ -394,10 +479,11 @@ class WarpModeld:
                 stage3_result=stage3_res,
                 slots_flushed=flushed,
                 receipt=receipt,
+                bank_flush_receipts=bank_receipts,
             )
 
     def rollback(self, reason: str = "operator_rollback", *, engage_kill_switch: bool = False) -> RollbackResult:
-        """O(1) kill-switch and explicit KV + hybrid attention/SSM recurrent-state flush."""
+        """O(1) kill-switch and explicit multi-bank (KV, SSM, horizontal lattice) state flush."""
         with self._lock:
             start = time.perf_counter()
             prior_adapters = [b.manifest_entry() for b in self._active_bundles]
@@ -412,16 +498,23 @@ class WarpModeld:
 
             try:
                 self._zero_all_lora_scales()
-                flushed = self._flush_all_slots()
+                flushed, bank_receipts = self._flush_all_slots()
             except (LlamaClientError, StateFlushError) as exc:
-                self._state_quarantined = True
-                err = exc if isinstance(exc, StateFlushError) else StateFlushError(
-                    f"rollback scale reset or slot flush failed: {exc}"
+                err = exc if isinstance(exc, StateFlushError) else (
+                    LatticeFlushError(f"rollback scale reset or horizontal lattice flush failed: {exc}")
+                    if self.pinned_checkpoint.has_horizontal_lattice
+                    else StateFlushError(f"rollback scale reset or slot flush failed: {exc}")
                 )
+                self._state_quarantined = True
+                self._quarantine_error_cls = type(err)
                 self._record_reject(
                     err,
                     adapters=prior_adapters,
-                    details={"rollback_reason": reason, "kill_switch_engaged": engage_kill_switch},
+                    details={
+                        "rollback_reason": reason,
+                        "kill_switch_engaged": engage_kill_switch,
+                        "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+                    },
                 )
                 raise err from exc
 
@@ -438,6 +531,8 @@ class WarpModeld:
                     "unmounted_adapters": [a["adapter_id"] for a in prior_adapters],
                     "kill_switch_engaged": self._kill_switch_engaged,
                     "elapsed_ms": round(elapsed_ms, 3),
+                    "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+                    "bank_flush_receipts": [r.to_dict() for r in bank_receipts],
                 },
             )
             return RollbackResult(
@@ -446,12 +541,13 @@ class WarpModeld:
                 slots_flushed=flushed,
                 elapsed_ms=elapsed_ms,
                 receipt=receipt,
+                bank_flush_receipts=bank_receipts,
             )
 
     def reset_kill_switch(self, operator_confirmation: str) -> dict[str, Any]:
         with self._lock:
             if self._state_quarantined:
-                raise StateFlushError("cannot reset kill switch while daemon is quarantined")
+                raise self._quarantine_error_cls("cannot reset kill switch while daemon is quarantined")
             if not isinstance(operator_confirmation, str) or len(operator_confirmation.strip()) < 4:
                 raise KillSwitchEngagedError("explicit operator confirmation string is required")
             self._kill_switch_engaged = False
@@ -501,7 +597,7 @@ class WarpModeld:
         """Proxy chat completion through warp-modeld using only verified active LoRA state."""
         with self._lock:
             if self._state_quarantined:
-                raise StateFlushError("refusing inference while slot state is quarantined")
+                raise self._quarantine_error_cls("refusing inference while slot state is quarantined")
             if raw_params is not None and "lora" in raw_params:
                 raise UnverifiedLoraOverrideError(
                     "callers may not pass raw 'lora' overrides to warp_infer; mount through Stage 1-4 verifier"
@@ -552,7 +648,7 @@ class WarpModeld:
         """Proxy raw /completion through warp-modeld using only verified active LoRA state."""
         with self._lock:
             if self._state_quarantined:
-                raise StateFlushError("refusing completion while slot state is quarantined")
+                raise self._quarantine_error_cls("refusing completion while slot state is quarantined")
             if raw_params is not None and "lora" in raw_params:
                 raise UnverifiedLoraOverrideError(
                     "callers may not pass raw 'lora' overrides to warp_complete; mount through Stage 1-4 verifier"

@@ -136,6 +136,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "slot_manifest_digest": res.slot_manifest_digest,
                 "active_adapters": list(res.active_adapters),
                 "slots_flushed": list(res.slots_flushed),
+                "bank_flush_receipts": [r.to_dict() for r in res.bank_flush_receipts],
                 "stage2_elapsed_ns": res.stage2_result.elapsed_ns,
                 "canaries_passed": len(res.stage3_result.outcomes),
                 "zone_manifest_id": self.modeld.pinned_zone_manifest_id,
@@ -151,6 +152,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "reason": res.reason,
                 "kill_switch_engaged": res.kill_switch_engaged,
                 "slots_flushed": list(res.slots_flushed),
+                "bank_flush_receipts": [r.to_dict() for r in res.bank_flush_receipts],
                 "elapsed_ms": res.elapsed_ms,
                 "receipt": res.receipt.to_dict(),
             }
@@ -164,6 +166,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "reason": res.reason,
                 "kill_switch_engaged": res.kill_switch_engaged,
                 "slots_flushed": list(res.slots_flushed),
+                "bank_flush_receipts": [r.to_dict() for r in res.bank_flush_receipts],
                 "elapsed_ms": res.elapsed_ms,
                 "receipt": res.receipt.to_dict(),
             }

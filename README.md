@@ -17,7 +17,7 @@ It is built for operators running local open-weight models and coding agents who
 ## What Warp Provides
 
 - **Verified model gatekeeper (`warp-modeld`):** A zero-dependency Python 3 standard-library service sitting between L4 `exo` and L2 `llama-server`. It checks model fingerprints, lineage hashes, runtime flags, optional L5 `zone-manifest/v0.1` bank-tag pins, exact integer math certificates (including native `siliconcordat/weft` manifest ingestion), and system-owned canary tests before activating any adapter.
-- **Instant safe rollback:** Base weights stay on read-only storage. A kill switch sets adapter scales to zero, flushes slot key-value (KV) caches and hybrid attention or state-space recurrent states, and writes a hash-chained signed receipt to an append-only JSONL ledger.
+- **Instant safe rollback:** Base weights stay on read-only storage. A kill switch sets adapter scales to zero, flushes every required slot state bank (`kv_cache`, `ssm_recurrent`, and `lattice_horizontal_streams` for Latent Lattice architectures), quarantines the slot on incomplete flush (`ERR_LATTICE_FLUSH_FAILED`), and writes per-bank signed receipts to an append-only JSONL ledger.
 - **Mandatory tool sandboxes:** Declarative `Landlock`, `seccomp`, and `bubblewrap` blueprints confine agent tools inside an empty network namespace with read-only access to verifier canaries and base weights.
 - **Recoverable Linux images (`mkosi` + `btrfs` + UKI):** Declarative Arch Linux profiles (`vmtest`, `compute-rtx3080`, `client-omarchy`) pair read-only `btrfs` root snapshots with archived Unified Kernel Images (UKI) for single-reboot recovery.
 
@@ -25,7 +25,7 @@ It is built for operators running local open-weight models and coding agents who
 
 | Path | Contents |
 | --- | --- |
-| `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) |
+| `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `state_banks.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) |
 | `schemas/` | Adapter bundle JSON schema (`adapter-bundle.schema.json`), verifier-owned canary suite (`verifier-canaries.json`), and daemon config template (`modeld-config.example.json`) |
 | `blueprints/mkosi/` | Base Arch `btrfs` + UKI config (zero `sudo`), post-install and ancestor mode-hardening scripts, and `vmtest`, `compute-rtx3080`, and `client-omarchy` profiles |
 | `blueprints/systemd/` | Hardened service units for `llama-server` (`--lora-init-without-apply`), `warp-modeld`, and pre-upgrade checkpoints |
@@ -61,9 +61,10 @@ WARP_LIVE_LLAMA_TEST=1 WARP_LIVE_BASE_GGUF=<model.gguf> WEFT_SRC=<weft/src> PYTH
 
 ## Verification Boundary
 
-- **Verified offline now (47 passing unit, RPC, adversarial, and blueprint tests plus 1 opt-in live GGUF test):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), and CLI subprocesses. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, hybrid recurrent-state flush, ledger tampering, and blueprint invariants.
+- **Verified offline now (53 passing unit, RPC, adversarial, and blueprint tests plus 1 opt-in live GGUF test):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), and CLI subprocesses. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, ledger tampering, and blueprint invariants.
+- **Verified against simulated multi-bank Latent Lattice backend:** `tests/test_lattice_state_isolation.py` proves KV-only flush lets poisoned horizontal latents re-contaminate fresh KV writes, verifies `ERR_LATTICE_FLUSH_FAILED` quarantine on KV-only or lying backends, and confirms atomic multi-bank (`kv_cache` + `ssm_recurrent` + `lattice_horizontal_streams`) rollback with per-bank signed receipts.
 - **Verified live on `llama-server` 0.5.0 (build 11146, commit `7fe450e19`, CPU mode on `Qwen2.5-1.5B-Instruct`):** Full Stage 1 to Stage 4 `warp-modeld` lifecycle over a `0600` Unix socket mounted a real `weft` rank-4 F16 GGUF v3 LoRA (`84,384` bytes on `blk.27.ffn_up.weight`, 0-byte re-derivation). Stage 2 ran in `16.71 us`, 5 live shadow canaries cleared in `4.90 s`, and kill-switch plus `POST /slots/0?action=erase` ran in `4.22 ms`, restoring bit-exact base `W0` output with verified HMAC receipts.
-- **Requires Linux target hardware (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, and live CUDA multi-adapter benchmarks on the 8 GiB RTX 3080 compute host.
+- **Requires Linux target hardware or real Lattice serving engine (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, live CUDA multi-adapter benchmarks on the 8 GiB RTX 3080 host, and live hardware execution on a real Latent Lattice checkpoint once a GGUF/C++ Lattice backend ships.
 
 ## Documents
 
