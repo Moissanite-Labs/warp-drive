@@ -448,10 +448,21 @@ class CanaryRunner:
                         )
                     )
             else:
-                # Partition shadow canaries deterministically across parallel server slots for <3s Stage 3 execution
+                # LPT load-balanced deterministic partitioning across parallel server slots for <3s Stage 3 execution
                 buckets: dict[int, list[tuple[int, CanarySpec]]] = {sid: [] for sid in slot_ids}
-                for idx, spec in enumerate(selected):
-                    buckets[slot_ids[idx % len(slot_ids)]].append((idx, spec))
+                slot_loads: dict[int, int] = {sid: 0 for sid in slot_ids}
+                ordered_specs = sorted(
+                    enumerate(selected),
+                    key=lambda pair: (
+                        -(pair[1].max_tokens if pair[1].max_tokens is not None else self.max_tokens),
+                        0 if pair[1].category != "preservation" else 1,
+                        pair[0],
+                    ),
+                )
+                for orig_idx, spec in ordered_specs:
+                    best_sid = min(slot_ids, key=lambda s: (slot_loads[s], s))
+                    buckets[best_sid].append((orig_idx, spec))
+                    slot_loads[best_sid] += spec.max_tokens if spec.max_tokens is not None else self.max_tokens
 
                 def _run_slot_bucket(sid: int, items: list[tuple[int, CanarySpec]]) -> list[tuple[int, CanaryCheckOutcome]]:
                     if not items:
@@ -505,11 +516,22 @@ class CanaryRunner:
             raise CanaryFailedError(f"shadow canary execution failed: {exc}") from exc
         finally:
             all_flushed = True
-            for sid in slot_ids:
-                try:
-                    self.llama_client.erase_slot(sid, banks=erase_banks)
-                except LlamaClientError:
-                    all_flushed = False
+            if len(slot_ids) <= 1:
+                for sid in slot_ids:
+                    try:
+                        self.llama_client.erase_slot(sid, banks=erase_banks)
+                    except LlamaClientError:
+                        all_flushed = False
+            else:
+                def _safe_erase(sid: int) -> bool:
+                    try:
+                        self.llama_client.erase_slot(sid, banks=erase_banks)
+                        return True
+                    except LlamaClientError:
+                        return False
+
+                with ThreadPoolExecutor(max_workers=len(slot_ids)) as pool:
+                    all_flushed = all(pool.map(_safe_erase, slot_ids))
             slot_flushed = all_flushed
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
