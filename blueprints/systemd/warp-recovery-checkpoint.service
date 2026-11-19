@@ -1,0 +1,14 @@
+[Unit]
+Description=Warp Pre-Upgrade btrfs Snapshot and UKI Checkpoint
+Documentation=https://github.com/siliconcordat/warp
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/warp-recovery.sh checkpoint pre-upgrade
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=sysinit.target

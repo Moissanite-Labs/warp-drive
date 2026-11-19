@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siliconcordat.org/schemas/warp/adapter-bundle.schema.json",
+  "title": "Warp Adapter Bundle Manifest",
+  "description": "Stage 1 and Stage 2 input manifest for one candidate F16 GGUF LoRA adapter. Inline canary fields are strictly forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "adapter_id",
+    "domain",
+    "llama_adapter_id",
+    "adapter_sha256",
+    "scale_num",
+    "scale_den",
+    "checkpoint",
+    "source_lineage",
+    "runtime_flags_sha256",
+    "derivation_digest",
+    "certificate"
+  ],
+  "properties": {
+    "adapter_id": { "type": "string", "minLength": 1 },
+    "domain": { "type": "string", "minLength": 1 },
+    "llama_adapter_id": { "type": "integer", "minimum": 0 },
+    "adapter_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "adapter_path": { "type": ["string", "null"] },
+    "scale_num": { "type": "integer", "minimum": 1 },
+    "scale_den": { "type": "integer", "minimum": 1 },
+    "runtime_flags_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "derivation_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "layout_sha256",
+        "weights_sha256",
+        "config_sha256",
+        "tokenizer_sha256",
+        "chat_template_sha256"
+      ],
+      "properties": {
+        "model_id": { "type": "string", "minLength": 1 },
+        "layout_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "weights_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "config_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "tokenizer_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "chat_template_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "safetensors_provenance_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "source_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpus_tree_sha256", "domain_commits"],
+      "properties": {
+        "corpus_tree_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "domain_commits": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" }
+        },
+        "contested_heads": {
+          "type": "array",
+          "maxItems": 0,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_id",
+        "adapter_sha256",
+        "base_weights_sha256",
+        "radix_scale",
+        "frobenius_sq_scaled",
+        "spectral_norm_sq_scaled",
+        "leakage_energy_scaled",
+        "max_safety_dot_sq_scaled",
+        "cert_sha256"
+      ],
+      "properties": {
+        "adapter_id": { "type": "string", "minLength": 1 },
+        "adapter_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "base_weights_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "radix_scale": { "type": "integer", "minimum": 1 },
+        "frobenius_sq_scaled": { "type": "integer", "minimum": 0 },
+        "spectral_norm_sq_scaled": { "type": "integer", "minimum": 0 },
+        "leakage_energy_scaled": { "type": "integer", "minimum": 0 },
+        "max_safety_dot_sq_scaled": { "type": "integer", "minimum": 0 },
+        "cert_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

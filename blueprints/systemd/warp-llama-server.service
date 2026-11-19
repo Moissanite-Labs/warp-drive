@@ -1,0 +1,43 @@
+[Unit]
+Description=Warp Local llama-server Backend (Shadow-Load Only)
+Documentation=https://github.com/siliconcordat/warp
+After=network.target
+Before=warp-modeld.service
+
+[Service]
+Type=simple
+User=warp-llama
+Group=warp-llama
+EnvironmentFile=/etc/warp/llama-server.env
+ExecStart=/usr/local/bin/llama-server \
+    --host 127.0.0.1 \
+    --port 8080 \
+    --model ${WARP_BASE_MODEL_GGUF} \
+    --lora ${WARP_LORA_PATHS} \
+    --lora-init-without-apply \
+    --slots \
+    --no-cache-idle-slots \
+    --slot-prompt-similarity 0.0 \
+    --ctx-size ${WARP_CTX_SIZE} \
+    --ctx-checkpoints ${WARP_CTX_CHECKPOINTS} \
+    --swa-checkpoints ${WARP_SWA_CHECKPOINTS}
+Restart=on-failure
+RestartSec=3
+
+# Zero-trust OS hardening: base weights are strictly read-only, loopback only.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/var/lib/warp/models /etc/warp/llama-server.env
+InaccessiblePaths=/etc/warp/keys /etc/warp/canaries /var/lib/warp-ledger /run/warp-modeld
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+[Unit]
+Description=Warp L3 Zero-Trust Inference Gatekeeper (warp-modeld)
+Documentation=https://github.com/siliconcordat/warp
+After=warp-llama-server.service
+Requires=warp-llama-server.service
+
+[Service]
+Type=simple
+User=warp-modeld
+Group=warp-rpc
+RuntimeDirectory=warp-modeld
+RuntimeDirectoryMode=0750
+StateDirectory=warp-ledger
+StateDirectoryMode=0750
+ExecStart=/usr/bin/warp-modeld serve --config /etc/warp/modeld.json
+Restart=on-failure
+RestartSec=2
+
+# Verifier TCB isolation: canaries and base weights are read-only; loopback + Unix sockets only.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/var/lib/warp/models /etc/warp/canaries /etc/warp/keys /etc/warp/modeld.json
+ReadWritePaths=/var/lib/warp-ledger /run/warp-modeld
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

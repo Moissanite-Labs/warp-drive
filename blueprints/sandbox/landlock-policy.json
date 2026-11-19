@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1.0",
+  "abi_version": 4,
+  "default_action": "deny",
+  "fail_closed_if_unsupported": true,
+  "env_gate": "WARP_TOOL_EXECUTOR_REQUIRED=1",
+  "rules": {
+    "read_only": [
+      "/usr",
+      "/lib",
+      "/lib64",
+      "/etc/ssl/certs",
+      "/etc/warp/canaries",
+      "/var/lib/warp/models"
+    ],
+    "read_write": [
+      "$WARP_EPHEMERAL_WORKTREE",
+      "/tmp"
+    ],
+    "explicit_deny": [
+      "/run/warp-modeld",
+      "/var/lib/warp-ledger",
+      "/etc/warp/keys",
+      "/var/lib/warp/snapshots",
+      "/efi"
+    ]
+  },
+  "network": {
+    "zone_a_allow_network": false,
+    "zone_b_requires_egress_proxy": true,
+    "unshare_net_default": true
+  }
+}

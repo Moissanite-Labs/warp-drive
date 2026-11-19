@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "warp-modeld"
+version = "0.1.0"
+description = "L3 zero-trust inference gatekeeper and fail-closed adapter load verifier for siliconcordat/warp"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+warp-modeld = "warp_modeld.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

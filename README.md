@@ -16,10 +16,37 @@ It is built for operators running local open-weight models and coding agents who
 
 ## What Warp Provides
 
-- **Verified model gatekeeper (`warp-modeld`):** A local service sitting between L4 `exo` and L2 `llama-server`. It checks model fingerprints, lineage hashes, runtime flags, exact integer math certificates, and system-owned canary tests before activating any adapter.
-- **Instant safe rollback:** Base weights stay on read-only storage. A kill switch sets adapter scales to zero, flushes slot key-value (KV) caches and hybrid recurrent states, and writes a signed receipt to an append-only ledger.
-- **Mandatory tool sandboxes:** Agent tools run inside unprivileged Linux namespaces (`bubblewrap`), filesystem restrictions (`Landlock`), and system-call filters (`seccomp`). Protected test files and ledger sockets stay unreadable or read-only to tools.
-- **Recoverable Linux images (`mkosi` + `btrfs` + UKI):** Declarative image configs produce Arch Linux images with read-only `btrfs` root snapshots and archived Unified Kernel Images (UKI) for single-reboot recovery.
+- **Verified model gatekeeper (`warp-modeld`):** A zero-dependency Python 3 standard-library service sitting between L4 `exo` and L2 `llama-server`. It checks model fingerprints, lineage hashes, runtime flags, exact integer math certificates, and system-owned canary tests before activating any adapter.
+- **Instant safe rollback:** Base weights stay on read-only storage. A kill switch sets adapter scales to zero, flushes slot key-value (KV) caches and hybrid attention or state-space recurrent states, and writes a hash-chained signed receipt to an append-only JSONL ledger.
+- **Mandatory tool sandboxes:** Declarative `Landlock`, `seccomp`, and `bubblewrap` blueprints confine agent tools inside an empty network namespace with read-only access to verifier canaries and base weights.
+- **Recoverable Linux images (`mkosi` + `btrfs` + UKI):** Declarative Arch Linux profiles (`vmtest`, `compute-rtx3080`, `client-omarchy`) pair read-only `btrfs` root snapshots with archived Unified Kernel Images (UKI) for single-reboot recovery.
+
+## Repository Layout
+
+| Path | Contents |
+| --- | --- |
+| `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) |
+| `schemas/` | Adapter bundle JSON schema (`adapter-bundle.schema.json`), verifier-owned canary suite (`verifier-canaries.json`), and daemon config template (`modeld-config.example.json`) |
+| `blueprints/mkosi/` | Base Arch `btrfs` + UKI config, post-install script, and `vmtest`, `compute-rtx3080`, and `client-omarchy` profiles |
+| `blueprints/systemd/` | Hardened service units for `llama-server` (`--lora-init-without-apply`), `warp-modeld`, and pre-upgrade checkpoints |
+| `blueprints/sandbox/` | `Landlock` rules, default-deny `seccomp` filter, and fail-closed `bubblewrap` tool executor (`WARP_TOOL_EXECUTOR_REQUIRED=1`) |
+| `blueprints/recovery/` | `btrfs` snapshot and archived UKI checkpoint/rollback helper (`warp-recovery.sh`) |
+| `tests/` | Unit, end-to-end Unix socket daemon, blueprint validation, and adversarial tests against a local HTTP mock of `llama-server` |
+
+## Running Tests and CLI Checks
+
+Requires Python 3.11 or newer with no external runtime packages:
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
+
+Verify a signed ledger file or run a standalone division-free certificate check:
+
+```bash
+PYTHONPATH=src python3 -m warp_modeld.cli verify-ledger --ledger <ledger.jsonl> --key-file <ledger.key>
+PYTHONPATH=src python3 -m warp_modeld.cli check-certificate --cert <cert.json> --bounds <bounds.json>
+```
 
 ## Three-Machine Deployment Model
 
@@ -29,11 +56,10 @@ It is built for operators running local open-weight models and coding agents who
 2. **RTX 3080 Compute Host (8 GiB VRAM, 32 GiB RAM):** Runs a reversible dual-boot `warp` Linux image alongside Windows 11. Serves 4B to 8B open-weight models with multiple adapters and compiles adapters on CPU.
 3. **Omarchy Linux Client (lightweight x64 laptop):** Runs the desktop shell, L4 `exo`, L5 `mde`, and local sandboxes on a dedicated test laptop (or inside a VM on shared hardware), sending large model requests over a private link to the compute host.
 
-## Project Status
+## Verification Boundary
 
-- **Current stage:** Foundation documentation and architecture (`ARCHITECTURE.md`, `PLAN.md`).
-- **Next stage:** `warp-modeld` daemon implementation, adversarial test suite, and `mkosi` / `systemd` / sandbox blueprints.
-- **Verification boundary:** Bare-metal `mkosi` flashing and hardware GPU runs require dedicated Linux target hardware and are tracked separately from local unit and mock-server tests.
+- **Verified locally now:** All four `warp-modeld` verification stages, Unix socket RPC server and CLI subprocesses, adversarial rejection tests (forged certificates, stale lineage, runtime-flag drift, forged adapter-supplied canaries, canary failures, hybrid recurrent-state flush on rollback, and ledger tampering), plus blueprint JSON invariant and `bash -n` syntax checks.
+- **Requires Linux target hardware (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, and live CUDA `llama-server` multi-adapter benchmarks.
 
 ## Documents
 

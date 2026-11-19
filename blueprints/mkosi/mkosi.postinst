@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Post-installation image setup for siliconcordat/warp.
+# Creates dedicated unprivileged users and read-only verifier boundaries.
+
+install -d -m 0755 /etc/warp /etc/warp/canaries /etc/warp/keys
+install -d -m 0755 /var/lib/warp /var/lib/warp/models /var/lib/warp/snapshots
+install -d -m 0750 /var/lib/warp-ledger
+
+if ! getent group warp-rpc >/dev/null 2>&1; then
+    groupadd --system warp-rpc
+fi
+
+for svc_user in warp-llama warp-modeld warp-egress; do
+    if ! id -u "${svc_user}" >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/bin/nologin "${svc_user}"
+    fi
+done
+
+chown root:root /etc/warp /etc/warp/canaries /var/lib/warp/models
+chmod 0755 /etc/warp/canaries /var/lib/warp/models
+
+chown root:warp-modeld /etc/warp/keys
+chmod 0750 /etc/warp/keys
+
+chown warp-modeld:warp-modeld /var/lib/warp-ledger
+chmod 0750 /var/lib/warp-ledger
+
+# Mandatory fail-closed tool sandbox default across the OS image.
+cat >/etc/profile.d/warp-sandbox.sh <<'EOF'
+export WARP_TOOL_EXECUTOR_REQUIRED=1
+export WARP_SANDBOX_POLICY=/etc/warp/landlock-policy.json
+EOF
+chmod 0644 /etc/profile.d/warp-sandbox.sh

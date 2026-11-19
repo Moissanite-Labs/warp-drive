@@ -1,0 +1,52 @@
+{
+  "socket_path": "/run/warp-modeld/control.sock",
+  "socket_mode": "0660",
+  "llama_server_url": "http://127.0.0.1:8080",
+  "require_localhost": true,
+  "canary_slot_id": 0,
+  "canary_suite_path": "/etc/warp/canaries/verifier-canaries.json",
+  "ledger_path": "/var/lib/warp-ledger/receipts.jsonl",
+  "ledger_key_path": "/etc/warp/keys/ledger.key",
+  "ledger_key_id": "warp-ledger-hmac-v1",
+  "checkpoint": {
+    "model_id": "Qwen3-8B-Q4_K_M",
+    "layout_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+    "weights_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+    "config_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+    "tokenizer_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+    "chat_template_sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+    "safetensors_provenance_sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+  },
+  "pinned_lineage": {
+    "corpus_tree_sha256": "0000000000000000000000000000000000000000000000000000000000000007",
+    "domain_commits": {
+      "corpus": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+      "weft-eido": "be2766525500112233445566778899aabbccddee",
+      "formal-verification": "3165e20e7a00112233445566778899aabbccddee"
+    },
+    "contested_heads": []
+  },
+  "runtime_flags": {
+    "llama_server_commit": "7fe450e19",
+    "quantization": "Q4_K_M",
+    "ctx_size": 16384,
+    "kv_cache_type": "q8_0",
+    "ctx_checkpoints": 0,
+    "swa_checkpoints": 0,
+    "lora_init_without_apply": true,
+    "rope_args": "",
+    "chat_template_args": "thinking=off"
+  },
+  "single_bounds": {
+    "max_frobenius_sq": { "num": 5, "den": 1 },
+    "max_spectral_norm_sq": { "num": 2, "den": 1 },
+    "max_leakage_energy": { "num": 1, "den": 100 },
+    "max_safety_dot_sq": { "num": 1, "den": 1000 }
+  },
+  "joint_bounds": {
+    "max_frobenius_sq": { "num": 20, "den": 1 },
+    "max_spectral_norm_sq": { "num": 8, "den": 1 },
+    "max_leakage_energy": { "num": 1, "den": 20 },
+    "max_safety_dot_sq": { "num": 1, "den": 200 }
+  }
+}
