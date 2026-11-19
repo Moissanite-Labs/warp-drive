@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hmac
 import threading
@@ -221,8 +222,14 @@ class WarpModeld:
             flushed: list[int] = []
             confirmed_by_slot: dict[int, tuple[str, ...]] = {}
 
-            for slot in slots:
-                resp = self.llama_client.erase_slot(slot.id, banks=req_banks_arg)
+            if len(slots) <= 1:
+                slot_resps = [(slot, self.llama_client.erase_slot(slot.id, banks=req_banks_arg)) for slot in slots]
+            else:
+                with ThreadPoolExecutor(max_workers=len(slots)) as pool:
+                    futs = [(slot, pool.submit(self.llama_client.erase_slot, slot.id, banks=req_banks_arg)) for slot in slots]
+                    slot_resps = [(slot, fut.result()) for slot, fut in futs]
+
+            for slot, resp in slot_resps:
                 flushed.append(slot.id)
                 raw_confirmed = resp.get("banks_flushed")
                 if isinstance(raw_confirmed, list):
