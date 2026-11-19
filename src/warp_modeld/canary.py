@@ -82,6 +82,7 @@ class CanarySpec:
     regex_must_not_match: tuple[str, ...] = ()
     min_chars: int = 1
     max_chars: int | None = None
+    max_tokens: int | None = None
 
     def __post_init__(self) -> None:
         if self.category not in ("preservation", "domain", "cross_adapter"):
@@ -143,6 +144,7 @@ class CanarySpec:
                 regex_must_not_match=tuple(str(x) for x in data.get("regex_must_not_match", ())),
                 min_chars=int(data.get("min_chars", 1)),
                 max_chars=int(data["max_chars"]) if data.get("max_chars") is not None else None,
+                max_tokens=int(data["max_tokens"]) if data.get("max_tokens") is not None else None,
             )
         except KeyError as exc:
             raise CanaryConfigError(f"missing canary field: {exc}") from exc
@@ -269,6 +271,7 @@ class CanarySuite:
                     regex_must_not_match=tuple(str(x) for x in row.get("regex_must_not_match", ())),
                     min_chars=int(row.get("min_chars", 1)),
                     max_chars=int(row["max_chars"]) if row.get("max_chars") is not None else None,
+                    max_tokens=int(row["max_tokens"]) if row.get("max_tokens") is not None else None,
                 )
             )
 
@@ -415,7 +418,7 @@ class CanaryRunner:
                     temperature=0.0,
                     top_p=self.top_p,
                     seed=self.seed,
-                    max_tokens=self.max_tokens,
+                    max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
                     cache_prompt=False,
                     id_slot=self.canary_slot_id,
                 )
