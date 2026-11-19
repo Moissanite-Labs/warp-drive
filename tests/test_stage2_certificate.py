@@ -220,6 +220,78 @@ class TestStage2Certificate(unittest.TestCase):
         finally:
             mock.stop()
 
+    def test_single_adapter_inflated_scale_bypass_fails_closed_before_llama_server(self) -> None:
+        mock = MockLlamaServer()
+        url = mock.start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                modeld = make_modeld(url, Path(td))
+                radix = 10000
+                # Tiny unscaled adapter (frobenius_sq = 0.01, well below single bound 5.0),
+                # but scale = 10000/1 gives effective squared Frobenius norm 1,000,000 >> 5.0!
+                inflated = make_adapter_bundle_dict(
+                    scale_num=10000,
+                    scale_den=1,
+                    radix_scale=radix,
+                    frobenius_sq_scaled=100,
+                    spectral_norm_sq_scaled=50,
+                    leakage_energy_scaled=1,
+                    max_safety_dot_sq_scaled=1,
+                )
+                with self.assertRaises(CertificateError):
+                    modeld.mount_stack([inflated])
+
+                # Must fail closed in Stage 2 with ZERO HTTP calls to llama-server.
+                self.assertEqual(len(mock.state.request_log), 0)
+                self.assertEqual(modeld.ledger.count, 1)
+        finally:
+            mock.stop()
+
+    def test_scaled_exact_integer_boundary_single_and_multi(self) -> None:
+        ckpt = make_checkpoint()
+        radix = 10000
+        asha = fake_sha("scaled-boundary")
+        cert = FixedRadixCertificate.create(
+            adapter_id="mde:corpus",
+            adapter_sha256=asha,
+            base_weights_sha256=ckpt.weights_sha256,
+            radix_scale=radix,
+            frobenius_sq_scaled=radix,  # 1.0
+            spectral_norm_sq_scaled=radix // 4,  # 0.25
+            leakage_energy_scaled=radix // 1000,  # 0.001
+            max_safety_dot_sq_scaled=radix // 10000,  # 0.0001
+        )
+        # scale = 2/1 -> scaled frobenius_sq = 4.0 <= 5.0, spectral = 1.0 <= 2.0, leakage = 0.004 <= 0.01 -> PASS.
+        res_ok = verify_division_free(cert, make_single_bounds(), scale_num=2, scale_den=1)
+        self.assertTrue(res_ok.passed)
+
+        # scale = 3/1 -> scaled frobenius_sq = 9.0 > 5.0 -> FAIL.
+        with self.assertRaises(CertificateError):
+            verify_division_free(cert, make_single_bounds(), scale_num=3, scale_den=1)
+
+        # Multi-adapter stack where one adapter's scaled norm violates single_bounds -> FAIL.
+        asha2 = fake_sha("scaled-peer")
+        cert2 = FixedRadixCertificate.create(
+            adapter_id="mde:weft-eido",
+            adapter_sha256=asha2,
+            base_weights_sha256=ckpt.weights_sha256,
+            radix_scale=radix,
+            frobenius_sq_scaled=radix // 10,
+            spectral_norm_sq_scaled=radix // 20,
+            leakage_energy_scaled=1,
+            max_safety_dot_sq_scaled=1,
+        )
+        with self.assertRaises(CertificateError):
+            verify_stack_division_free(
+                [
+                    (cert, "mde:corpus", asha, 3, 1),
+                    (cert2, "mde:weft-eido", asha2, 1, 1),
+                ],
+                make_single_bounds(),
+                make_joint_bounds(),
+                expected_base_weights_sha256=ckpt.weights_sha256,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

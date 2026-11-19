@@ -69,7 +69,10 @@ class LlamaServerClient:
                     return {}
                 return json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")
+            finally:
+                exc.close()
             raise LlamaClientError(f"llama-server HTTP {exc.code} on {method} {path}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise LlamaClientError(f"llama-server request failed on {method} {path}: {exc}") from exc

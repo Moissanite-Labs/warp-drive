@@ -148,14 +148,23 @@ class LedgerVerifier:
                 "key_id",
                 "signature",
             )
-            for field in required:
-                if field not in record:
-                    raise LedgerTamperError(f"ledger line {line_no}: missing field '{field}'")
+            required_set = set(required)
+            record_keys = set(record.keys())
+            missing_keys = sorted(required_set - record_keys)
+            if missing_keys:
+                raise LedgerTamperError(f"ledger line {line_no}: missing field(s) {missing_keys}")
+            extra_keys = sorted(record_keys - required_set)
+            if extra_keys:
+                raise LedgerTamperError(f"ledger line {line_no}: unexpected extra field(s) {extra_keys}")
 
-            if record["seq"] != expected_seq:
+            if isinstance(record["seq"], bool) or not isinstance(record["seq"], int) or record["seq"] != expected_seq:
                 raise LedgerTamperError(
-                    f"ledger line {line_no}: expected seq {expected_seq}, got {record['seq']}"
+                    f"ledger line {line_no}: expected integer seq {expected_seq}, got {record['seq']!r}"
                 )
+            if not isinstance(record["slots_flushed"], list) or any(
+                isinstance(s, bool) or not isinstance(s, int) for s in record["slots_flushed"]
+            ):
+                raise LedgerTamperError(f"ledger line {line_no}: slots_flushed must be a list of integers")
             if record["event"] not in VALID_EVENTS:
                 raise LedgerTamperError(f"ledger line {line_no}: invalid event '{record['event']}'")
             if not hmac.compare_digest(str(record["prev_receipt_sha256"]), expected_prev):

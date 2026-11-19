@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from pathlib import Path
 import tempfile
@@ -156,6 +157,8 @@ class TestStage4RollbackAndLedger(unittest.TestCase):
                 mock.state.fail_erase_slot_ids.add(1)
                 with self.assertRaises(StateFlushError):
                     modeld.rollback(reason="test_http_500_erase")
+                # Force immediate GC so any unclosed HTTPError emits ResourceWarning under -W error.
+                gc.collect()
                 self.assertTrue(modeld.status()["state_quarantined"])
                 with self.assertRaises(StateFlushError):
                     modeld.infer([{"role": "user", "content": "blocked"}])
@@ -216,6 +219,22 @@ class TestStage4RollbackAndLedger(unittest.TestCase):
                 truncated_path.write_text(lines[1] + "\n", encoding="utf-8")
                 with self.assertRaises(LedgerTamperError):
                     LedgerVerifier.verify_file(truncated_path, signer)
+
+                # Boolean seq (True == 1 in Python) must be rejected.
+                bool_seq = json.loads(lines[0])
+                bool_seq["seq"] = True
+                bool_path = Path(td) / "bool_seq.jsonl"
+                bool_path.write_text(json.dumps(bool_seq) + "\n", encoding="utf-8")
+                with self.assertRaises(LedgerTamperError):
+                    LedgerVerifier.verify_file(bool_path, signer)
+
+                # Unexpected extra key smuggled onto a signed line must be rejected.
+                extra_key = json.loads(lines[0])
+                extra_key["smuggled"] = "payload"
+                extra_path = Path(td) / "extra_key.jsonl"
+                extra_path.write_text(json.dumps(extra_key) + "\n", encoding="utf-8")
+                with self.assertRaises(LedgerTamperError):
+                    LedgerVerifier.verify_file(extra_path, signer)
         finally:
             mock.stop()
 

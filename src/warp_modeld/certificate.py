@@ -191,13 +191,26 @@ class StackCertificateResult:
     elapsed_ns: int
 
 
-def _check_cross_mul_le(value_scaled: int, radix_scale: int, bound: RationalBound, metric: str, label: str) -> None:
-    """Check value_scaled / radix_scale <= bound.num / bound.den using pure integer multiplication."""
-    lhs = value_scaled * bound.den
-    rhs = bound.num * radix_scale
+def _check_scaled_cross_mul_le(
+    value_scaled: int,
+    radix_scale: int,
+    bound: RationalBound,
+    metric: str,
+    label: str,
+    *,
+    scale_num: int = 1,
+    scale_den: int = 1,
+) -> None:
+    """Check (value_scaled / radix_scale) * (scale_num / scale_den)^2 <= bound.num / bound.den.
+
+    Uses strictly exact integer multiplication with zero floating-point division.
+    """
+    lhs = value_scaled * (scale_num * scale_num) * bound.den
+    rhs = bound.num * radix_scale * (scale_den * scale_den)
     if lhs > rhs:
         raise CertificateError(
-            f"{label}: {metric} exceeds bound ({value_scaled}/{radix_scale} > {bound.num}/{bound.den})"
+            f"{label}: {metric} exceeds bound "
+            f"(({value_scaled}/{radix_scale}) * ({scale_num}/{scale_den})^2 > {bound.num}/{bound.den})"
         )
 
 
@@ -205,6 +218,8 @@ def verify_division_free(
     cert: FixedRadixCertificate,
     bounds: CertificateBounds,
     *,
+    scale_num: int = 1,
+    scale_den: int = 1,
     expected_adapter_id: str | None = None,
     expected_adapter_sha256: str | None = None,
     expected_base_weights_sha256: str | None = None,
@@ -214,6 +229,9 @@ def verify_division_free(
 
     if not isinstance(cert, FixedRadixCertificate):
         raise CertificateError("cert must be a FixedRadixCertificate instance")
+
+    _require_exact_int(scale_num, "scale_num", allow_zero=False)
+    _require_exact_int(scale_den, "scale_den", allow_zero=False)
 
     expected_digest = cert.expected_cert_sha256()
     if not hmac.compare_digest(cert.cert_sha256, expected_digest):
@@ -245,15 +263,41 @@ def verify_division_free(
         )
 
     label = f"adapter {cert.adapter_id}"
-    _check_cross_mul_le(cert.frobenius_sq_scaled, cert.radix_scale, bounds.max_frobenius_sq, "frobenius_sq", label)
-    _check_cross_mul_le(
-        cert.spectral_norm_sq_scaled, cert.radix_scale, bounds.max_spectral_norm_sq, "spectral_norm_sq", label
+    _check_scaled_cross_mul_le(
+        cert.frobenius_sq_scaled,
+        cert.radix_scale,
+        bounds.max_frobenius_sq,
+        "frobenius_sq",
+        label,
+        scale_num=scale_num,
+        scale_den=scale_den,
     )
-    _check_cross_mul_le(
-        cert.leakage_energy_scaled, cert.radix_scale, bounds.max_leakage_energy, "leakage_energy", label
+    _check_scaled_cross_mul_le(
+        cert.spectral_norm_sq_scaled,
+        cert.radix_scale,
+        bounds.max_spectral_norm_sq,
+        "spectral_norm_sq",
+        label,
+        scale_num=scale_num,
+        scale_den=scale_den,
     )
-    _check_cross_mul_le(
-        cert.max_safety_dot_sq_scaled, cert.radix_scale, bounds.max_safety_dot_sq, "max_safety_dot_sq", label
+    _check_scaled_cross_mul_le(
+        cert.leakage_energy_scaled,
+        cert.radix_scale,
+        bounds.max_leakage_energy,
+        "leakage_energy",
+        label,
+        scale_num=scale_num,
+        scale_den=scale_den,
+    )
+    _check_scaled_cross_mul_le(
+        cert.max_safety_dot_sq_scaled,
+        cert.radix_scale,
+        bounds.max_safety_dot_sq,
+        "max_safety_dot_sq",
+        label,
+        scale_num=scale_num,
+        scale_den=scale_den,
     )
 
     elapsed_ns = time.perf_counter_ns() - start_ns
@@ -315,6 +359,8 @@ def verify_stack_division_free(
         res = verify_division_free(
             cert,
             single_bounds,
+            scale_num=scale_num,
+            scale_den=scale_den,
             expected_adapter_id=adapter_id,
             expected_adapter_sha256=adapter_sha256,
             expected_base_weights_sha256=expected_base_weights_sha256,
@@ -342,7 +388,7 @@ def verify_stack_division_free(
                 value_i = getattr(cert, attr)
                 total_scaled += value_i * (scale_num * scale_num) * factor
             cauchy_upper_num = n_adapters * total_scaled
-            _check_cross_mul_le(cauchy_upper_num, common_den, bound, metric_name, "composed stack")
+            _check_scaled_cross_mul_le(cauchy_upper_num, common_den, bound, metric_name, "composed stack")
         composed_bound_checked = True
 
     if composed_certificate is not None:

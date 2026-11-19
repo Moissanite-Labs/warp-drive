@@ -9,6 +9,7 @@ Type=simple
 User=warp-llama
 Group=warp-llama
 EnvironmentFile=/etc/warp/llama-server.env
+# Note: --swa-checkpoints is an alias for --ctx-checkpoints in llama-server; pass one flag only.
 ExecStart=/usr/local/bin/llama-server \
     --host 127.0.0.1 \
     --port 8080 \
@@ -19,8 +20,7 @@ ExecStart=/usr/local/bin/llama-server \
     --no-cache-idle-slots \
     --slot-prompt-similarity 0.0 \
     --ctx-size ${WARP_CTX_SIZE} \
-    --ctx-checkpoints ${WARP_CTX_CHECKPOINTS} \
-    --swa-checkpoints ${WARP_SWA_CHECKPOINTS}
+    --ctx-checkpoints ${WARP_CTX_CHECKPOINTS}
 Restart=on-failure
 RestartSec=3
 

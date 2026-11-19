@@ -66,6 +66,12 @@ class TestBlueprintsAndHygiene(unittest.TestCase):
         ):
             self.assertIn(required, llama_unit)
 
+        # --ctx-checkpoints and --swa-checkpoints are aliases in llama-server; pass only one active flag.
+        active_lines = [line for line in llama_unit.splitlines() if not line.lstrip().startswith("#")]
+        active_text = "\n".join(active_lines)
+        self.assertIn("--ctx-checkpoints", active_text)
+        self.assertNotIn("--swa-checkpoints", active_text)
+
         modeld_unit = (REPO_ROOT / "blueprints" / "systemd" / "warp-modeld.service").read_text(encoding="utf-8")
         for required in (
             "NoNewPrivileges=yes",
