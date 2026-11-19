@@ -456,9 +456,9 @@ class CanaryRunner:
                 def _run_slot_bucket(sid: int, items: list[tuple[int, CanarySpec]]) -> list[tuple[int, CanaryCheckOutcome]]:
                     if not items:
                         return []
-                    self.llama_client.erase_slot(sid, banks=erase_banks)
                     bucket_out: list[tuple[int, CanaryCheckOutcome]] = []
                     for orig_idx, spec in items:
+                        self.llama_client.erase_slot(sid, banks=erase_banks)
                         msgs: list[dict[str, str]] = []
                         if spec.system_prompt:
                             msgs.append({"role": "system", "content": spec.system_prompt})

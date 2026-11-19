@@ -226,6 +226,55 @@ class TestStage3Canary(unittest.TestCase):
         finally:
             mock.stop()
 
+    def test_parallel_slot_buckets_erase_slot_before_every_canary(self) -> None:
+        from types import SimpleNamespace
+        import threading
+        from warp_modeld.canary import CanaryRunner
+        from warp_modeld.fingerprint import AdapterBundle
+
+        lock = threading.Lock()
+        erase_calls: list[int] = []
+
+        class MultiSlotMockClient:
+            def list_lora_adapters(self):
+                return [SimpleNamespace(id=2, scale=0.0)]
+
+            def list_slots(self):
+                return [SimpleNamespace(id=i) for i in range(4)]
+
+            def erase_slot(self, sid: int, banks=None):
+                with lock:
+                    erase_calls.append(sid)
+                return {"id_slot": sid}
+
+            def chat_completion(self, messages, **kwargs):
+                return {"choices": [{"message": {"content": "391 Nat.add_zero"}}]}
+
+        with tempfile.TemporaryDirectory() as td:
+            jsonl_path = Path(td) / "canaries.jsonl"
+            rows = [
+                {"id": f"CAN-PRES-{i}", "family": "safety", "prompt": "p", "must_contain": ["391"]}
+                for i in range(6)
+            ] + [
+                {"id": f"CAN-DOM-{i}", "family": "A", "domain": "formal-verification", "prompt": "d", "must_contain": ["Nat.add_zero"]}
+                for i in range(4)
+            ]
+            jsonl_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+            os.chmod(jsonl_path, 0o600)
+            suite = CanarySuite.from_jsonl_file(jsonl_path)
+            runner = CanaryRunner(MultiSlotMockClient(), suite)  # type: ignore[arg-type]
+            bundle = AdapterBundle.from_dict(
+                make_adapter_bundle_dict(
+                    adapter_id="mde:formal-verification",
+                    domain="formal-verification",
+                    llama_adapter_id=2,
+                )
+            )
+            res = runner.run([bundle])
+            self.assertEqual(len(res.outcomes), 10)
+            # 10 pre-canary erases across buckets + 4 final cleanup erases = 14 total erase_slot calls
+            self.assertEqual(len(erase_calls), 14)
+
 
 if __name__ == "__main__":
     unittest.main()
