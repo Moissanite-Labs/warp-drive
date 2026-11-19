@@ -1,0 +1,125 @@
+# Warp Architecture
+
+`warp` enforces operating system boundaries beneath an AI agent harness (`siliconcordat/exo`) and above local model serving (`llama-server` running adapters from `siliconcordat/weft`).
+Every boundary fails closed. When a check cannot run or returns an unexpected digest, `warp` blocks execution rather than falling back to an unsafe path.
+
+## Trust Model
+
+`warp` preserves a three-tier trust split across every local interface:
+
+1. **Human authority stays outside model weights.** Approval signatures, source policies, and kill switches live on the control host and in OS-protected files. Model weights never acquire permission to approve actions or edit policies.
+2. **Deterministic OS code enforces safety.** Sandboxes (`bubblewrap`, `Landlock`, `seccomp`) and the load verifier (`warp-modeld`) run as ordinary host software outside the model. Mounting an adapter never disables a sandbox, ledger check, or prose gate.
+3. **Model adapters stay revocable caches.** Base model weights (`W0`) live on read-only storage. Adapters apply on top of `W0` at runtime and unload cleanly in constant time.
+
+## Zero-Trust Inference Trusted Computing Base (TCB)
+
+The L4 harness (`exo`) never writes to model weight files and never talks directly to the admin endpoints of `llama-server`.
+Instead, `exo` connects over a local kernel-authenticated Unix domain socket to `warp-modeld`.
+
+```text
+exo (L4 Harness)
+  |
+  |  local Unix socket (W-MCP slot commands + inference proxy)
+  v
+warp-modeld (L3 Gatekeeper)
+  |--> read-only base weights (W0) and verified F16 GGUF LoRA files
+  |--> read-only OS-owned verifier canary suite
+  |--> append-only signed JSONL receipt ledger
+  |
+  |  localhost HTTP only
+  v
+llama-server (L2 Serving Engine, started with --lora-init-without-apply)
+```
+
+Low-rank adapters export to F16 GGUF LoRA files so `llama-server` can compose multiple adapters in one forward pass using `--lora` and per-request `"lora": [{"id": ..., "scale": ...}]` arrays.
+Sparse full-weight Safetensors diffs do not hot-swap directly inside `llama-server` without low-rank conversion or a separate Safetensors runtime.
+
+## Four-Stage Fail-Closed Load Verifier (`warp-modeld`)
+
+Before `warp-modeld` permits any single adapter or multi-adapter stack to serve traffic, the bundle must clear four ordered stages. Failure at any stage stops the load immediately and records a signed `reject` receipt.
+
+### Stage 1: Checkpoint, Lineage, and Runtime-Flag Binding
+
+Stage 1 checks five content digests on CPU before touching GPU memory:
+
+1. **Weight layout digest (`layout_sha256`):** Confirms tensor names, shapes, and quantization layout match the expected base checkpoint.
+2. **Weight bytes fingerprint:** Confirms the GGUF file SHA-256 (and base checkpoint provenance link) matches the pinned base model `W0`.
+3. **Config and template digest:** Confirms `config`, tokenizer files, and `chat_template.jinja` SHA-256 values match the pinned base model.
+4. **Source lineage digest (`source.lineage`):** Confirms the adapter was compiled from the currently pinned source policy tree (`corpus_tree_sha256` and domain source commits) with zero contested heads. Any newer source policy commit marks the adapter `stale_lineage` and rejects the mount.
+5. **Runtime-flag digest:** Confirms the running `llama-server` binary commit, quantization format, context size (`--ctx-size`), KV cache quantization, checkpoint flags (`--ctx-checkpoints`, `--swa-checkpoints`), and RoPE or chat-template arguments match the adapter's verified serving profile.
+
+### Stage 2: Exact Integer `FixedRadixCertificate` Gate
+
+Stage 2 runs in under 1 millisecond on CPU using exact integer arithmetic with no floating-point division.
+Each adapter bundle carries a `FixedRadixCertificate` with scaled integer measurements produced after quantization:
+
+- `frobenius_sq_scaled`: squared Frobenius norm bound of the quantized delta.
+- `spectral_norm_sq_scaled`: squared spectral norm bound of the quantized delta.
+- `leakage_energy_scaled`: squared leakage energy against the preserved base subspace (`K0`).
+- `max_safety_dot_sq_scaled`: maximum squared projection onto safety preservation directions.
+
+`warp-modeld` checks each scaled integer numerator against its allowed rational bound using integer cross-multiplication (`value * limit_den <= limit_num * radix_scale`).
+Negative numbers, non-integers, invalid radix scales, or composed multi-adapter sums that breach joint bounds fail closed with zero calls to `llama-server`.
+
+### Stage 3: Shadow Load and Verifier-Owned Canary Checks
+
+`llama-server` starts with `--lora-init-without-apply`, keeping all loaded adapters at scale `0.0` so unverified adapters cannot affect live traffic.
+`warp-modeld` loads canary prompts strictly from a read-only directory owned by the OS verifier. Any adapter manifest that attempts to supply inline canary prompts, expected outputs, or self-reported pass flags is rejected immediately.
+
+On an isolated canary slot with freshly cleared KV and recurrent state, `warp-modeld` sends deterministic requests (`temperature=0`, fixed seed, prompt caching off) with the exact candidate `"lora"` scale array:
+
+- **Preservation and safety canaries:** Must pass at 100 percent with no relaxation.
+- **Per-adapter behavioral canaries:** Deterministic checks verifying the target domain habit (such as plain prose checks, UI module rules, or formal proof syntax).
+- **Cross-adapter conflict canaries:** Prompts that mix domains when multiple adapters mount together (such as a formal proof block inside a plain prose explanation) to catch interference.
+
+Only when every canary passes does `warp-modeld` publish the active `slot_manifest_digest` and write a signed `mount` receipt.
+
+### Stage 4: Constant-Time Kill Switch and Hybrid State Flush
+
+Modern hybrid models such as `Qwen3.8-27B` mix standard full-attention layers (16 of 64 layers) with linear-attention state-space layers (48 Gated DeltaNet recurrent layers).
+Setting adapter scales back to `0.0` stops new weight contributions, but an active inference slot can still hold residual recurrent state generated while an adapter was mounted.
+
+When a user triggers the kill switch, disables learning, or hits a runtime anomaly, `warp-modeld` executes an atomic rollback sequence:
+
+1. Marks the active adapter stack empty (`"lora": []`) so new requests route only to base weights `W0`.
+2. Sends scale `0.0` updates to `POST /lora-adapters`.
+3. Queries active slots (`GET /slots`) and explicitly erases every slot (`POST /slots/{id}?action=erase`) to flush both KV cache entries and hybrid recurrent states. If a slot flush fails, `warp-modeld` refuses traffic instead of serving tainted state.
+4. Appends a hash-chained, cryptographically signed `rollback` receipt to the JSONL ledger.
+
+## Three-Machine Hardware Topology
+
+All memory figures below use binary units (`GiB` = 1024^3 bytes, `MiB` = 1024^2 bytes).
+
+| Machine | Hardware | OS and Runtime Role | Hard Boundary |
+| --- | --- | --- | --- |
+| Clean macOS Hub | Apple M1 Max, 64 GiB unified RAM | Stock macOS, human keys, policy custody, approval UI, and optional on-demand read-only `llama-server` for 27B checks (`Q4_K_M` ~15.24 GiB + three F16 LoRAs ~0.89 GiB + 32k context ~18.5 GiB total, never concurrent with 20 GiB Ollama weights) | Zero OS modifications, zero experimental daemons, zero untrusted sandboxes |
+| Compute Host | ZenBook Pro Duo, Intel i9-11900H, 32 GiB RAM, RTX 3080 Laptop (8 GiB VRAM), 1 TB NVMe | Reversible dual-boot (`Windows 11` untouched on partition 1, `warp` Arch Linux `mkosi` image + CUDA on partition 2). Serves 4B to 8B models (`Qwen3-4B` or `Qwen3-8B` Q4_K_M + three LoRAs + Q8 KV cache within ~5.4 to 6.7 GiB VRAM) and runs CPU `float64` adapter builds in 32 GiB RAM | Holds zero org admin tokens, personal backups, or unapproved paid API keys |
+| Omarchy Client | Lightweight x64 Arch + Omarchy/Hyprland laptop | Full `warp` `mkosi` image on a dedicated spare laptop, or QEMU/KVM VM / dual-boot partition if testing on shared hardware. Runs desktop shell, L4 `exo`, L5 `mde`, mandatory tool sandboxes, and optional small local CPU model | Never runs heavy GPU builds and never modifies live workstation services |
+
+Trust flows strictly asymmetrically across the private authenticated link (Tailscale or WireGuard with mutual key authentication):
+
+- **Mac hub to Linux hosts (downward):** Signed policy tree pins, exact-byte approval signatures, verifier canary digests, and kill-switch commands.
+- **Linux hosts to Mac hub (upward):** Content-addressed evidence bundles, adapter manifests, and signed ledger heads. Linux hosts hold zero write access to the Mac hub.
+
+## Declarative Imaging (`mkosi`) and `btrfs` + UKI Recovery
+
+`warp` builds reproducible Arch Linux disk images with `mkosi` across three profiles: `vmtest` (QEMU validation first), `compute-rtx3080` (dual-boot CUDA host), and `client-omarchy` (Wayland desktop client).
+
+Disk state splits across dedicated `btrfs` subvolumes:
+
+- `@`: Root filesystem, snapshotted read-only before every kernel, driver, or image change.
+- `@models`: Read-only base model weights (`W0`) and approved F16 GGUF LoRA bundles.
+- `@store`, `@ledger`, `@egress`, `@sysd`: Persistent daemon state, append-only signed ledger, egress proxy config, and privileged action receipts.
+- `@home`: User workspace data, kept untouched during root rollbacks.
+
+Before any OS or driver upgrade, `warp-recovery` snapshots `@` read-only and archives the current Unified Kernel Image (a single signed EFI binary bundling kernel, initramfs, and command line). If an upgrade fails to boot or breaks GPU drivers, selecting the archived UKI entry restores the previous root snapshot in one reboot while leaving `@models`, `@ledger`, and `@home` intact.
+
+## Mandatory Tool Sandbox Executor
+
+Agent tool commands and verification jobs never run directly on the host user environment.
+Every tool invocation passes through the mandatory executor (`WARP_TOOL_EXECUTOR_REQUIRED=1`), which refuses to run if kernel isolation is unavailable:
+
+- **Namespace isolation (`bubblewrap`):** Runs inside an unprivileged user namespace with an empty network namespace (`CLONE_NEWNET`) by default, private `/tmp`, and scrubbed environment variables.
+- **Filesystem rules (`Landlock`):** Grants read-write access only to an ephemeral `btrfs` copy-on-write worktree. Mounts protected verifier canary suites, test oracles, and base model weights strictly read-only. Denies access to `warp-modeld` control sockets, ledger files, and host credentials.
+- **Syscall filter (`seccomp`):** Applies a default-deny BPF filter allowing only the system calls needed by build and test tools.
+- **Zone A vs Zone B split:** Deterministic builds, conformance checks, and CPU `float64` adapter compilation run in Zone A (no network, pinned toolchain digest, fixed `SOURCE_DATE_EPOCH`). Live GPU inference and external API calls run in Zone B with secret scanning and per-task log size caps.
