@@ -167,6 +167,65 @@ class TestStage3Canary(unittest.TestCase):
         finally:
             mock.stop()
 
+    def test_jsonl_canary_suite_and_external_opaque_command_runner(self) -> None:
+        from warp_modeld.canary import CanarySuite, ExternalCommandCanaryRunner
+        from warp_modeld.llama_client import LlamaServerClient
+        from warp_modeld.fingerprint import AdapterBundle
+        import os
+        import sys
+
+        mock = MockLlamaServer()
+        url = mock.start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                jsonl_path = tmp / "canaries_16.jsonl"
+                rows = [
+                    {"id": f"CAN-PRES-{i}", "family": "safety", "prompt": "Compute 17 * 23", "must_contain": ["391"]}
+                    for i in range(4)
+                ] + [
+                    {
+                        "id": "CAN-DOM-FV",
+                        "family": "A",
+                        "domain": "formal-verification",
+                        "prompt": "Prove in Lean 4 that n + 0 = n",
+                        "must_contain": ["Nat.add_zero"],
+                        "must_not_contain": ["sorry"],
+                    }
+                ]
+                jsonl_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+                os.chmod(jsonl_path, 0o600)
+                suite = CanarySuite.from_jsonl_file(jsonl_path)
+                self.assertEqual(len(suite.select_for_domains(["formal-verification"])), 5)
+
+                # Opaque command runner test (zero direct vault read by caller)
+                runner_script = tmp / "opaque_runner.py"
+                runner_script.write_text(
+                    "import json, sys\n"
+                    "print(json.dumps({"
+                    "'suite_sha256': 'a'*64, "
+                    "'preservation_passed': 8, 'preservation_total': 8, "
+                    "'outcomes': [{'canary_id': 'c1', 'category': 'preservation', 'passed': True, 'failures': []}]"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(runner_script)],
+                )
+                bundle = AdapterBundle.from_dict(
+                    make_adapter_bundle_dict(
+                        adapter_id="mde:formal-verification",
+                        domain="formal-verification",
+                        llama_adapter_id=2,
+                    )
+                )
+                res = ext.run([bundle])
+                self.assertEqual(res.preservation_passed, 8)
+                self.assertTrue(res.canary_slot_flushed)
+        finally:
+            mock.stop()
+
 
 if __name__ == "__main__":
     unittest.main()

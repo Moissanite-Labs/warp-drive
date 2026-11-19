@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
+import time
 from typing import Any, Sequence
 
 from .errors import CanaryFailedError, ForgedCanaryError, WarpError
@@ -197,6 +199,87 @@ class CanarySuite:
 
         return cls(suite_sha256=actual_sha, canaries=specs, source_path=str(file_path))
 
+    @classmethod
+    def from_jsonl_file(
+        cls,
+        path: str | Path,
+        *,
+        expected_sha256: str | None = None,
+        min_preservation: int = 4,
+        reject_world_writable: bool = True,
+        default_domain: str = "formal-verification",
+    ) -> CanarySuite:
+        """Load a verifier-owned JSONL canary suite (e.g. Phase 1.3 canaries_16.jsonl)."""
+        file_path = Path(path)
+        if not file_path.is_file():
+            raise CanaryConfigError(f"verifier canary JSONL file not found: {file_path}")
+        if reject_world_writable and os.name == "posix":
+            mode = file_path.stat().st_mode
+            if mode & stat.S_IWOTH:
+                raise CanaryConfigError(f"verifier canary file must not be world-writable: {file_path}")
+
+        raw_bytes = file_path.read_bytes()
+        actual_sha = hashlib.sha256(raw_bytes).hexdigest()
+        if expected_sha256 is not None and not hmac.compare_digest(actual_sha, expected_sha256):
+            raise CanaryConfigError(
+                f"verifier canary suite digest mismatch: got {actual_sha}, expected {expected_sha256}"
+            )
+
+        specs: list[CanarySpec] = []
+        for idx, raw_line in enumerate(raw_bytes.decode("utf-8").splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise CanaryConfigError(f"invalid JSON on line {idx} of {file_path}: {exc}") from exc
+            if not isinstance(row, dict):
+                raise CanaryConfigError(f"line {idx} of {file_path} must be a JSON object")
+
+            cid = str(row.get("canary_id") or row.get("id") or f"canary-{idx}")
+            raw_cat = str(row.get("category") or "").strip().lower()
+            raw_fam = str(row.get("family") or "").strip().lower()
+            if raw_cat in ("preservation", "domain", "cross_adapter"):
+                cat = raw_cat
+            elif raw_fam in ("safety", "general", "preservation", "s", "g") or "safety" in cid.lower() or "pres" in cid.lower():
+                cat = "preservation"
+            else:
+                cat = "domain"
+
+            raw_domains = row.get("domains")
+            if isinstance(raw_domains, list) and raw_domains:
+                domains = tuple(str(d) for d in raw_domains)
+            elif cat == "domain":
+                domains = (str(row.get("domain") or default_domain),)
+            else:
+                domains = ()
+
+            specs.append(
+                CanarySpec(
+                    canary_id=cid,
+                    category=cat,
+                    prompt=str(row["prompt"]),
+                    domains=domains,
+                    system_prompt=row.get("system_prompt"),
+                    must_contain=tuple(str(x) for x in row.get("must_contain", ())),
+                    must_not_contain=tuple(str(x) for x in row.get("must_not_contain", ())),
+                    prose_only_forbid=tuple(str(x) for x in row.get("prose_only_forbid", ())),
+                    regex_must_match=tuple(str(x) for x in row.get("regex_must_match", ())),
+                    regex_must_not_match=tuple(str(x) for x in row.get("regex_must_not_match", ())),
+                    min_chars=int(row.get("min_chars", 1)),
+                    max_chars=int(row["max_chars"]) if row.get("max_chars") is not None else None,
+                )
+            )
+
+        preservation_count = sum(1 for spec in specs if spec.category == "preservation")
+        if preservation_count < min_preservation:
+            raise CanaryConfigError(
+                f"verifier canary JSONL requires at least {min_preservation} preservation canaries "
+                f"(found {preservation_count})"
+            )
+        return cls(suite_sha256=actual_sha, canaries=tuple(specs), source_path=str(file_path))
+
     def select_for_domains(self, domains: Sequence[str]) -> list[CanarySpec]:
         domain_set = set(domains)
         preservation = [c for c in self.canaries if c.category == "preservation"]
@@ -236,6 +319,7 @@ class CanaryResult:
     preservation_passed: int
     preservation_total: int
     canary_slot_flushed: bool
+    elapsed_ms: float = 0.0
 
 
 def _extract_chat_content(response: dict[str, Any]) -> str:
@@ -264,12 +348,14 @@ class CanaryRunner:
         canary_slot_id: int = 0,
         seed: int = 42,
         max_tokens: int = 256,
+        top_p: float = 1.0,
     ) -> None:
         self.llama_client = llama_client
         self.suite = suite
         self.canary_slot_id = canary_slot_id
         self.seed = seed
         self.max_tokens = max_tokens
+        self.top_p = float(top_p)
 
     def run(
         self,
@@ -278,6 +364,7 @@ class CanaryRunner:
         allowed_active_ids: frozenset[int] = frozenset(),
         required_state_banks: Sequence[str] | None = None,
     ) -> CanaryResult:
+        t0 = time.perf_counter()
         if not bundles:
             raise CanaryFailedError("cannot run shadow canaries on an empty adapter list")
 
@@ -326,6 +413,7 @@ class CanaryRunner:
                     messages,
                     lora=lora_payload,
                     temperature=0.0,
+                    top_p=self.top_p,
                     seed=self.seed,
                     max_tokens=self.max_tokens,
                     cache_prompt=False,
@@ -355,6 +443,7 @@ class CanaryRunner:
             except LlamaClientError:
                 slot_flushed = False
 
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
         failed = [o for o in outcomes if not o.passed]
         if preservation_passed != preservation_total:
             detail = "; ".join(f"{o.canary_id}: {list(o.failures)}" for o in failed if o.category == "preservation")
@@ -373,4 +462,144 @@ class CanaryRunner:
             preservation_passed=preservation_passed,
             preservation_total=preservation_total,
             canary_slot_flushed=slot_flushed,
+            elapsed_ms=elapsed_ms,
+        )
+
+
+class ExternalCommandCanaryRunner:
+    """Executes an opaque verifier-owned canary command without reading private canary plaintext.
+
+    The command receives `--llama-url <url> --lora-json <json> --domains-json <json> --slot-id <id>`
+    and must exit 0 with a JSON object on stdout containing:
+      - `suite_sha256`: 64-char hex digest of the sealed canary file
+      - `preservation_passed`: int
+      - `preservation_total`: int (>= 4, must equal `preservation_passed`)
+      - `outcomes`: list of `{"canary_id": str, "category": str, "passed": bool, "failures": [...]}`
+    """
+
+    def __init__(
+        self,
+        llama_client: LlamaServerClient,
+        command: Sequence[str],
+        *,
+        suite_sha256_hint: str | None = None,
+        canary_slot_id: int = 0,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        if not command:
+            raise CanaryConfigError("external canary command must be non-empty")
+        self.llama_client = llama_client
+        self.command = tuple(str(c) for c in command)
+        self.suite_sha256 = suite_sha256_hint or hashlib.sha256(" ".join(self.command).encode("utf-8")).hexdigest()
+        self.canary_slot_id = canary_slot_id
+        self.timeout_seconds = float(timeout_seconds)
+
+    def run(
+        self,
+        bundles: Sequence[AdapterBundle],
+        *,
+        allowed_active_ids: frozenset[int] = frozenset(),
+        required_state_banks: Sequence[str] | None = None,
+    ) -> CanaryResult:
+        t0 = time.perf_counter()
+        if not bundles:
+            raise CanaryFailedError("cannot run shadow canaries on an empty adapter list")
+
+        try:
+            loaded = self.llama_client.list_lora_adapters()
+        except LlamaClientError as exc:
+            raise CanaryFailedError(f"failed to inspect loaded llama-server adapters: {exc}") from exc
+
+        for item in loaded:
+            if item.id not in allowed_active_ids and abs(item.scale) > 0.0:
+                raise CanaryFailedError(
+                    f"unverified adapter id {item.id} already has non-zero scale {item.scale}; "
+                    f"llama-server must start with --lora-init-without-apply",
+                    code="ERR_UNSAFE_RUNTIME_FLAGS",
+                )
+
+        loaded_ids = {item.id for item in loaded}
+        requested_ids = {b.llama_adapter_id for b in bundles}
+        missing = sorted(requested_ids - loaded_ids)
+        if missing:
+            raise CanaryFailedError(f"candidate adapter ids not loaded in llama-server: {missing}")
+
+        lora_payload = [{"id": b.llama_adapter_id, "scale": b.scale_float} for b in bundles]
+        domains = [b.domain for b in bundles]
+        erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
+
+        slot_flushed = False
+        try:
+            self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
+            cmd = [
+                *self.command,
+                "--llama-url",
+                self.llama_client.base_url,
+                "--lora-json",
+                json.dumps(lora_payload, separators=(",", ":")),
+                "--domains-json",
+                json.dumps(domains, separators=(",", ":")),
+                "--slot-id",
+                str(self.canary_slot_id),
+            ]
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError, LlamaClientError) as exc:
+            raise CanaryFailedError(f"opaque verifier canary command failed to execute: {exc}") from exc
+        finally:
+            try:
+                self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
+                slot_flushed = True
+            except LlamaClientError:
+                slot_flushed = False
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if not slot_flushed:
+            raise CanaryFailedError("failed to flush canary slot after opaque canary command")
+        if proc.returncode != 0:
+            raise CanaryFailedError(
+                f"opaque verifier canary command rejected candidate (exit={proc.returncode}): "
+                f"{(proc.stderr or proc.stdout).strip()[:300]}"
+            )
+        try:
+            parsed = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise CanaryFailedError(f"opaque verifier canary command returned invalid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise CanaryFailedError("opaque verifier canary command output must be a JSON object")
+
+        suite_sha = str(parsed.get("suite_sha256") or self.suite_sha256)
+        pres_passed = int(parsed.get("preservation_passed", 0))
+        pres_total = int(parsed.get("preservation_total", 0))
+        raw_outcomes = parsed.get("outcomes", [])
+        if not isinstance(raw_outcomes, list) or not raw_outcomes or pres_total <= 0:
+            raise CanaryFailedError("opaque verifier canary command returned empty outcomes or zero preservation_total")
+
+        outcomes = tuple(
+            CanaryCheckOutcome(
+                canary_id=str(o["canary_id"]),
+                category=str(o.get("category", "domain")),
+                passed=bool(o["passed"]),
+                failures=tuple(str(f) for f in o.get("failures", ())),
+            )
+            for o in raw_outcomes
+            if isinstance(o, dict) and "canary_id" in o and "passed" in o
+        )
+        failed = [o for o in outcomes if not o.passed]
+        if pres_passed != pres_total or failed:
+            raise CanaryFailedError(
+                f"opaque verifier canary gate failed (preservation {pres_passed}/{pres_total}, failed={len(failed)})"
+            )
+        return CanaryResult(
+            suite_sha256=suite_sha,
+            outcomes=outcomes,
+            preservation_passed=pres_passed,
+            preservation_total=pres_total,
+            canary_slot_flushed=True,
+            elapsed_ms=elapsed_ms,
         )
