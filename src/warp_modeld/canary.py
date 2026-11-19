@@ -576,14 +576,18 @@ class ExternalCommandCanaryRunner:
         suite_sha256_hint: str | None = None,
         canary_slot_id: int = 0,
         timeout_seconds: float = 30.0,
+        min_preservation: int = 4,
     ) -> None:
         if not command:
             raise CanaryConfigError("external canary command must be non-empty")
+        if min_preservation < 1:
+            raise CanaryConfigError("min_preservation must be >= 1")
         self.llama_client = llama_client
         self.command = tuple(str(c) for c in command)
         self.suite_sha256 = suite_sha256_hint or hashlib.sha256(" ".join(self.command).encode("utf-8")).hexdigest()
         self.canary_slot_id = canary_slot_id
         self.timeout_seconds = float(timeout_seconds)
+        self.min_preservation = int(min_preservation)
 
     def run(
         self,
@@ -688,49 +692,87 @@ class ExternalCommandCanaryRunner:
 
         suite_sha = str(parsed.get("suite_sha256") or parsed.get("canaries_sha256") or self.suite_sha256)
         raw_outcomes = parsed.get("outcomes")
-        if not isinstance(raw_outcomes, list):
-            raw_outcomes = parsed.get("results") or parsed.get("canaries") or []
+        if raw_outcomes is None:
+            raw_outcomes = parsed.get("results")
+        if raw_outcomes is None:
+            raw_outcomes = parsed.get("canaries")
 
-        if isinstance(raw_outcomes, list) and raw_outcomes:
-            outcomes = tuple(
-                CanaryCheckOutcome(
-                    canary_id=str(o.get("canary_id") or o.get("id") or f"canary-{idx}"),
-                    category=str(o.get("category", "domain")),
-                    passed=bool(o["passed"]),
-                    failures=tuple(str(f) for f in o.get("failures", ())),
-                )
-                for idx, o in enumerate(raw_outcomes, start=1)
-                if isinstance(o, dict) and "passed" in o
-            )
-            pres_items = [o for o in outcomes if o.category == "preservation"]
-            pres_total = int(parsed.get("preservation_total") or len(pres_items) or len(outcomes))
-            pres_passed = int(
-                parsed.get("preservation_passed")
-                if parsed.get("preservation_passed") is not None
-                else (sum(1 for o in pres_items if o.passed) if pres_items else sum(1 for o in outcomes if o.passed))
-            )
-        else:
-            overall_ok = bool(parsed.get("passed", parsed.get("all_passed", False)))
-            total_n = int(parsed.get("total", parsed.get("canary_count", 16)))
-            passed_n = int(parsed.get("passed_count", total_n if overall_ok else 0))
-            if not overall_ok or total_n <= 0 or passed_n != total_n:
-                raise CanaryFailedError("opaque verifier canary command reported failure or empty suite")
-            pres_total = int(parsed.get("preservation_total", max(1, total_n // 2)))
-            pres_passed = int(parsed.get("preservation_passed", pres_total))
-            outcomes = tuple(
-                CanaryCheckOutcome(
-                    canary_id=f"opaque-{i:02d}",
-                    category="preservation" if i <= pres_total else "domain",
-                    passed=True,
-                    failures=(),
-                )
-                for i in range(1, total_n + 1)
+        if not isinstance(raw_outcomes, list) or len(raw_outcomes) == 0:
+            raise CanaryFailedError(
+                "opaque verifier canary command must return a non-empty per-canary 'outcomes' list; "
+                "aggregate-only reports are rejected"
             )
 
-        if not outcomes or pres_total <= 0:
-            raise CanaryFailedError("opaque verifier canary command returned empty outcomes or zero preservation_total")
+        parsed_outcomes: list[CanaryCheckOutcome] = []
+        seen_ids: set[str] = set()
+        for idx, item in enumerate(raw_outcomes):
+            if not isinstance(item, dict) or not isinstance(item.get("passed"), bool):
+                raise CanaryFailedError(
+                    f"opaque verifier canary outcome #{idx} must be an object with boolean 'passed'"
+                )
+            raw_id = item.get("canary_id") if item.get("canary_id") is not None else item.get("id")
+            cid = str(raw_id or "").strip()
+            if not cid:
+                raise CanaryFailedError(f"opaque verifier canary outcome #{idx} is missing a non-empty 'canary_id'")
+            if cid in seen_ids:
+                raise CanaryFailedError(f"duplicate canary_id in opaque verifier outcomes: {cid!r}")
+            seen_ids.add(cid)
+
+            raw_cat = str(item.get("category") or "").strip().lower()
+            if raw_cat == "preservation":
+                cat = "preservation"
+            elif raw_cat in ("domain", "formal"):
+                cat = "domain"
+            elif raw_cat == "cross_adapter":
+                cat = "cross_adapter"
+            else:
+                raise CanaryFailedError(
+                    f"invalid category {item.get('category')!r} for canary {cid!r}; "
+                    f"expected preservation, domain, or cross_adapter"
+                )
+
+            raw_failures = item.get("failures")
+            if not isinstance(raw_failures, list):
+                raw_failures = item.get("failure_codes", ())
+            parsed_outcomes.append(
+                CanaryCheckOutcome(
+                    canary_id=cid,
+                    category=cat,
+                    passed=bool(item["passed"]),
+                    failures=tuple(str(f) for f in raw_failures),
+                )
+            )
+
+        outcomes = tuple(parsed_outcomes)
+        pres_items = [o for o in outcomes if o.category == "preservation"]
+        pres_total = len(pres_items)
+        pres_passed = sum(1 for o in pres_items if o.passed)
+
+        if parsed.get("preservation_total") is not None and int(parsed["preservation_total"]) != pres_total:
+            raise CanaryFailedError(
+                f"opaque verifier preservation_total ({parsed['preservation_total']}) disagrees with "
+                f"outcomes count ({pres_total})"
+            )
+        if parsed.get("preservation_passed") is not None and int(parsed["preservation_passed"]) != pres_passed:
+            raise CanaryFailedError(
+                f"opaque verifier preservation_passed ({parsed['preservation_passed']}) disagrees with "
+                f"outcomes count ({pres_passed})"
+            )
+        if pres_total < self.min_preservation:
+            raise CanaryFailedError(
+                f"opaque verifier canary gate requires at least {self.min_preservation} preservation canaries "
+                f"(found {pres_total})"
+            )
+
         failed = [o for o in outcomes if not o.passed]
-        if pres_passed != pres_total or failed or parsed.get("passed") is False or parsed.get("all_passed") is False:
+        verdict_str = str(parsed.get("verdict") or "").strip().lower()
+        if (
+            pres_passed != pres_total
+            or failed
+            or parsed.get("passed") is False
+            or parsed.get("all_passed") is False
+            or verdict_str in ("reject", "fail", "failed")
+        ):
             raise CanaryFailedError(
                 f"opaque verifier canary gate failed (preservation {pres_passed}/{pres_total}, failed={len(failed)})"
             )

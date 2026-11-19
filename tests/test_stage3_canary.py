@@ -201,11 +201,18 @@ class TestStage3Canary(unittest.TestCase):
                 # Opaque command runner test (zero direct vault read by caller)
                 runner_script = tmp / "opaque_runner.py"
                 runner_script.write_text(
-                    "import json, sys\n"
-                    "print(json.dumps({"
-                    "'suite_sha256': 'a'*64, "
-                    "'preservation_passed': 8, 'preservation_total': 8, "
-                    "'outcomes': [{'canary_id': 'c1', 'category': 'preservation', 'passed': True, 'failures': []}]"
+                    "import json\n"
+                    "outcomes = [\n"
+                    "    {'canary_id': f'pres-{i}', 'category': 'preservation', 'passed': True, 'failures': []}\n"
+                    "    for i in range(1, 5)\n"
+                    "] + [\n"
+                    "    {'canary_id': 'dom-1', 'category': 'domain', 'passed': True, 'failures': []}\n"
+                    "]\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'a'*64,\n"
+                    "    'preservation_passed': 4,\n"
+                    "    'preservation_total': 4,\n"
+                    "    'outcomes': outcomes,\n"
                     "}))\n",
                     encoding="utf-8",
                 )
@@ -221,8 +228,70 @@ class TestStage3Canary(unittest.TestCase):
                     )
                 )
                 res = ext.run([bundle])
-                self.assertEqual(res.preservation_passed, 8)
+                self.assertEqual(res.preservation_passed, 4)
+                self.assertEqual(res.preservation_total, 4)
+                self.assertEqual(len(res.outcomes), 5)
                 self.assertTrue(res.canary_slot_flushed)
+
+                # Fail-closed check 1: bare aggregate {"passed": true} without per-canary outcomes MUST fail!
+                agg_only_script = tmp / "opaque_agg_only.py"
+                agg_only_script.write_text(
+                    "import json\nprint(json.dumps({'passed': True}))\n",
+                    encoding="utf-8",
+                )
+                ext_agg = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(agg_only_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as agg_ctx:
+                    ext_agg.run([bundle])
+                self.assertIn("aggregate-only reports are rejected", str(agg_ctx.exception))
+
+                # Fail-closed check 2: fewer than min_preservation (4) preservation canaries MUST fail!
+                low_pres_script = tmp / "opaque_low_pres.py"
+                low_pres_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'b'*64,\n"
+                    "    'preservation_passed': 2,\n"
+                    "    'preservation_total': 2,\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True, 'failures': []},\n"
+                    "        {'canary_id': 'p2', 'category': 'preservation', 'passed': True, 'failures': []},\n"
+                    "        {'canary_id': 'd1', 'category': 'domain', 'passed': True, 'failures': []},\n"
+                    "    ],\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_low = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(low_pres_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as low_ctx:
+                    ext_low.run([bundle])
+                self.assertIn("requires at least 4 preservation canaries", str(low_ctx.exception))
+
+                # Fail-closed check 3: mismatched preservation_total header spoofing MUST fail!
+                spoof_hdr_script = tmp / "opaque_spoof_hdr.py"
+                spoof_hdr_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'c'*64,\n"
+                    "    'preservation_passed': 8,\n"
+                    "    'preservation_total': 8,\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True, 'failures': []}\n"
+                    "    ],\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_spoof = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(spoof_hdr_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as spoof_ctx:
+                    ext_spoof.run([bundle])
+                self.assertIn("disagrees with outcomes count", str(spoof_ctx.exception))
         finally:
             mock.stop()
 
@@ -274,6 +343,47 @@ class TestStage3Canary(unittest.TestCase):
             self.assertEqual(len(res.outcomes), 10)
             # 10 pre-canary erases across buckets + 4 final cleanup erases = 14 total erase_slot calls
             self.assertEqual(len(erase_calls), 14)
+
+    def test_external_command_canary_runner_rejects_malformed_outcomes_and_duplicates(self) -> None:
+        from warp_modeld.canary import ExternalCommandCanaryRunner
+        from warp_modeld.llama_client import LlamaServerClient
+        from warp_modeld.fingerprint import AdapterBundle
+        import sys
+
+        mock = MockLlamaServer()
+        url = mock.start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                bundle = AdapterBundle.from_dict(
+                    make_adapter_bundle_dict(
+                        adapter_id="mde:formal-verification",
+                        domain="formal-verification",
+                        llama_adapter_id=2,
+                    )
+                )
+                dup_script = tmp / "dup_outcomes.py"
+                dup_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p3', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p4', 'category': 'preservation', 'passed': True},\n"
+                    "    ]\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_dup = ExternalCommandCanaryRunner(LlamaServerClient(url), [sys.executable, str(dup_script)])
+                with self.assertRaises(CanaryFailedError) as dup_ctx:
+                    ext_dup.run([bundle])
+                self.assertIn("duplicate canary_id", str(dup_ctx.exception))
+
+                with self.assertRaises(CanaryConfigError):
+                    ExternalCommandCanaryRunner(LlamaServerClient(url), [sys.executable], min_preservation=0)
+        finally:
+            mock.stop()
 
 
 if __name__ == "__main__":
