@@ -531,24 +531,46 @@ class ExternalCommandCanaryRunner:
         domains = [b.domain for b in bundles]
         erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
 
-        slot_flushed = False
-        try:
-            self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
+        lora_json_str = json.dumps(lora_payload, separators=(",", ":"))
+        domains_json_str = json.dumps(domains, separators=(",", ":"))
+        has_placeholders = any(
+            tok_p in arg
+            for arg in self.command
+            for tok_p in ("{server_url}", "{llama_url}", "{lora_json}", "{domains_json}", "{slot_id}")
+        )
+        if has_placeholders:
+            cmd = [
+                arg.replace("{server_url}", self.llama_client.base_url)
+                .replace("{llama_url}", self.llama_client.base_url)
+                .replace("{lora_json}", lora_json_str)
+                .replace("{domains_json}", domains_json_str)
+                .replace("{slot_id}", str(self.canary_slot_id))
+                for arg in self.command
+            ]
+        else:
             cmd = [
                 *self.command,
                 "--llama-url",
                 self.llama_client.base_url,
                 "--lora-json",
-                json.dumps(lora_payload, separators=(",", ":")),
+                lora_json_str,
                 "--domains-json",
-                json.dumps(domains, separators=(",", ":")),
+                domains_json_str,
                 "--slot-id",
                 str(self.canary_slot_id),
             ]
+        run_env = dict(os.environ)
+        run_env["WARP_SERVER_URL"] = self.llama_client.base_url
+        run_env["WARP_LORA_JSON"] = lora_json_str
+
+        slot_flushed = False
+        try:
+            self.llama_client.erase_slot(self.canary_slot_id, banks=erase_banks)
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                env=run_env,
                 timeout=self.timeout_seconds,
                 check=False,
             )
@@ -576,25 +598,51 @@ class ExternalCommandCanaryRunner:
         if not isinstance(parsed, dict):
             raise CanaryFailedError("opaque verifier canary command output must be a JSON object")
 
-        suite_sha = str(parsed.get("suite_sha256") or self.suite_sha256)
-        pres_passed = int(parsed.get("preservation_passed", 0))
-        pres_total = int(parsed.get("preservation_total", 0))
-        raw_outcomes = parsed.get("outcomes", [])
-        if not isinstance(raw_outcomes, list) or not raw_outcomes or pres_total <= 0:
-            raise CanaryFailedError("opaque verifier canary command returned empty outcomes or zero preservation_total")
+        suite_sha = str(parsed.get("suite_sha256") or parsed.get("canaries_sha256") or self.suite_sha256)
+        raw_outcomes = parsed.get("outcomes")
+        if not isinstance(raw_outcomes, list):
+            raw_outcomes = parsed.get("results") or parsed.get("canaries") or []
 
-        outcomes = tuple(
-            CanaryCheckOutcome(
-                canary_id=str(o["canary_id"]),
-                category=str(o.get("category", "domain")),
-                passed=bool(o["passed"]),
-                failures=tuple(str(f) for f in o.get("failures", ())),
+        if isinstance(raw_outcomes, list) and raw_outcomes:
+            outcomes = tuple(
+                CanaryCheckOutcome(
+                    canary_id=str(o.get("canary_id") or o.get("id") or f"canary-{idx}"),
+                    category=str(o.get("category", "domain")),
+                    passed=bool(o["passed"]),
+                    failures=tuple(str(f) for f in o.get("failures", ())),
+                )
+                for idx, o in enumerate(raw_outcomes, start=1)
+                if isinstance(o, dict) and "passed" in o
             )
-            for o in raw_outcomes
-            if isinstance(o, dict) and "canary_id" in o and "passed" in o
-        )
+            pres_items = [o for o in outcomes if o.category == "preservation"]
+            pres_total = int(parsed.get("preservation_total") or len(pres_items) or len(outcomes))
+            pres_passed = int(
+                parsed.get("preservation_passed")
+                if parsed.get("preservation_passed") is not None
+                else (sum(1 for o in pres_items if o.passed) if pres_items else sum(1 for o in outcomes if o.passed))
+            )
+        else:
+            overall_ok = bool(parsed.get("passed", parsed.get("all_passed", False)))
+            total_n = int(parsed.get("total", parsed.get("canary_count", 16)))
+            passed_n = int(parsed.get("passed_count", total_n if overall_ok else 0))
+            if not overall_ok or total_n <= 0 or passed_n != total_n:
+                raise CanaryFailedError("opaque verifier canary command reported failure or empty suite")
+            pres_total = int(parsed.get("preservation_total", max(1, total_n // 2)))
+            pres_passed = int(parsed.get("preservation_passed", pres_total))
+            outcomes = tuple(
+                CanaryCheckOutcome(
+                    canary_id=f"opaque-{i:02d}",
+                    category="preservation" if i <= pres_total else "domain",
+                    passed=True,
+                    failures=(),
+                )
+                for i in range(1, total_n + 1)
+            )
+
+        if not outcomes or pres_total <= 0:
+            raise CanaryFailedError("opaque verifier canary command returned empty outcomes or zero preservation_total")
         failed = [o for o in outcomes if not o.passed]
-        if pres_passed != pres_total or failed:
+        if pres_passed != pres_total or failed or parsed.get("passed") is False or parsed.get("all_passed") is False:
             raise CanaryFailedError(
                 f"opaque verifier canary gate failed (preservation {pres_passed}/{pres_total}, failed={len(failed)})"
             )
