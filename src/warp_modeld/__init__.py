@@ -31,8 +31,17 @@ from .fingerprint import (
     Stage1Report,
     verify_stage1,
 )
-from .ledger import HmacSha256Signer, LedgerReceipt, LedgerVerifier, SignedLedger
-from .llama_client import LlamaAdapterInfo, LlamaClientError, LlamaServerClient, LlamaSlotInfo
+from .ledger import HmacSha256Signer, LedgerReceipt, LedgerVerifier, SignedLedger, repair_ledger
+from .llama_client import (
+    REQUIRED_LLAMA_SERVER_FLAGS,
+    LlamaAdapterInfo,
+    LlamaClientError,
+    LlamaServerClient,
+    LlamaSlotInfo,
+    find_missing_llama_server_flags,
+    probe_llama_server_binary,
+)
+from .server import loads_strict_json
 from .verifier import MountResult, RollbackResult, WarpModeld
 
 __all__ = [
@@ -60,6 +69,7 @@ __all__ = [
     "LlamaSlotInfo",
     "MountResult",
     "Plane1Lineage",
+    "REQUIRED_LLAMA_SERVER_FLAGS",
     "RationalBound",
     "RollbackResult",
     "RuntimeFlagDriftError",
@@ -72,7 +82,11 @@ __all__ = [
     "UnverifiedLoraOverrideError",
     "WarpError",
     "WarpModeld",
+    "find_missing_llama_server_flags",
+    "loads_strict_json",
+    "probe_llama_server_binary",
     "reject_adapter_supplied_canaries",
+    "repair_ledger",
     "verify_division_free",
     "verify_stack_division_free",
     "verify_stage1",

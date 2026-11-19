@@ -14,8 +14,8 @@ from .canary import CanarySuite
 from .certificate import CertificateBounds, FixedRadixCertificate, verify_division_free
 from .errors import WarpError
 from .fingerprint import CheckpointFingerprint, Plane1Lineage, RuntimeFlags
-from .ledger import HmacSha256Signer, LedgerVerifier, SignedLedger
-from .llama_client import LlamaServerClient
+from .ledger import HmacSha256Signer, LedgerVerifier, SignedLedger, repair_ledger
+from .llama_client import LlamaServerClient, probe_llama_server_binary
 from .server import WarpUnixRpcServer
 from .verifier import WarpModeld
 
@@ -115,6 +115,20 @@ def _cmd_check_certificate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_repair_ledger(args: argparse.Namespace) -> int:
+    key_bytes = _load_key_bytes(Path(args.key_file))
+    signer = HmacSha256Signer(key_bytes, key_id=args.key_id)
+    result = repair_ledger(args.ledger, args.archive_dir, signer, confirmation=args.confirm)
+    print(json.dumps(result))
+    return 0
+
+
+def _cmd_probe_llama(args: argparse.Namespace) -> int:
+    result = probe_llama_server_binary(args.binary)
+    print(json.dumps({"ok": True, **result}))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="warp-modeld", description="L3 fail-closed inference gatekeeper")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -129,10 +143,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     ledger_p.add_argument("--key-id", default="warp-ledger-hmac-v1", help="Expected signing key ID")
     ledger_p.set_defaults(func=_cmd_verify_ledger)
 
+    repair_p = sub.add_parser(
+        "repair-ledger",
+        help="Explicit operator-only ledger repair: archive prior ledger read-only and reseed",
+    )
+    repair_p.add_argument("--ledger", required=True, help="Path to JSONL ledger file")
+    repair_p.add_argument("--archive-dir", required=True, help="Directory for read-only archived evidence")
+    repair_p.add_argument("--key-file", required=True, help="Path to HMAC key file")
+    repair_p.add_argument("--key-id", default="warp-ledger-hmac-v1", help="Expected signing key ID")
+    repair_p.add_argument("--confirm", required=True, help="Explicit operator confirmation phrase")
+    repair_p.set_defaults(func=_cmd_repair_ledger)
+
     cert_p = sub.add_parser("check-certificate", help="Run division-free Stage 2 FixedRadixCertificate check")
     cert_p.add_argument("--cert", required=True, help="Path to certificate JSON")
     cert_p.add_argument("--bounds", required=True, help="Path to bounds JSON")
     cert_p.set_defaults(func=_cmd_check_certificate)
+
+    probe_p = sub.add_parser("probe-llama", help="Verify local llama-server binary exposes required L3 flags")
+    probe_p.add_argument("--binary", default="llama-server", help="Path or command name for llama-server")
+    probe_p.set_defaults(func=_cmd_probe_llama)
 
     parsed = parser.parse_args(argv)
     try:

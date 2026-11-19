@@ -325,3 +325,48 @@ class SignedLedger:
         self._next_seq += 1
         self._prev_hash = receipt_sha256
         return receipt
+
+
+def repair_ledger(
+    ledger_path: str | Path,
+    archive_dir: str | Path,
+    signer: ReceiptSigner,
+    *,
+    confirmation: str,
+) -> dict[str, Any]:
+    """Explicit operator-only ledger repair that preserves prior history read-only before reseeding.
+
+    Never deletes or overwrites prior ledger evidence. Moves any existing ledger file into a
+    timestamped read-only archive with a SHA-256 digest file, then initializes a fresh ledger.
+    """
+    if not isinstance(confirmation, str) or len(confirmation.strip()) < 8:
+        raise ValueError("explicit operator confirmation (at least 8 chars) is required for ledger repair")
+
+    src = Path(ledger_path)
+    arch_root = Path(archive_dir)
+    arch_root.mkdir(parents=True, exist_ok=True)
+
+    archived_path: str | None = None
+    archived_sha256: str | None = None
+
+    if src.exists():
+        raw = src.read_bytes()
+        archived_sha256 = hashlib.sha256(raw).hexdigest()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        dest = arch_root / f"{src.stem}.{stamp}.archived.jsonl"
+        dest.write_bytes(raw)
+        os.chmod(dest, 0o400)
+        digest_file = arch_root / f"{src.stem}.{stamp}.archived.sha256"
+        digest_file.write_text(f"{archived_sha256}  {dest.name}\n", encoding="utf-8")
+        os.chmod(digest_file, 0o400)
+        src.unlink()
+        archived_path = str(dest)
+
+    fresh = SignedLedger(src, signer)
+    return {
+        "ok": True,
+        "archived_path": archived_path,
+        "archived_sha256": archived_sha256,
+        "new_ledger_path": str(fresh.path),
+        "new_head_sha256": fresh.head_sha256,
+    }

@@ -27,7 +27,7 @@ It is built for operators running local open-weight models and coding agents who
 | --- | --- |
 | `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) |
 | `schemas/` | Adapter bundle JSON schema (`adapter-bundle.schema.json`), verifier-owned canary suite (`verifier-canaries.json`), and daemon config template (`modeld-config.example.json`) |
-| `blueprints/mkosi/` | Base Arch `btrfs` + UKI config, post-install script, and `vmtest`, `compute-rtx3080`, and `client-omarchy` profiles |
+| `blueprints/mkosi/` | Base Arch `btrfs` + UKI config (zero `sudo`), post-install and ancestor mode-hardening scripts, and `vmtest`, `compute-rtx3080`, and `client-omarchy` profiles |
 | `blueprints/systemd/` | Hardened service units for `llama-server` (`--lora-init-without-apply`), `warp-modeld`, and pre-upgrade checkpoints |
 | `blueprints/sandbox/` | `Landlock` rules, default-deny `seccomp` filter, and fail-closed `bubblewrap` tool executor (`WARP_TOOL_EXECUTOR_REQUIRED=1`) |
 | `blueprints/recovery/` | `btrfs` snapshot and archived UKI checkpoint/rollback helper (`warp-recovery.sh`) |
@@ -41,11 +41,13 @@ Requires Python 3.11 or newer with no external runtime packages:
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Verify a signed ledger file or run a standalone division-free certificate check:
+Verify a signed ledger file, archive and reseed a damaged ledger explicitly, run a division-free certificate check, or probe an installed `llama-server` binary:
 
 ```bash
 PYTHONPATH=src python3 -m warp_modeld.cli verify-ledger --ledger <ledger.jsonl> --key-file <ledger.key>
+PYTHONPATH=src python3 -m warp_modeld.cli repair-ledger --ledger <ledger.jsonl> --archive-dir <archive> --key-file <ledger.key> --confirm <phrase>
 PYTHONPATH=src python3 -m warp_modeld.cli check-certificate --cert <cert.json> --bounds <bounds.json>
+WARP_LIVE_LLAMA_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
 ```
 
 ## Three-Machine Deployment Model

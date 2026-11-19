@@ -86,6 +86,10 @@ When a user triggers the kill switch, disables learning, or hits a runtime anoma
 3. Queries active slots (`GET /slots`) and explicitly erases every slot (`POST /slots/{id}?action=erase`) to flush both KV cache entries and hybrid recurrent states. If a slot flush fails, `warp-modeld` refuses traffic instead of serving tainted state.
 4. Appends a hash-chained, cryptographically signed `rollback` receipt to the JSONL ledger.
 
+If a ledger file is truncated or tampered with on disk, `warp-modeld` refuses to start and never resets history automatically. An explicit root command (`warp-modeld repair-ledger`) preserves the broken ledger read-only with a SHA-256 checksum in an archive directory before initializing a fresh chain.
+
+On the local Unix RPC socket, `warp-modeld` rejects duplicate JSON keys on every request frame and rejects any caller attempt to pass raw `"lora"` overrides during inference.
+
 ## Three-Machine Hardware Topology
 
 All memory figures below use binary units (`GiB` = 1024^3 bytes, `MiB` = 1024^2 bytes).
@@ -100,10 +104,13 @@ Trust flows strictly asymmetrically across the private authenticated link (Tails
 
 - **Mac hub to Linux hosts (downward):** Signed policy tree pins, exact-byte approval signatures, verifier canary digests, and kill-switch commands.
 - **Linux hosts to Mac hub (upward):** Content-addressed evidence bundles, adapter manifests, and signed ledger heads. Linux hosts hold zero write access to the Mac hub.
+- **Capability grants above transport:** Transport encryption alone (Tailscale, WireGuard, or future Iroh peers) authenticates endpoints but never grants broad host control. Cross-machine calls require scoped, expiring per-capability grants, durable `(principal, request_id)` replay rejection, and strict duplicate-key JSON validation.
 
 ## Declarative Imaging (`mkosi`) and `btrfs` + UKI Recovery
 
 `warp` builds reproducible Arch Linux disk images with `mkosi` across three profiles: `vmtest` (QEMU validation first), `compute-rtx3080` (dual-boot CUDA host), and `client-omarchy` (Wayland desktop client).
+Every profile omits `sudo` completely so privileged system actions run only through dedicated root helper sockets or a physical recovery console.
+During image assembly, `harden-image-modes.sh` walks every ancestor directory along trusted policy, verifier, model, and unit paths and strips group and world write permissions (`root:root`, `go-w`) so an unprivileged user cannot swap verifier files via a writable parent directory.
 
 Disk state splits across dedicated `btrfs` subvolumes:
 

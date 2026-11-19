@@ -17,6 +17,20 @@ from .verifier import WarpModeld
 MAX_REQUEST_BYTES = 2 * 1024 * 1024  # 2 MiB hard frame ceiling
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key rejected: {key!r}")
+        out[key] = value
+    return out
+
+
+def loads_strict_json(raw_text: str) -> Any:
+    """Parse JSON while failing closed on duplicate object keys."""
+    return json.loads(raw_text, object_pairs_hook=_reject_duplicate_json_keys)
+
+
 class _WarpRpcHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         server: _WarpUnixStreamServer = self.server  # type: ignore[assignment]
@@ -53,8 +67,8 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
     def dispatch_line(self, raw_line: bytes) -> dict[str, Any]:
         req_id: Any = None
         try:
-            req = json.loads(raw_line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            req = loads_strict_json(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             return {
                 "jsonrpc": "2.0",
                 "id": None,

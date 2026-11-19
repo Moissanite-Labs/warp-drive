@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,19 @@ class TestEndToEndDaemon(unittest.TestCase):
                     )
                     self.assertIn("error", sneaky)
                     self.assertEqual(sneaky["error"]["data"]["code"], "ERR_UNVERIFIED_LORA_OVERRIDE")
+
+                    # Adversarial RPC: duplicate JSON keys rejected before dispatch!
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as raw_sock:
+                        raw_sock.settimeout(5.0)
+                        raw_sock.connect(str(sock_path))
+                        dup_wire = (
+                            b'{"jsonrpc":"2.0","id":99,"method":"wmcp_slot_status",'
+                            b'"params":{"a":1,"a":2}}\n'
+                        )
+                        raw_sock.sendall(dup_wire)
+                        dup_resp = json.loads(raw_sock.recv(65536).decode("utf-8"))
+                    self.assertIn("error", dup_resp)
+                    self.assertIn("duplicate JSON key", dup_resp["error"]["message"])
 
                     # Adversarial RPC: forged canary rejected without disturbing active mount!
                     forged = make_adapter_bundle_dict()

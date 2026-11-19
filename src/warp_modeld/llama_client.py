@@ -4,12 +4,58 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import shutil
+import subprocess
 from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .errors import WarpError
+
+REQUIRED_LLAMA_SERVER_FLAGS = (
+    "--lora",
+    "--lora-scaled",
+    "--lora-init-without-apply",
+    "--slots",
+    "--no-cache-idle-slots",
+    "--slot-prompt-similarity",
+    "--ctx-checkpoints",
+)
+
+
+def find_missing_llama_server_flags(help_text: str) -> list[str]:
+    """Return any required L3 safety/slot flags missing from `llama-server --help` output."""
+    return [flag for flag in REQUIRED_LLAMA_SERVER_FLAGS if flag not in help_text]
+
+
+def probe_llama_server_binary(binary: str = "llama-server", *, timeout_seconds: float = 5.0) -> dict[str, Any]:
+    """Run `<binary> --help` read-only and verify all required L3 flags are supported."""
+    resolved = shutil.which(binary) if "/" not in binary else binary
+    if not resolved:
+        raise LlamaClientError(f"llama-server binary not found: {binary}")
+    try:
+        proc = subprocess.run(
+            [resolved, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LlamaClientError(f"failed to execute {resolved} --help: {exc}") from exc
+
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    missing = find_missing_llama_server_flags(combined)
+    if missing:
+        raise LlamaClientError(
+            f"llama-server binary at {resolved} lacks required L3 flags: {missing}"
+        )
+    return {
+        "binary": resolved,
+        "returncode": proc.returncode,
+        "verified_flags": list(REQUIRED_LLAMA_SERVER_FLAGS),
+    }
 
 
 class LlamaClientError(WarpError):

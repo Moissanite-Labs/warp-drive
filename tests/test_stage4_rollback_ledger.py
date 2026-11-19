@@ -15,7 +15,7 @@ from warp_modeld.errors import (
     UnverifiedLoraOverrideError,
 )
 from warp_modeld.fingerprint import Plane1Lineage
-from warp_modeld.ledger import HmacSha256Signer, LedgerVerifier, SignedLedger
+from warp_modeld.ledger import HmacSha256Signer, LedgerVerifier, SignedLedger, repair_ledger
 from warp_modeld.llama_client import LlamaServerClient
 
 from tests.helpers import fake_sha, make_adapter_bundle_dict, make_lineage, make_modeld
@@ -235,6 +235,17 @@ class TestStage4RollbackAndLedger(unittest.TestCase):
                 extra_path.write_text(json.dumps(extra_key) + "\n", encoding="utf-8")
                 with self.assertRaises(LedgerTamperError):
                     LedgerVerifier.verify_file(extra_path, signer)
+
+                # Explicit operator repair preserves broken ledger read-only and reseeds cleanly.
+                archive_dir = Path(td) / "archive"
+                with self.assertRaises(ValueError):
+                    repair_ledger(tampered_path, archive_dir, signer, confirmation="short")
+                repaired = repair_ledger(tampered_path, archive_dir, signer, confirmation="root-approved-reseed")
+                self.assertTrue(repaired["ok"])
+                archived = Path(repaired["archived_path"])
+                self.assertTrue(archived.is_file())
+                self.assertEqual(archived.stat().st_mode & 0o777, 0o400)
+                self.assertEqual(LedgerVerifier.verify_file(tampered_path, signer), [])
         finally:
             mock.stop()
 

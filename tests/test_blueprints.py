@@ -85,12 +85,22 @@ class TestBlueprintsAndHygiene(unittest.TestCase):
 
     def test_mkosi_profiles_exist_and_enable_uki_btrfs_landlock(self) -> None:
         base_cfg = (REPO_ROOT / "blueprints" / "mkosi" / "mkosi.conf").read_text(encoding="utf-8")
-        for required in ("UnifiedKernelImages=yes", "btrfs-progs", "bubblewrap", "lsm=landlock"):
+        for required in ("UnifiedKernelImages=yes", "btrfs-progs", "bubblewrap", "lsm=landlock", "harden-image-modes.sh"):
             self.assertIn(required, base_cfg)
 
+        # Hardening invariant: sudo must never be installed as a package in any mkosi profile.
+        all_mkosi = [REPO_ROOT / "blueprints" / "mkosi" / "mkosi.conf"]
         for profile in ("vmtest", "compute-rtx3080", "client-omarchy"):
             prof_path = REPO_ROOT / "blueprints" / "mkosi" / "mkosi.profiles" / profile / "mkosi.conf"
             self.assertTrue(prof_path.is_file(), f"missing profile {profile}")
+            all_mkosi.append(prof_path)
+
+        for cfg_path in all_mkosi:
+            for line in cfg_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                self.assertNotEqual(stripped, "sudo", msg=f"sudo must not be installed in {cfg_path}")
 
         rtx_cfg = (REPO_ROOT / "blueprints" / "mkosi" / "mkosi.profiles" / "compute-rtx3080" / "mkosi.conf").read_text(
             encoding="utf-8"
@@ -101,6 +111,7 @@ class TestBlueprintsAndHygiene(unittest.TestCase):
     def test_shell_scripts_syntax_and_fail_closed_sandbox_behavior(self) -> None:
         scripts = (
             REPO_ROOT / "blueprints" / "mkosi" / "mkosi.postinst",
+            REPO_ROOT / "blueprints" / "mkosi" / "harden-image-modes.sh",
             REPO_ROOT / "blueprints" / "sandbox" / "warp-sandbox-exec.sh",
             REPO_ROOT / "blueprints" / "recovery" / "warp-recovery.sh",
         )
