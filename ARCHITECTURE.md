@@ -47,6 +47,9 @@ Stage 1 checks five content digests on CPU before touching GPU memory:
 3. **Config and template digest:** Confirms `config`, tokenizer files, and `chat_template.jinja` SHA-256 values match the pinned base model.
 4. **Source lineage digest (`source.lineage`):** Confirms the adapter was compiled from the currently pinned source policy tree (`corpus_tree_sha256` and domain source commits) with zero contested heads. Any newer source policy commit marks the adapter `stale_lineage` and rejects the mount.
 5. **Runtime-flag digest:** Confirms the running `llama-server` binary commit, quantization format, context size (`--ctx-size`), KV cache quantization, checkpoint flags (`--ctx-checkpoints`, `--swa-checkpoints`), and RoPE or chat-template arguments match the adapter's verified serving profile.
+6. **Optional L5 zone-manifest pinning (`zone-manifest/v0.1`):** When the host pins a canonical `zone_manifest_id` (`sha256:<64 hex>`) from `siliconcordat/mde`, every mounted adapter must carry that matching digest. Any 1-bit change to zone rules or L1 bank tags rotates `zone_manifest_id`, auto-unloads active adapters with an explicit slot flush, and rejects stale mounts or inference calls with `ERR_ZONE_MANIFEST_DRIFT`.
+
+`warp-modeld` also provides native L2 `siliconcordat/weft` ingestion constructors (`FixedRadixCertificate.from_weft_dict` and `AdapterBundle.from_weft_binding`) that expand `radix_scale_exp2` into exact integer `1 << exp2` scales, verify internal manifest digests, and reject `bool` or `float` coercion before Stage 2 runs.
 
 ### Stage 2: Exact Integer `FixedRadixCertificate` Gate
 

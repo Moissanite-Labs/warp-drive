@@ -24,6 +24,7 @@
     "llama_adapter_id": { "type": "integer", "minimum": 0 },
     "adapter_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "adapter_path": { "type": ["string", "null"] },
+    "zone_manifest_id": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
     "scale_num": { "type": "integer", "minimum": 1 },
     "scale_den": { "type": "integer", "minimum": 1 },
     "runtime_flags_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

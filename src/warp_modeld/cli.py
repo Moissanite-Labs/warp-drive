@@ -48,6 +48,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         require_localhost=bool(cfg.get("require_localhost", True)),
     )
 
+    zone_manifest_obj = None
+    if cfg.get("zone_manifest_path"):
+        zone_manifest_obj = json.loads(Path(cfg["zone_manifest_path"]).read_text(encoding="utf-8"))
+
     modeld = WarpModeld(
         pinned_checkpoint=checkpoint,
         pinned_lineage=lineage,
@@ -58,6 +62,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         llama_client=llama,
         ledger=ledger,
         canary_slot_id=int(cfg.get("canary_slot_id", 0)),
+        pinned_zone_manifest_id=cfg.get("pinned_zone_manifest_id"),
+        pinned_zone_manifest=zone_manifest_obj,
     )
 
     server = WarpUnixRpcServer(

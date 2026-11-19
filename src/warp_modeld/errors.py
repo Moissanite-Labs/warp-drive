@@ -44,6 +44,11 @@ class RuntimeFlagDriftError(WarpError):
     stage = "stage1_fingerprint"
 
 
+class ZoneManifestDriftError(WarpError):
+    code = "ERR_ZONE_MANIFEST_DRIFT"
+    stage = "stage1_fingerprint"
+
+
 class CertificateError(WarpError):
     code = "ERR_CERT_INVALID"
     stage = "stage2_certificate"

@@ -16,7 +16,7 @@ It is built for operators running local open-weight models and coding agents who
 
 ## What Warp Provides
 
-- **Verified model gatekeeper (`warp-modeld`):** A zero-dependency Python 3 standard-library service sitting between L4 `exo` and L2 `llama-server`. It checks model fingerprints, lineage hashes, runtime flags, exact integer math certificates, and system-owned canary tests before activating any adapter.
+- **Verified model gatekeeper (`warp-modeld`):** A zero-dependency Python 3 standard-library service sitting between L4 `exo` and L2 `llama-server`. It checks model fingerprints, lineage hashes, runtime flags, optional L5 `zone-manifest/v0.1` bank-tag pins, exact integer math certificates (including native `siliconcordat/weft` manifest ingestion), and system-owned canary tests before activating any adapter.
 - **Instant safe rollback:** Base weights stay on read-only storage. A kill switch sets adapter scales to zero, flushes slot key-value (KV) caches and hybrid attention or state-space recurrent states, and writes a hash-chained signed receipt to an append-only JSONL ledger.
 - **Mandatory tool sandboxes:** Declarative `Landlock`, `seccomp`, and `bubblewrap` blueprints confine agent tools inside an empty network namespace with read-only access to verifier canaries and base weights.
 - **Recoverable Linux images (`mkosi` + `btrfs` + UKI):** Declarative Arch Linux profiles (`vmtest`, `compute-rtx3080`, `client-omarchy`) pair read-only `btrfs` root snapshots with archived Unified Kernel Images (UKI) for single-reboot recovery.

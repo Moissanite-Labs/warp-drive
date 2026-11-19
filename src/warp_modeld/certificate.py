@@ -9,15 +9,17 @@ import json
 import math
 import re
 import time
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .errors import CertificateError
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+WEFT_RADIX_EXP2_MIN = 8
+WEFT_RADIX_EXP2_MAX = 48
 
 
 def _require_exact_int(value: Any, name: str, *, allow_zero: bool = True) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
+    if type(value) is not int:
         raise CertificateError(f"{name} must be an exact integer (got {type(value).__name__})")
     if allow_zero:
         if value < 0:
@@ -156,8 +158,8 @@ class FixedRadixCertificate:
         return cls(cert_sha256=_canonical_sha256(body), **body)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FixedRadixCertificate:
-        if not isinstance(data, dict):
+    def from_dict(cls, data: Mapping[str, Any]) -> FixedRadixCertificate:
+        if not isinstance(data, Mapping):
             raise CertificateError("certificate must be a mapping")
         try:
             return cls(
@@ -173,6 +175,96 @@ class FixedRadixCertificate:
             )
         except KeyError as exc:
             raise CertificateError(f"missing certificate field: {exc}") from exc
+
+    @classmethod
+    def from_weft_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        adapter_id: str,
+        adapter_sha256: str,
+        base_weights_sha256: str,
+        expected_weft_sha256: str | None = None,
+    ) -> FixedRadixCertificate:
+        """Ingest an L2 weft FixedRadixCertificate dict natively without float coercion.
+
+        Validates strict `type(v) is int` across all integer fields, expands
+        `radix_scale_exp2` -> `1 << exp2` (enforcing `[8, 48]`), checks
+        `spectral_norm_sq_scaled <= frobenius_sq_scaled`, and verifies canonical
+        weft digest parity when `expected_weft_sha256` is provided.
+        """
+        if not isinstance(data, Mapping):
+            raise CertificateError("weft certificate must be a mapping")
+
+        required = (
+            "radix_scale_exp2",
+            "frobenius_sq_scaled",
+            "spectral_norm_sq_scaled",
+            "leakage_energy_scaled",
+            "max_safety_dot_sq_scaled",
+            "projector_epoch",
+            "factor_digest",
+            "quant_dtype",
+        )
+        for key in required:
+            if key not in data:
+                raise CertificateError(f"missing weft certificate field: '{key}'")
+
+        exp2 = _require_exact_int(data["radix_scale_exp2"], "radix_scale_exp2", allow_zero=False)
+        if not (WEFT_RADIX_EXP2_MIN <= exp2 <= WEFT_RADIX_EXP2_MAX):
+            raise CertificateError(
+                f"radix_scale_exp2 must be in [{WEFT_RADIX_EXP2_MIN}, {WEFT_RADIX_EXP2_MAX}] (got {exp2})"
+            )
+
+        frob = _require_exact_int(data["frobenius_sq_scaled"], "frobenius_sq_scaled", allow_zero=True)
+        spec = _require_exact_int(data["spectral_norm_sq_scaled"], "spectral_norm_sq_scaled", allow_zero=True)
+        leak = _require_exact_int(data["leakage_energy_scaled"], "leakage_energy_scaled", allow_zero=True)
+        safety = _require_exact_int(data["max_safety_dot_sq_scaled"], "max_safety_dot_sq_scaled", allow_zero=True)
+        epoch = _require_exact_int(data["projector_epoch"], "projector_epoch", allow_zero=True)
+
+        factor_digest = data["factor_digest"]
+        quant_dtype = data["quant_dtype"]
+        if not isinstance(factor_digest, str) or not SHA256_RE.match(factor_digest):
+            raise CertificateError("weft certificate factor_digest must be a 64-char lowercase hex digest")
+        if not isinstance(quant_dtype, str) or not quant_dtype.strip():
+            raise CertificateError("weft certificate quant_dtype must be a non-empty string")
+
+        if spec > frob:
+            raise CertificateError(
+                f"inconsistent weft certificate for {adapter_id}: "
+                f"spectral_norm_sq_scaled ({spec}) > frobenius_sq_scaled ({frob})"
+            )
+
+        weft_canonical = {
+            "radix_scale_exp2": exp2,
+            "frobenius_sq_scaled": frob,
+            "spectral_norm_sq_scaled": spec,
+            "leakage_energy_scaled": leak,
+            "max_safety_dot_sq_scaled": safety,
+            "projector_epoch": epoch,
+            "factor_digest": factor_digest,
+            "quant_dtype": quant_dtype,
+        }
+        weft_sha = _canonical_sha256(weft_canonical)
+        if expected_weft_sha256 is not None:
+            if not isinstance(expected_weft_sha256, str) or not SHA256_RE.match(expected_weft_sha256):
+                raise CertificateError("expected_weft_sha256 must be a 64-char lowercase hex digest")
+            if not hmac.compare_digest(weft_sha, expected_weft_sha256):
+                raise CertificateError(
+                    f"weft certificate digest mismatch for {adapter_id}: "
+                    f"computed {weft_sha}, expected {expected_weft_sha256}"
+                )
+
+        return cls.create(
+            adapter_id=adapter_id,
+            adapter_sha256=adapter_sha256,
+            base_weights_sha256=base_weights_sha256,
+            radix_scale=1 << exp2,
+            frobenius_sq_scaled=frob,
+            spectral_norm_sq_scaled=spec,
+            leakage_energy_scaled=leak,
+            max_safety_dot_sq_scaled=safety,
+        )
 
 
 @dataclass(frozen=True)

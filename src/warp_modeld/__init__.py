@@ -22,6 +22,7 @@ from .errors import (
     StateFlushError,
     UnverifiedLoraOverrideError,
     WarpError,
+    ZoneManifestDriftError,
 )
 from .fingerprint import (
     AdapterBundle,
@@ -29,7 +30,10 @@ from .fingerprint import (
     Plane1Lineage,
     RuntimeFlags,
     Stage1Report,
+    compute_zone_manifest_id,
+    validate_zone_manifest_id,
     verify_stage1,
+    verify_zone_manifest_dict,
 )
 from .ledger import HmacSha256Signer, LedgerReceipt, LedgerVerifier, SignedLedger, repair_ledger
 from .llama_client import (
@@ -82,12 +86,16 @@ __all__ = [
     "UnverifiedLoraOverrideError",
     "WarpError",
     "WarpModeld",
+    "ZoneManifestDriftError",
+    "compute_zone_manifest_id",
     "find_missing_llama_server_flags",
     "loads_strict_json",
     "probe_llama_server_binary",
     "reject_adapter_supplied_canaries",
     "repair_ledger",
+    "validate_zone_manifest_id",
     "verify_division_free",
     "verify_stack_division_free",
     "verify_stage1",
+    "verify_zone_manifest_dict",
 ]

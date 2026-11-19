@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import socket
@@ -129,6 +130,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             res = self.modeld.mount_stack(
                 params["bundles"],
                 raw_composed_certificate=params.get("composed_certificate"),
+                expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
             return {
                 "slot_manifest_digest": res.slot_manifest_digest,
@@ -136,6 +138,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "slots_flushed": list(res.slots_flushed),
                 "stage2_elapsed_ns": res.stage2_result.elapsed_ns,
                 "canaries_passed": len(res.stage3_result.outcomes),
+                "zone_manifest_id": self.modeld.pinned_zone_manifest_id,
                 "receipt": res.receipt.to_dict(),
             }
 
@@ -184,6 +187,19 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "rollback_receipt": rb.receipt.to_dict() if rb is not None else None,
             }
 
+        if method == "warp_update_zone_manifest":
+            if "zone_manifest" in params:
+                target = params["zone_manifest"]
+            elif "zone_manifest_id" in params:
+                target = params["zone_manifest_id"]
+            else:
+                raise KeyError("zone_manifest or zone_manifest_id")
+            rb = self.modeld.update_zone_manifest(target)
+            return {
+                "status": self.modeld.status(),
+                "rollback_receipt": rb.receipt.to_dict() if rb is not None else None,
+            }
+
         if method == "warp_infer":
             messages = params["messages"]
             if not isinstance(messages, list):
@@ -194,6 +210,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 seed=int(params.get("seed", 42)),
                 max_tokens=int(params.get("max_tokens", 256)),
                 raw_params=params,
+                expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
 
         raise WarpError(f"unknown RPC method: {method}", code="ERR_METHOD_NOT_FOUND", stage="rpc")
@@ -237,11 +254,10 @@ class WarpUnixRpcServer:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        if self.socket_path.exists():
-            try:
-                self.socket_path.unlink()
-            except OSError:
-                pass
+        try:
+            self.socket_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logging.getLogger(__name__).warning("failed to remove socket %s: %s", self.socket_path, exc)
 
 
 class WarpUnixRpcClient:

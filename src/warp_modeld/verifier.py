@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hmac
 import threading
 import time
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .canary import CanaryResult, CanaryRunner, CanarySuite, reject_adapter_supplied_canaries
 from .certificate import (
@@ -19,6 +20,7 @@ from .errors import (
     StateFlushError,
     UnverifiedLoraOverrideError,
     WarpError,
+    ZoneManifestDriftError,
 )
 from .fingerprint import (
     AdapterBundle,
@@ -27,7 +29,9 @@ from .fingerprint import (
     RuntimeFlags,
     Stage1Report,
     sha256_json,
+    validate_zone_manifest_id,
     verify_stage1,
+    verify_zone_manifest_dict,
 )
 from .ledger import LedgerReceipt, SignedLedger
 from .llama_client import LlamaClientError, LlamaServerClient
@@ -68,6 +72,8 @@ class WarpModeld:
         llama_client: LlamaServerClient,
         ledger: SignedLedger,
         canary_slot_id: int = 0,
+        pinned_zone_manifest_id: str | None = None,
+        pinned_zone_manifest: Mapping[str, Any] | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self.pinned_checkpoint = pinned_checkpoint
@@ -79,6 +85,22 @@ class WarpModeld:
         self.llama_client = llama_client
         self.ledger = ledger
         self.canary_runner = CanaryRunner(llama_client, canary_suite, canary_slot_id=canary_slot_id)
+
+        self._zone_bank_tags: dict[str, int] = {}
+        if pinned_zone_manifest is not None:
+            verified_id, tags = verify_zone_manifest_dict(pinned_zone_manifest)
+            if pinned_zone_manifest_id is not None:
+                validate_zone_manifest_id(pinned_zone_manifest_id)
+                if not hmac.compare_digest(verified_id, pinned_zone_manifest_id):
+                    raise ZoneManifestDriftError(
+                        f"pinned_zone_manifest_id ({pinned_zone_manifest_id}) != manifest_id ({verified_id})"
+                    )
+            self.pinned_zone_manifest_id: str | None = verified_id
+            self._zone_bank_tags = tags
+        elif pinned_zone_manifest_id is not None:
+            self.pinned_zone_manifest_id = validate_zone_manifest_id(pinned_zone_manifest_id)
+        else:
+            self.pinned_zone_manifest_id = None
 
         self._active_bundles: list[AdapterBundle] = []
         self._slot_manifest_digest: str | None = None
@@ -96,11 +118,14 @@ class WarpModeld:
                 "runtime_flags": self.live_runtime_flags.to_dict(),
                 "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
                 "canary_suite_sha256": self.canary_suite.suite_sha256,
+                "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
+                "zone_bank_tags": dict(self._zone_bank_tags),
             }
 
     def status(self) -> dict[str, Any]:
         with self._lock:
             stale = self._is_active_stack_stale()
+            zone_drift = self._is_active_zone_manifest_drifted()
             return {
                 "active_adapters": [b.manifest_entry() for b in self._active_bundles],
                 "slot_manifest_digest": self._slot_manifest_digest,
@@ -108,12 +133,23 @@ class WarpModeld:
                 "learning_enabled": self._learning_enabled,
                 "state_quarantined": self._state_quarantined,
                 "stale_lineage": stale,
+                "zone_manifest_drift": zone_drift,
+                "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
+                "zone_bank_tags": dict(self._zone_bank_tags),
                 "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
                 "lineage_digest": self.pinned_lineage.canonical_digest(),
                 "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
                 "ledger_head_sha256": self.ledger.head_sha256,
                 "ledger_count": self.ledger.count,
             }
+
+    def _is_active_zone_manifest_drifted(self) -> bool:
+        if not self._active_bundles:
+            return False
+        for bundle in self._active_bundles:
+            if bundle.zone_manifest_id != self.pinned_zone_manifest_id:
+                return True
+        return False
 
     def _is_active_stack_stale(self) -> bool:
         if not self._active_bundles:
@@ -129,15 +165,16 @@ class WarpModeld:
         return False
 
     def _compute_slot_manifest_digest(self, bundles: Sequence[AdapterBundle]) -> str:
-        return sha256_json(
-            {
-                "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
-                "lineage_digest": self.pinned_lineage.canonical_digest(),
-                "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
-                "canary_suite_sha256": self.canary_suite.suite_sha256,
-                "adapters": [b.manifest_entry() for b in bundles],
-            }
-        )
+        payload: dict[str, Any] = {
+            "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
+            "lineage_digest": self.pinned_lineage.canonical_digest(),
+            "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
+            "canary_suite_sha256": self.canary_suite.suite_sha256,
+            "adapters": [b.manifest_entry() for b in bundles],
+        }
+        if self.pinned_zone_manifest_id is not None:
+            payload["zone_manifest_id"] = self.pinned_zone_manifest_id
+        return sha256_json(payload)
 
     def _zero_all_lora_scales(self) -> None:
         loaded = self.llama_client.list_lora_adapters()
@@ -189,6 +226,7 @@ class WarpModeld:
         raw_bundles: Sequence[dict[str, Any]],
         *,
         raw_composed_certificate: dict[str, Any] | None = None,
+        expected_zone_manifest_id: str | None = None,
     ) -> MountResult:
         """Execute all 4 fail-closed stages before activating a single or multi-adapter stack."""
         with self._lock:
@@ -215,6 +253,20 @@ class WarpModeld:
                 self._record_reject(err)
                 raise err
 
+            if expected_zone_manifest_id is not None:
+                try:
+                    validate_zone_manifest_id(expected_zone_manifest_id)
+                    if self.pinned_zone_manifest_id is None or not hmac.compare_digest(
+                        expected_zone_manifest_id, self.pinned_zone_manifest_id
+                    ):
+                        raise ZoneManifestDriftError(
+                            f"mount request zone_manifest_id {expected_zone_manifest_id} "
+                            f"!= host pinned {self.pinned_zone_manifest_id}"
+                        )
+                except WarpError as err:
+                    self._record_reject(err)
+                    raise
+
             # Stage 0 / anti-forgery pre-check: forbid adapter-supplied canaries before parsing.
             try:
                 reject_adapter_supplied_canaries(list(raw_bundles), path="bundles")
@@ -224,7 +276,7 @@ class WarpModeld:
                 self._record_reject(err)
                 raise
 
-            # Parse bundles + Stage 1 (4-layer checkpoint + lineage + 5th runtime-flag digest).
+            # Parse bundles + Stage 1 (4-layer checkpoint + lineage + 5th runtime-flag digest + optional zone manifest).
             bundles: list[AdapterBundle] = []
             stage1_reports: list[Stage1Report] = []
             seen_llama_ids: set[int] = set()
@@ -246,6 +298,7 @@ class WarpModeld:
                             self.pinned_checkpoint,
                             self.pinned_lineage,
                             self.live_runtime_flags,
+                            pinned_zone_manifest_id=self.pinned_zone_manifest_id,
                         )
                     )
             except WarpError as err:
@@ -325,6 +378,7 @@ class WarpModeld:
                     "preservation_passed": stage3_res.preservation_passed,
                     "preservation_total": stage3_res.preservation_total,
                     "canaries_passed": len(stage3_res.outcomes),
+                    "zone_manifest_id": self.pinned_zone_manifest_id,
                 },
             )
             return MountResult(
@@ -407,6 +461,20 @@ class WarpModeld:
                 return self.rollback(reason="stale_lineage_auto_unload", engage_kill_switch=False)
             return None
 
+    def update_zone_manifest(self, manifest_or_id: str | Mapping[str, Any]) -> RollbackResult | None:
+        """Rotate pinned L5 zone-manifest/v0.1 digest; auto-unload and flush on bank-tag drift."""
+        with self._lock:
+            if isinstance(manifest_or_id, Mapping):
+                new_id, new_tags = verify_zone_manifest_dict(manifest_or_id)
+            else:
+                new_id = validate_zone_manifest_id(manifest_or_id)
+                new_tags = {}
+            self.pinned_zone_manifest_id = new_id
+            self._zone_bank_tags = new_tags
+            if self._is_active_zone_manifest_drifted():
+                return self.rollback(reason="zone_manifest_drift_auto_unload", engage_kill_switch=False)
+            return None
+
     def set_learning_enabled(self, enabled: bool) -> RollbackResult | None:
         """Toggle parametric adapter mounting (mirrors .mep/learning off switch)."""
         with self._lock:
@@ -423,6 +491,7 @@ class WarpModeld:
         seed: int = 42,
         max_tokens: int = 256,
         raw_params: dict[str, Any] | None = None,
+        expected_zone_manifest_id: str | None = None,
     ) -> dict[str, Any]:
         """Proxy chat completion through warp-modeld using only verified active LoRA state."""
         with self._lock:
@@ -431,6 +500,19 @@ class WarpModeld:
             if raw_params is not None and "lora" in raw_params:
                 raise UnverifiedLoraOverrideError(
                     "callers may not pass raw 'lora' overrides to warp_infer; mount through Stage 1-4 verifier"
+                )
+            if expected_zone_manifest_id is not None:
+                validate_zone_manifest_id(expected_zone_manifest_id)
+                if self.pinned_zone_manifest_id is None or not hmac.compare_digest(
+                    expected_zone_manifest_id, self.pinned_zone_manifest_id
+                ):
+                    raise ZoneManifestDriftError(
+                        f"infer zone_manifest_id {expected_zone_manifest_id} "
+                        f"!= host pinned {self.pinned_zone_manifest_id}"
+                    )
+            if self._is_active_zone_manifest_drifted():
+                raise ZoneManifestDriftError(
+                    "active adapter stack drifted from pinned zone_manifest_id; remount required"
                 )
             active_lora = [
                 {"id": b.llama_adapter_id, "scale": b.scale_float}
@@ -447,6 +529,7 @@ class WarpModeld:
             )
             return {
                 "slot_manifest_digest": manifest,
+                "zone_manifest_id": self.pinned_zone_manifest_id,
                 "active_lora": active_lora,
                 "response": response,
             }
