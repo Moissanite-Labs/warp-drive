@@ -151,6 +151,12 @@ class CanarySpec:
             raise CanaryConfigError(f"missing canary field: {exc}") from exc
 
 
+# Explicit JSONL categories, and the explicit `family` values that mark a safety /
+# general-capability preservation canary. Classification never looks at the canary ID.
+_JSONL_CATEGORIES = frozenset({"preservation", "domain", "cross_adapter"})
+_JSONL_PRESERVATION_FAMILIES = frozenset({"safety", "general", "preservation", "s", "g"})
+
+
 @dataclass(frozen=True)
 class CanarySuite:
     """OS-owned read-only suite of preservation, domain, and cross-adapter canaries."""
@@ -229,6 +235,7 @@ class CanarySuite:
             )
 
         specs: list[CanarySpec] = []
+        seen_ids: set[str] = set()
         for idx, raw_line in enumerate(raw_bytes.decode("utf-8").splitlines(), start=1):
             line = raw_line.strip()
             if not line:
@@ -240,15 +247,35 @@ class CanarySuite:
             if not isinstance(row, dict):
                 raise CanaryConfigError(f"line {idx} of {file_path} must be a JSON object")
 
-            cid = str(row.get("canary_id") or row.get("id") or f"canary-{idx}")
+            # Canary identity and category must be explicit. The preservation floor is the
+            # safety gate, so a row is never classified from substrings of its ID
+            # (e.g. "lean-express-1" must not count as a preservation canary).
+            raw_id = row.get("canary_id", row.get("id"))
+            if not isinstance(raw_id, str) or not raw_id.strip():
+                raise CanaryConfigError(
+                    f"line {idx} of {file_path} must carry an explicit non-empty 'canary_id' or 'id'"
+                )
+            cid = raw_id.strip()
+            if cid in seen_ids:
+                raise CanaryConfigError(f"duplicate canary_id {cid!r} on line {idx} of {file_path}")
+            seen_ids.add(cid)
+
             raw_cat = str(row.get("category") or "").strip().lower()
             raw_fam = str(row.get("family") or "").strip().lower()
-            if raw_cat in ("preservation", "domain", "cross_adapter"):
+            if raw_cat:
+                if raw_cat not in _JSONL_CATEGORIES:
+                    raise CanaryConfigError(
+                        f"canary {cid!r} on line {idx} of {file_path} has unknown category {raw_cat!r}; "
+                        f"expected one of {sorted(_JSONL_CATEGORIES)}"
+                    )
                 cat = raw_cat
-            elif raw_fam in ("safety", "general", "preservation", "s", "g") or "safety" in cid.lower() or "pres" in cid.lower():
-                cat = "preservation"
+            elif raw_fam:
+                cat = "preservation" if raw_fam in _JSONL_PRESERVATION_FAMILIES else "domain"
             else:
-                cat = "domain"
+                raise CanaryConfigError(
+                    f"canary {cid!r} on line {idx} of {file_path} must declare an explicit "
+                    f"'category' {sorted(_JSONL_CATEGORIES)} or 'family'"
+                )
 
             raw_domains = row.get("domains")
             if isinstance(raw_domains, list) and raw_domains:

@@ -386,5 +386,75 @@ class TestStage3Canary(unittest.TestCase):
             mock.stop()
 
 
+    def test_jsonl_preservation_floor_uses_explicit_category_not_id_substrings(self) -> None:
+        def write_jsonl(td: str, name: str, rows: list[dict]) -> Path:
+            path = Path(td) / name
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            os.chmod(path, 0o600)
+            return path
+
+        def dom(cid: str) -> dict:
+            return {"id": cid, "family": "A", "domain": "formal-verification", "prompt": "d", "must_contain": ["x"]}
+
+        def pres(cid: str) -> dict:
+            return {"id": cid, "category": "preservation", "prompt": "p", "must_contain": ["391"]}
+
+        with tempfile.TemporaryDirectory() as td:
+            # Zero preservation canaries: domain rows whose IDs contain "pres"/"safety"
+            # substrings must stay domain canaries and the floor must fail.
+            zero = write_jsonl(
+                td,
+                "zero.jsonl",
+                [dom("lean-express-1"), dom("compress-2"), dom("impressive-3"), dom("presentation-4"), dom("safety-net-5")],
+            )
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(zero, min_preservation=4)
+            self.assertIn("found 0", str(ctx.exception))
+
+            # An empty suite also fails the floor.
+            empty = write_jsonl(td, "empty.jsonl", [])
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(empty, min_preservation=1)
+            self.assertIn("found 0", str(ctx.exception))
+
+            # 3 real preservation rows plus an "...express..." domain row: one short of the floor.
+            three = write_jsonl(td, "three.jsonl", [pres("p1"), pres("p2"), pres("p3"), dom("lean-express-1")])
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(three, min_preservation=4)
+            self.assertIn("found 3", str(ctx.exception))
+
+            # Rows with neither category nor family, unknown categories, missing IDs and
+            # duplicate IDs (which would inflate the floor) are rejected.
+            bad_rows = {
+                "no_category.jsonl": [{"id": "CAN-PRES-1", "prompt": "p", "must_contain": ["391"]}],
+                "unknown_category.jsonl": [{"id": "c1", "category": "safety-ish", "prompt": "p"}],
+                "missing_id.jsonl": [{"category": "preservation", "prompt": "p", "must_contain": ["391"]}],
+                "duplicate_id.jsonl": [pres("p1"), pres("p1"), pres("p1"), pres("p1")],
+            }
+            for name, rows in bad_rows.items():
+                with self.subTest(name=name):
+                    with self.assertRaises(CanaryConfigError):
+                        CanarySuite.from_jsonl_file(write_jsonl(td, name, rows), min_preservation=1)
+
+            # Explicit category and explicit safety family both count; the floor passes at exactly 4.
+            ok = write_jsonl(
+                td,
+                "ok.jsonl",
+                [
+                    pres("p1"),
+                    pres("p2"),
+                    {"id": "s3", "family": "safety", "prompt": "p", "must_contain": ["391"]},
+                    {"id": "g4", "family": "general", "prompt": "p", "must_contain": ["391"]},
+                    dom("lean-express-1"),
+                ],
+            )
+            suite = CanarySuite.from_jsonl_file(ok, min_preservation=4)
+            cats = {c.canary_id: c.category for c in suite.canaries}
+            self.assertEqual(
+                cats,
+                {"p1": "preservation", "p2": "preservation", "s3": "preservation", "g4": "preservation", "lean-express-1": "domain"},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
