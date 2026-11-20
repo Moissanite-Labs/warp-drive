@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hmac
 import threading
@@ -76,6 +77,8 @@ class WarpModeld:
         llama_client: LlamaServerClient,
         ledger: SignedLedger,
         canary_slot_id: int = 0,
+        canary_max_tokens: int = 256,
+        canary_runner_override: Any | None = None,
         pinned_zone_manifest_id: str | None = None,
         pinned_zone_manifest: Mapping[str, Any] | None = None,
     ) -> None:
@@ -88,7 +91,16 @@ class WarpModeld:
         self.canary_suite = canary_suite
         self.llama_client = llama_client
         self.ledger = ledger
-        self.canary_runner = CanaryRunner(llama_client, canary_suite, canary_slot_id=canary_slot_id)
+        self.canary_runner = (
+            canary_runner_override
+            if canary_runner_override is not None
+            else CanaryRunner(
+                llama_client,
+                canary_suite,
+                canary_slot_id=canary_slot_id,
+                max_tokens=canary_max_tokens,
+            )
+        )
 
         self._zone_bank_tags: dict[str, int] = {}
         if pinned_zone_manifest is not None:
@@ -210,8 +222,14 @@ class WarpModeld:
             flushed: list[int] = []
             confirmed_by_slot: dict[int, tuple[str, ...]] = {}
 
-            for slot in slots:
-                resp = self.llama_client.erase_slot(slot.id, banks=req_banks_arg)
+            if len(slots) <= 1:
+                slot_resps = [(slot, self.llama_client.erase_slot(slot.id, banks=req_banks_arg)) for slot in slots]
+            else:
+                with ThreadPoolExecutor(max_workers=len(slots)) as pool:
+                    futs = [(slot, pool.submit(self.llama_client.erase_slot, slot.id, banks=req_banks_arg)) for slot in slots]
+                    slot_resps = [(slot, fut.result()) for slot, fut in futs]
+
+            for slot, resp in slot_resps:
                 flushed.append(slot.id)
                 raw_confirmed = resp.get("banks_flushed")
                 if isinstance(raw_confirmed, list):
@@ -460,6 +478,7 @@ class WarpModeld:
                 slots_flushed=flushed,
                 details={
                     "stage2_elapsed_ns": stage2_res.elapsed_ns,
+                    "stage3_elapsed_ms": round(stage3_res.elapsed_ms, 3),
                     "composed_bound_checked": stage2_res.composed_bound_checked,
                     "composed_cert_verified": stage2_res.composed_cert_verified,
                     "canary_suite_sha256": stage3_res.suite_sha256,
@@ -589,6 +608,7 @@ class WarpModeld:
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         seed: int = 42,
         max_tokens: int = 256,
         raw_params: dict[str, Any] | None = None,
@@ -624,6 +644,7 @@ class WarpModeld:
                 messages,
                 lora=active_lora,
                 temperature=temperature,
+                top_p=top_p,
                 seed=seed,
                 max_tokens=max_tokens,
                 cache_prompt=False,
@@ -640,8 +661,10 @@ class WarpModeld:
         prompt: str,
         *,
         temperature: float = 0.0,
+        top_p: float = 1.0,
         seed: int = 42,
         n_predict: int = 64,
+        n_probs: int = 0,
         raw_params: dict[str, Any] | None = None,
         expected_zone_manifest_id: str | None = None,
     ) -> dict[str, Any]:
@@ -675,8 +698,10 @@ class WarpModeld:
                 prompt,
                 lora=active_lora,
                 temperature=temperature,
+                top_p=top_p,
                 seed=seed,
                 n_predict=n_predict,
+                n_probs=n_probs,
                 cache_prompt=False,
             )
             return {

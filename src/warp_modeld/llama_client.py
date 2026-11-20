@@ -253,6 +253,7 @@ class LlamaServerClient:
         *,
         lora: list[dict[str, Any]],
         temperature: float = 0.0,
+        top_p: float = 1.0,
         seed: int = 42,
         max_tokens: int = 256,
         cache_prompt: bool = False,
@@ -261,6 +262,7 @@ class LlamaServerClient:
         payload: dict[str, Any] = {
             "messages": messages,
             "temperature": temperature,
+            "top_p": float(top_p),
             "seed": seed,
             "max_tokens": max_tokens,
             "cache_prompt": cache_prompt,
@@ -279,19 +281,24 @@ class LlamaServerClient:
         *,
         lora: list[dict[str, Any]],
         temperature: float = 0.0,
+        top_p: float = 1.0,
         seed: int = 42,
         n_predict: int = 64,
+        n_probs: int = 0,
         cache_prompt: bool = False,
         id_slot: int | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "prompt": prompt,
             "temperature": temperature,
+            "top_p": float(top_p),
             "seed": seed,
             "n_predict": int(n_predict),
             "cache_prompt": cache_prompt,
             "lora": [{"id": int(a["id"]), "scale": float(a["scale"])} for a in lora],
         }
+        if int(n_probs) > 0:
+            payload["n_probs"] = int(n_probs)
         if id_slot is not None:
             payload["id_slot"] = int(id_slot)
         res = self._request("POST", "/completion", payload)

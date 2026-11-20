@@ -138,6 +138,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
                 "slots_flushed": list(res.slots_flushed),
                 "bank_flush_receipts": [r.to_dict() for r in res.bank_flush_receipts],
                 "stage2_elapsed_ns": res.stage2_result.elapsed_ns,
+                "stage3_elapsed_ms": res.stage3_result.elapsed_ms,
                 "canaries_passed": len(res.stage3_result.outcomes),
                 "zone_manifest_id": self.modeld.pinned_zone_manifest_id,
                 "receipt": res.receipt.to_dict(),
@@ -210,6 +211,7 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             return self.modeld.infer(
                 messages,
                 temperature=float(params.get("temperature", 0.0)),
+                top_p=float(params.get("top_p", 1.0)),
                 seed=int(params.get("seed", 42)),
                 max_tokens=int(params.get("max_tokens", 256)),
                 raw_params=params,
@@ -223,8 +225,10 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             return self.modeld.complete(
                 prompt,
                 temperature=float(params.get("temperature", 0.0)),
+                top_p=float(params.get("top_p", 1.0)),
                 seed=int(params.get("seed", 42)),
                 n_predict=int(params.get("n_predict", 64)),
+                n_probs=int(params.get("n_probs", 0)),
                 raw_params=params,
                 expected_zone_manifest_id=params.get("zone_manifest_id"),
             )

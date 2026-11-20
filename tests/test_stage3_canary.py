@@ -167,6 +167,294 @@ class TestStage3Canary(unittest.TestCase):
         finally:
             mock.stop()
 
+    def test_jsonl_canary_suite_and_external_opaque_command_runner(self) -> None:
+        from warp_modeld.canary import CanarySuite, ExternalCommandCanaryRunner
+        from warp_modeld.llama_client import LlamaServerClient
+        from warp_modeld.fingerprint import AdapterBundle
+        import os
+        import sys
+
+        mock = MockLlamaServer()
+        url = mock.start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                jsonl_path = tmp / "canaries_16.jsonl"
+                rows = [
+                    {"id": f"CAN-PRES-{i}", "family": "safety", "prompt": "Compute 17 * 23", "must_contain": ["391"]}
+                    for i in range(4)
+                ] + [
+                    {
+                        "id": "CAN-DOM-FV",
+                        "family": "A",
+                        "domain": "formal-verification",
+                        "prompt": "Prove in Lean 4 that n + 0 = n",
+                        "must_contain": ["Nat.add_zero"],
+                        "must_not_contain": ["sorry"],
+                    }
+                ]
+                jsonl_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+                os.chmod(jsonl_path, 0o600)
+                suite = CanarySuite.from_jsonl_file(jsonl_path)
+                self.assertEqual(len(suite.select_for_domains(["formal-verification"])), 5)
+
+                # Opaque command runner test (zero direct vault read by caller)
+                runner_script = tmp / "opaque_runner.py"
+                runner_script.write_text(
+                    "import json\n"
+                    "outcomes = [\n"
+                    "    {'canary_id': f'pres-{i}', 'category': 'preservation', 'passed': True, 'failures': []}\n"
+                    "    for i in range(1, 5)\n"
+                    "] + [\n"
+                    "    {'canary_id': 'dom-1', 'category': 'domain', 'passed': True, 'failures': []}\n"
+                    "]\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'a'*64,\n"
+                    "    'preservation_passed': 4,\n"
+                    "    'preservation_total': 4,\n"
+                    "    'outcomes': outcomes,\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(runner_script)],
+                )
+                bundle = AdapterBundle.from_dict(
+                    make_adapter_bundle_dict(
+                        adapter_id="mde:formal-verification",
+                        domain="formal-verification",
+                        llama_adapter_id=2,
+                    )
+                )
+                res = ext.run([bundle])
+                self.assertEqual(res.preservation_passed, 4)
+                self.assertEqual(res.preservation_total, 4)
+                self.assertEqual(len(res.outcomes), 5)
+                self.assertTrue(res.canary_slot_flushed)
+
+                # Fail-closed check 1: bare aggregate {"passed": true} without per-canary outcomes MUST fail!
+                agg_only_script = tmp / "opaque_agg_only.py"
+                agg_only_script.write_text(
+                    "import json\nprint(json.dumps({'passed': True}))\n",
+                    encoding="utf-8",
+                )
+                ext_agg = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(agg_only_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as agg_ctx:
+                    ext_agg.run([bundle])
+                self.assertIn("aggregate-only reports are rejected", str(agg_ctx.exception))
+
+                # Fail-closed check 2: fewer than min_preservation (4) preservation canaries MUST fail!
+                low_pres_script = tmp / "opaque_low_pres.py"
+                low_pres_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'b'*64,\n"
+                    "    'preservation_passed': 2,\n"
+                    "    'preservation_total': 2,\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True, 'failures': []},\n"
+                    "        {'canary_id': 'p2', 'category': 'preservation', 'passed': True, 'failures': []},\n"
+                    "        {'canary_id': 'd1', 'category': 'domain', 'passed': True, 'failures': []},\n"
+                    "    ],\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_low = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(low_pres_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as low_ctx:
+                    ext_low.run([bundle])
+                self.assertIn("requires at least 4 preservation canaries", str(low_ctx.exception))
+
+                # Fail-closed check 3: mismatched preservation_total header spoofing MUST fail!
+                spoof_hdr_script = tmp / "opaque_spoof_hdr.py"
+                spoof_hdr_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'suite_sha256': 'c'*64,\n"
+                    "    'preservation_passed': 8,\n"
+                    "    'preservation_total': 8,\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True, 'failures': []}\n"
+                    "    ],\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_spoof = ExternalCommandCanaryRunner(
+                    LlamaServerClient(url),
+                    [sys.executable, str(spoof_hdr_script)],
+                )
+                with self.assertRaises(CanaryFailedError) as spoof_ctx:
+                    ext_spoof.run([bundle])
+                self.assertIn("disagrees with outcomes count", str(spoof_ctx.exception))
+        finally:
+            mock.stop()
+
+    def test_parallel_slot_buckets_erase_slot_before_every_canary(self) -> None:
+        from types import SimpleNamespace
+        import threading
+        from warp_modeld.canary import CanaryRunner
+        from warp_modeld.fingerprint import AdapterBundle
+
+        lock = threading.Lock()
+        erase_calls: list[int] = []
+
+        class MultiSlotMockClient:
+            def list_lora_adapters(self):
+                return [SimpleNamespace(id=2, scale=0.0)]
+
+            def list_slots(self):
+                return [SimpleNamespace(id=i) for i in range(4)]
+
+            def erase_slot(self, sid: int, banks=None):
+                with lock:
+                    erase_calls.append(sid)
+                return {"id_slot": sid}
+
+            def chat_completion(self, messages, **kwargs):
+                return {"choices": [{"message": {"content": "391 Nat.add_zero"}}]}
+
+        with tempfile.TemporaryDirectory() as td:
+            jsonl_path = Path(td) / "canaries.jsonl"
+            rows = [
+                {"id": f"CAN-PRES-{i}", "family": "safety", "prompt": "p", "must_contain": ["391"]}
+                for i in range(6)
+            ] + [
+                {"id": f"CAN-DOM-{i}", "family": "A", "domain": "formal-verification", "prompt": "d", "must_contain": ["Nat.add_zero"]}
+                for i in range(4)
+            ]
+            jsonl_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+            os.chmod(jsonl_path, 0o600)
+            suite = CanarySuite.from_jsonl_file(jsonl_path)
+            runner = CanaryRunner(MultiSlotMockClient(), suite)  # type: ignore[arg-type]
+            bundle = AdapterBundle.from_dict(
+                make_adapter_bundle_dict(
+                    adapter_id="mde:formal-verification",
+                    domain="formal-verification",
+                    llama_adapter_id=2,
+                )
+            )
+            res = runner.run([bundle])
+            self.assertEqual(len(res.outcomes), 10)
+            # 10 pre-canary erases across buckets + 4 final cleanup erases = 14 total erase_slot calls
+            self.assertEqual(len(erase_calls), 14)
+
+    def test_external_command_canary_runner_rejects_malformed_outcomes_and_duplicates(self) -> None:
+        from warp_modeld.canary import ExternalCommandCanaryRunner
+        from warp_modeld.llama_client import LlamaServerClient
+        from warp_modeld.fingerprint import AdapterBundle
+        import sys
+
+        mock = MockLlamaServer()
+        url = mock.start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tmp = Path(td)
+                bundle = AdapterBundle.from_dict(
+                    make_adapter_bundle_dict(
+                        adapter_id="mde:formal-verification",
+                        domain="formal-verification",
+                        llama_adapter_id=2,
+                    )
+                )
+                dup_script = tmp / "dup_outcomes.py"
+                dup_script.write_text(
+                    "import json\n"
+                    "print(json.dumps({\n"
+                    "    'outcomes': [\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p1', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p3', 'category': 'preservation', 'passed': True},\n"
+                    "        {'canary_id': 'p4', 'category': 'preservation', 'passed': True},\n"
+                    "    ]\n"
+                    "}))\n",
+                    encoding="utf-8",
+                )
+                ext_dup = ExternalCommandCanaryRunner(LlamaServerClient(url), [sys.executable, str(dup_script)])
+                with self.assertRaises(CanaryFailedError) as dup_ctx:
+                    ext_dup.run([bundle])
+                self.assertIn("duplicate canary_id", str(dup_ctx.exception))
+
+                with self.assertRaises(CanaryConfigError):
+                    ExternalCommandCanaryRunner(LlamaServerClient(url), [sys.executable], min_preservation=0)
+        finally:
+            mock.stop()
+
+
+    def test_jsonl_preservation_floor_uses_explicit_category_not_id_substrings(self) -> None:
+        def write_jsonl(td: str, name: str, rows: list[dict]) -> Path:
+            path = Path(td) / name
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            os.chmod(path, 0o600)
+            return path
+
+        def dom(cid: str) -> dict:
+            return {"id": cid, "family": "A", "domain": "formal-verification", "prompt": "d", "must_contain": ["x"]}
+
+        def pres(cid: str) -> dict:
+            return {"id": cid, "category": "preservation", "prompt": "p", "must_contain": ["391"]}
+
+        with tempfile.TemporaryDirectory() as td:
+            # Zero preservation canaries: domain rows whose IDs contain "pres"/"safety"
+            # substrings must stay domain canaries and the floor must fail.
+            zero = write_jsonl(
+                td,
+                "zero.jsonl",
+                [dom("lean-express-1"), dom("compress-2"), dom("impressive-3"), dom("presentation-4"), dom("safety-net-5")],
+            )
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(zero, min_preservation=4)
+            self.assertIn("found 0", str(ctx.exception))
+
+            # An empty suite also fails the floor.
+            empty = write_jsonl(td, "empty.jsonl", [])
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(empty, min_preservation=1)
+            self.assertIn("found 0", str(ctx.exception))
+
+            # 3 real preservation rows plus an "...express..." domain row: one short of the floor.
+            three = write_jsonl(td, "three.jsonl", [pres("p1"), pres("p2"), pres("p3"), dom("lean-express-1")])
+            with self.assertRaises(CanaryConfigError) as ctx:
+                CanarySuite.from_jsonl_file(three, min_preservation=4)
+            self.assertIn("found 3", str(ctx.exception))
+
+            # Rows with neither category nor family, unknown categories, missing IDs and
+            # duplicate IDs (which would inflate the floor) are rejected.
+            bad_rows = {
+                "no_category.jsonl": [{"id": "CAN-PRES-1", "prompt": "p", "must_contain": ["391"]}],
+                "unknown_category.jsonl": [{"id": "c1", "category": "safety-ish", "prompt": "p"}],
+                "missing_id.jsonl": [{"category": "preservation", "prompt": "p", "must_contain": ["391"]}],
+                "duplicate_id.jsonl": [pres("p1"), pres("p1"), pres("p1"), pres("p1")],
+            }
+            for name, rows in bad_rows.items():
+                with self.subTest(name=name):
+                    with self.assertRaises(CanaryConfigError):
+                        CanarySuite.from_jsonl_file(write_jsonl(td, name, rows), min_preservation=1)
+
+            # Explicit category and explicit safety family both count; the floor passes at exactly 4.
+            ok = write_jsonl(
+                td,
+                "ok.jsonl",
+                [
+                    pres("p1"),
+                    pres("p2"),
+                    {"id": "s3", "family": "safety", "prompt": "p", "must_contain": ["391"]},
+                    {"id": "g4", "family": "general", "prompt": "p", "must_contain": ["391"]},
+                    dom("lean-express-1"),
+                ],
+            )
+            suite = CanarySuite.from_jsonl_file(ok, min_preservation=4)
+            cats = {c.canary_id: c.category for c in suite.canaries}
+            self.assertEqual(
+                cats,
+                {"p1": "preservation", "p2": "preservation", "s3": "preservation", "g4": "preservation", "lean-express-1": "domain"},
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
