@@ -1,5 +1,5 @@
 """
-Exact Zero-Float Mathematical Stacking & Tomography Engine for `aletheia-mde`:
+Exact Mathematical Stacking & Tomography Engine for `aletheia-mde`:
   1. Fraction-Free Bareiss Pivoted Symmetric Congruence (1x1 + 2x2 zero-diagonal blocks)
      with multiplication-only Reduced Integer Cholesky-Sum PSD Certificates AND
      Constructive Exact Integer Rejection Witnesses (`x^T Q x < 0`), directly solving
@@ -10,10 +10,10 @@ Exact Zero-Float Mathematical Stacking & Tomography Engine for `aletheia-mde`:
   3. Exact Contextual Compute Cellular Sheaf Gluing & Spectral-Gap Certifier (`docs/08` +
      `siliconcordat/exo` zone gating).
   4. Exact Higher-Moment Spectral-Rank Covert-Backdoor Gate (`R_opt` + Stieltjes-Hankel
-     `R_H4`, `AUDIT-002`/`AUDIT-014`) addressing `Moissanite-Labs/MDE` Open Question Q3.
-  5. Independent Zero-Shared-Code Faddeev-LeVerrier + Square-Free Descartes Dual Oracle.
+     `R_H4`) addressing `Moissanite-Labs/MDE` Open Question Q3.
+  5. Independent Faddeev-LeVerrier + Square-Free Descartes inertia arithmetic.
 
-Pure Python 3 stdlib (`int`, `Fraction`, `math.gcd`, `math.lcm`). Zero floats. Zero bare asserts.
+Pure Python 3 stdlib (`int`, `Fraction`, `math.gcd`, `math.lcm`). No floating-point arithmetic or bare asserts.
 """
 from __future__ import annotations
 
@@ -567,14 +567,19 @@ def certify_stacked_mde_gram(
             "active_adapters": [],
             "total_rank": 0,
             "frobenius_sq_exact": "0",
+            "warp15_cauchy_schwarz_frob_bound": "0",
             "frobenius_passed": True,
+            "spectral_bound_tested": str(Fraction(s_num, s_den)),
             "spectral_passed": True,
             "passed": True,
             "Q_stack_inertia": [0, 0, 0],
+            "bareiss_max_pivot_bits": 0,
             "bareiss_cert_bits": 1,
             "naive_ldl_bits": 1,
             "pairwise_interference": {},
             "rejection_witness": None,
+            "rejection_value": None,
+            "Q_stack_int": [],
         }
 
     # Concatenate B_stack (d_out x R) and A_stack (R x d_in)
@@ -727,7 +732,8 @@ def certify_mde_compatibility_sheaf(
 # ---------------------------------------------------------------------------
 
 def r_opt_exact(u: Fraction, t: Fraction, S: Fraction, b: int) -> Fraction:
-    """Exact AUDIT-002 Theorem A1 scale-invariant 2nd-moment projected-rank lower bound."""
+    """Exact scale-invariant second-moment projected-rank lower bound."""
+    _req(all(type(v) is Fraction for v in (u, t, S)), "INVALID_MOMENT_TYPE", "u, t, and S must be Fraction")
     _req(type(b) is int and b >= 0, "INVALID_B", "b must be non-negative int")
     if u <= 0 or u + t <= 0 or S <= 0:
         return Fraction(0)
@@ -738,47 +744,52 @@ def r_opt_exact(u: Fraction, t: Fraction, S: Fraction, b: int) -> Fraction:
     return val if val > 0 else Fraction(0)
 
 
-def r_h4_stieltjes_hankel_exact(S1: Fraction, S2: Fraction, S3: Fraction, S4: Fraction, b: int) -> Fraction:
+def r_h4_stieltjes_hankel_exact(
+    S1: Fraction,
+    S2: Fraction,
+    S3: Fraction,
+    S4: Fraction,
+    b: int,
+    *,
+    H_int: Sequence[Sequence[int]],
+    scale_div: int,
+) -> Fraction:
+    """Exact fourth-moment Stieltjes-Hankel projected-rank lower bound for a PSD matrix.
+
+    R_H4 = S1^2 / S2 + (S1*S3 - S2^2)^2 / (S2 * (S2*S4 - S3^2)) - b.
+
+    The PSD Stieltjes-Hankel conditions are the validity premise. This function
+    verifies that H_int is PSD and that the supplied moments are exactly those of
+    H_int / scale_div. A zero Hankel determinant uses the separate Cauchy-Schwarz
+    rank bound S1^2 / S2 - b. Indefinite matrices are rejected rather than being
+    handled by an unsupported generalization of this formula.
     """
-    Exact AUDIT-014 Theorem A2 4th-moment Stieltjes-Hankel projected-rank lower bound:
-        R_H4 = S1^2 / S2 + (S1*S3 - S2^2)^2 / (S2 * (S2*S4 - S3^2)) - b
-    valid whenever S1 > 0, S2 > 0, and exact KKT witness a = (a1, a2) >= 0 with a1 = (S1*S4 - S2*S3)/D,
-    a2 = (S2^2 - S1*S3)/D or pure degree-2/4 Hankel positive determinant D = S2*S4 - S3^2 > 0
-    on a PSD / indefinite Hermitian matrix H = P + Q with n_+(Q) <= b!
-    Specifically, for ANY Hermitian H = P + Q with P >= 0 and n_+(Q) <= b:
-    The degree-4 polynomial phi(x) = a1*x + a2*x^2 + ... is valid on ALL of R iff
-      phi(x) <= 1 for x > 0 and phi(x) <= 0 for x <= 0.
-    For general indefinite H, exact Theorem A2 (AUDIT-014) certifies the 2-moment Stieltjes-Hankel
-    Schur complement whenever the KKT vector (a1, a2) has a1 >= 0, a2 >= 0 (so phi(x) = a1 x + a2 x^2 <= 0
-    for x <= 0? Wait: a2 x^2 >= 0 on x < 0! For indefinite H, Theorem A2 uses ODD powers x, x^3:
-      psi(x) = c1 * x + c3 * x^3  with  c1 >= 0, c3 >= 0 (so psi(x) <= 0 on ALL x <= 0!),
-    OR when H >= 0 (PSD Gram residual), standard Stieltjes-Hankel on (S1, S2, S3, S4) applies directly
-    with zero negative eigenvalues!)
-    """
+    _req(all(type(v) is Fraction for v in (S1, S2, S3, S4)), "INVALID_MOMENT_TYPE", "S1 through S4 must be Fraction")
     _req(type(b) is int and b >= 0, "INVALID_B", "b must be non-negative int")
-    if S1 <= 0 or S2 <= 0:
+    _req(type(scale_div) is int and scale_div > 0, "INVALID_SCALE_DIV", "scale_div must be positive int")
+    H = _require_int_matrix(H_int, "H_int", require_square=True, require_symmetric=True)
+    _req(bareiss_symmetric_inertia(H)["is_psd"], "H4_H_NOT_PSD", "Stieltjes-Hankel bound requires PSD H")
+
+    H2 = _mat_mul_int(H, H)
+    H3 = _mat_mul_int(H2, H)
+    H4 = _mat_mul_int(H2, H2)
+    expected_moments = (
+        Fraction(sum(H[i][i] for i in range(len(H))), scale_div),
+        Fraction(sum(H2[i][i] for i in range(len(H))), scale_div ** 2),
+        Fraction(sum(H3[i][i] for i in range(len(H))), scale_div ** 3),
+        Fraction(sum(H4[i][i] for i in range(len(H))), scale_div ** 4),
+    )
+    _req((S1, S2, S3, S4) == expected_moments, "H4_MOMENT_MISMATCH", "moments must equal those of H_int / scale_div")
+
+    if S1 == 0:
+        _req(S2 == 0 and S3 == 0 and S4 == 0, "INVALID_PSD_MOMENT", "zero trace must imply a zero PSD matrix")
         return Fraction(0)
-    # Odd-degree exact SOS-Stieltjes bound valid for ALL INDEFINITE Hermitian H = P + Q:
-    # Choose psi(x) = c1*x + c3*x^3 with c1 >= 0, c3 >= 0; maximize (c1*S1 + c3*S3) - ...
-    # Specifically, Cauchy-Schwarz on the positive part x_+ with weight 1 + alpha*x^2 (alpha >= 0):
-    #   For ANY alpha >= 0, g(x) = (x + alpha x^3) satisfies g(x) <= 0 for x <= 0!
-    #   And for x > 0: 1 >= 2*t*(x + alpha*x^3) - t^2*(x + alpha*x^3)^2? Even tighter:
-    #   Standard Cauchy-Schwarz on the positive eigenvalues {lambda_i > 0} with vector v_i = lambda_i*(1 + alpha*lambda_i^2):
-    #   WAIT: on x <= 0, (x + alpha x^3) <= 0, while sum_{i: lam_i > 0} (lam_i + alpha lam_i^3) >= S1 + alpha S3
-    #   ONLY IF S3 >= sum_{lam>0} lam^3? NO: negative eigenvalues make S1 and S3 SMALLER (since lam < 0 => lam < 0 and lam^3 < 0)!
-    #   SO sum_{lam_i > 0} (lam_i + alpha lam_i^3) >= S1 + alpha S3 ALWAYS for EVERY alpha >= 0!!
-    #   Meanwhile, sum_{lam_i > 0} (lam_i + alpha lam_i^3)^2 <= sum_{all i} (lam_i + alpha lam_i^3)^2 = S2 + 2*alpha*S4 + alpha^2*S6!
-    #   For 4th-moment only (without S6), Theorem A2 in AUDIT-014 uses the exact 4th-moment polynomial
-    #   on H >= 0 (or on any H with positive-semidefinite H_perp -> when H >= 0, S1..S4 directly give):
-    #   Wait: here we verify H >= 0 explicitly via Bareiss BEFORE applying full PSD Stieltjes-Hankel,
-    #   AND for general indefinite H we use AUDIT-014 Theorem A3 exact Noise-Annihilating Quartic:
-    #       R_Q34 = max(0, S3^4 / S4^3 - b)  (valid for ALL indefinite H with S3 > 0 since x^3 <= 0 for x <= 0
-    #       and by Holder (sum x_+^3)^4 <= n_+ * (sum x_+^4)^3 <= n_+ * S4^3!!).
+    _req(S1 > 0 and S2 > 0 and S3 > 0 and S4 > 0, "INVALID_PSD_MOMENT", "nonzero PSD moments must be positive")
     denom = S2 * S4 - S3 * S3
-    if denom <= 0:
+    _req(denom >= 0, "INVALID_HANKEL", "PSD Hankel determinant must be non-negative")
+    if denom == 0:
         base = (S1 * S1) / S2 - Fraction(b)
         return base if base > 0 else Fraction(0)
-    # Exact Schur complement valid when H >= 0 (and exact Holder S3^4/S4^3 - b valid for ALL indefinite H!)
     val = (S1 * S1) / S2 + ((S1 * S3 - S2 * S2) ** 2) / (S2 * denom) - Fraction(b)
     return val if val > 0 else Fraction(0)
 
@@ -808,6 +819,7 @@ def certify_covert_rank_backdoor_gate(
     n = len(H)
     _req(len(Q) == n, "DIM_MISMATCH", "H and Q must share dimension")
     _req(type(scale_div) is int and scale_div > 0, "INVALID_SCALE_DIV", "scale_div must be positive int")
+    _req(type(max_allowed_extra_rank) is int and max_allowed_extra_rank >= 0, "INVALID_EXTRA_RANK", "max_allowed_extra_rank must be non-negative int")
 
     # Certify H >= 0 and P = H - Q >= 0 and exact b = n_+(Q) via Bareiss!
     b_H = bareiss_symmetric_inertia(H)
@@ -835,6 +847,8 @@ def certify_covert_rank_backdoor_gate(
     # here we test H^2 <= max_spec_sq * I directly in exact integer arithmetic via Bareiss on s_num*scale^2*I - s_den*H^2!)
     f_num, f_den = norm_cap_frob_sq
     s_num, s_den = norm_cap_spec_sq
+    _req(type(f_num) is int and f_num >= 0 and type(f_den) is int and f_den > 0, "INVALID_FROB_BOUND", "bad norm_cap_frob_sq")
+    _req(type(s_num) is int and s_num >= 0 and type(s_den) is int and s_den > 0, "INVALID_SPEC_BOUND", "bad norm_cap_spec_sq")
     norm_frob_passed = (S2 <= Fraction(f_num, f_den))
     spec_mat = [
         [(s_num * (scale_div ** 2) if i == j else 0) - s_den * H2[i][j] for j in range(n)]
@@ -844,10 +858,16 @@ def certify_covert_rank_backdoor_gate(
     norm_only_gate_evaded = norm_frob_passed and norm_spec_passed
 
     ropt = r_opt_exact(u_cov, t_auth, S2, b_auth)
-    rh4 = r_h4_stieltjes_hankel_exact(S1, S2, S3, S4, b_auth)
+    rh4 = r_h4_stieltjes_hankel_exact(S1, S2, S3, S4, b_auth, H_int=H, scale_div=scale_div)
     # Also compute general-indefinite Holder 3-4 bound S3^4 / S4^3 - b (valid even without H >= 0!)
     r_q34 = max(Fraction(0), (S3 ** 4) / (S4 ** 3) - Fraction(b_auth)) if S3 > 0 and S4 > 0 else Fraction(0)
 
+    soundness_ok = (
+        ropt <= Fraction(true_covert_rank)
+        and rh4 <= Fraction(true_covert_rank)
+        and r_q34 <= Fraction(true_covert_rank)
+    )
+    _req(soundness_ok, "RANK_BOUND_UNSOUND", "computed lower bound exceeds exact covert rank")
     caught_by_ropt = ropt > Fraction(max_allowed_extra_rank)
     caught_by_rh4 = rh4 > Fraction(max_allowed_extra_rank)
 
@@ -858,20 +878,17 @@ def certify_covert_rank_backdoor_gate(
         "norm_only_spec_passed": norm_spec_passed,
         "norm_only_gate_evaded": norm_only_gate_evaded,
         "R_opt_exact": str(ropt),
-        "R_opt_float": round(float(ropt), 6),
         "R_H4_exact": str(rh4),
-        "R_H4_float": round(float(rh4), 6),
         "R_Q34_exact": str(r_q34),
-        "R_Q34_float": round(float(r_q34), 6),
         "max_allowed_extra_rank": max_allowed_extra_rank,
         "caught_by_R_opt": caught_by_ropt,
         "caught_by_R_H4": caught_by_rh4,
-        "soundness_ok": (ropt <= Fraction(true_covert_rank) and rh4 <= Fraction(true_covert_rank) and r_q34 <= Fraction(true_covert_rank)),
+        "soundness_ok": soundness_ok,
     }
 
 
 # ---------------------------------------------------------------------------
-# 5. Zero-Shared-Code Independent Dual Oracle (Faddeev-LeVerrier + Descartes)
+# 5. Independent Dual-Oracle Arithmetic (Faddeev-LeVerrier + Descartes)
 # ---------------------------------------------------------------------------
 
 def _sign_changes(coeffs: Sequence[Fraction]) -> int:
@@ -885,7 +902,7 @@ def _sign_changes(coeffs: Sequence[Fraction]) -> int:
 
 def faddeev_leverrier_descartes_inertia(M_in: Sequence[Sequence[int]]) -> tuple[int, int, int]:
     """
-    Completely independent exact inertia oracle (ZERO shared code with Bareiss!):
+    Independent exact inertia arithmetic; only input validation is shared with Bareiss:
       1. Compute exact characteristic polynomial p(x) = det(xI - M) via Faddeev-LeVerrier in Fraction.
       2. Peel exact x=0 multiplicity -> n_zero.
       3. For real symmetric M (all roots real!), Descartes' rule of signs on p(x) and p(-x)
