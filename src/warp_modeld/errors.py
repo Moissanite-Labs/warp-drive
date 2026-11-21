@@ -87,3 +87,13 @@ class UnverifiedLoraOverrideError(WarpError):
 class LedgerTamperError(WarpError):
     code = "ERR_LEDGER_TAMPERED"
     stage = "stage4_ledger"
+
+
+class ControllerError(WarpError):
+    code = "ERR_EXPERIMENT_CONTROLLER"
+    stage = "experiment_controller"
+
+
+class ContractDriftError(WarpError):
+    code = "ERR_CONTRACT_DRIFT"
+    stage = "experiment_contract"

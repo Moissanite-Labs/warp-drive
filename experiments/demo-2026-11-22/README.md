@@ -101,3 +101,35 @@ llama-server -m Qwen3.5-4B-Q8_0.gguf --host 127.0.0.1 --port 63301 \
 - A threshold changes only by a versioned manifest bump with a stated
   reason, never by silent edit.
 - Mock fixtures test parsing and control flow only, never model evidence.
+
+## Controller (issue #5)
+
+`src/warp_modeld/experiment.py` is the bounded experiment controller.
+It is a project-specific weight experiment harness, not an interoperable
+W-MCP standard. It consumes this frozen contract: `load_contract`
+recomputes every pinned digest before anything else runs, and any
+mismatch refuses the contract.
+
+Operations, in fixed order: `propose_candidate`, `compile_and_bind`
+(Weft compiler through the `Compiler` protocol, parent checkpoint bound,
+candidate digest written to the append-only receipt log before any
+scoring), `evaluate` (the four frozen suites plus probe margins, all
+results retained), `rollback` (Warp lifecycle rollback across every
+state bank, then baseline logit restoration verified at exactly 0.0),
+`promote_or_reject` (only the frozen acceptance policy; no caller can
+pass in thresholds). `run_experiment` runs the sequence end to end and
+returns the verdict plus a receipt matching `receipt.schema.json`.
+
+Run the controller tests (fake compiler and runtime adapters; logic
+checks only, never model evidence):
+
+```sh
+PYTHONPATH=src python3 -m pytest tests/test_experiment_controller.py -v
+```
+
+Live wiring (not run here; needs the demo host, the pinned checkpoint,
+and the ml-os dataset): a real `Compiler` drives
+`weft.compiler.BetaEditNullspaceProjector` at the pinned commit, a real
+`Runtime` mounts through `WarpModeld.mount_stack` and scores through
+the pinned llama-server flags, and rollback goes through
+`WarpModeldLifecycle` over `WarpModeld.rollback`.
