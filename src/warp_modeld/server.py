@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import socket
@@ -11,7 +12,7 @@ import socketserver
 import threading
 from typing import Any
 
-from .errors import WarpError
+from .errors import UnverifiedLoraOverrideError, WarpError
 from .fingerprint import Plane1Lineage
 from .verifier import WarpModeld
 
@@ -27,9 +28,59 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _reject_nonfinite_json(token: str) -> Any:
+    raise ValueError(f"non-finite JSON constant rejected: {token!r}")
+
+
 def loads_strict_json(raw_text: str) -> Any:
-    """Parse JSON while failing closed on duplicate object keys."""
-    return json.loads(raw_text, object_pairs_hook=_reject_duplicate_json_keys)
+    """Parse JSON while failing closed on duplicate object keys and NaN/Infinity."""
+    return json.loads(
+        raw_text,
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonfinite_json,
+    )
+
+
+def _require_finite_float(
+    value: Any,
+    name: str,
+    *,
+    min_value: float | None = None,
+    min_exclusive: bool = False,
+    max_value: float | None = None,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise WarpError(f"{name} must be a finite number", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    num = float(value)
+    if not math.isfinite(num):
+        raise WarpError(f"{name} must be finite (got {value!r})", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    if min_value is not None:
+        if (min_exclusive and num <= min_value) or (not min_exclusive and num < min_value):
+            raise WarpError(f"{name} out of range (got {num})", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    if max_value is not None and num > max_value:
+        raise WarpError(f"{name} out of range (got {num})", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    return num
+
+
+def _require_strict_int(
+    value: Any,
+    name: str,
+    *,
+    min_value: int | None = None,
+) -> int:
+    if type(value) is not int:
+        raise WarpError(f"{name} must be an exact integer", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    if min_value is not None and value < min_value:
+        raise WarpError(f"{name} must be >= {min_value} (got {value})", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
+    return value
+
+
+def _reject_case_insensitive_lora_override(params: dict[str, Any], method: str) -> None:
+    for key in params:
+        if isinstance(key, str) and key.lower() == "lora":
+            raise UnverifiedLoraOverrideError(
+                f"callers may not pass raw '{key}' overrides to {method}; mount through Stage 1-4 verifier"
+            )
 
 
 class _WarpRpcHandler(socketserver.StreamRequestHandler):
@@ -52,7 +103,9 @@ class _WarpRpcHandler(socketserver.StreamRequestHandler):
             self._send(response)
 
     def _send(self, payload: dict[str, Any]) -> None:
-        wire = (json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
+        wire = (
+            json.dumps(payload, separators=(",", ":"), ensure_ascii=True, allow_nan=False) + "\n"
+        ).encode("utf-8")
         self.wfile.write(wire)
         self.wfile.flush()
 
@@ -127,8 +180,11 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             return self.modeld.status()
 
         if method == "wmcp_slot_mount":
+            raw_bundles = params["bundles"]
+            if not isinstance(raw_bundles, list):
+                raise WarpError("bundles must be a JSON array", code="ERR_INVALID_PARAMS", stage="stage1_fingerprint")
             res = self.modeld.mount_stack(
-                params["bundles"],
+                raw_bundles,
                 raw_composed_certificate=params.get("composed_certificate"),
                 expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
@@ -176,7 +232,9 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             return self.modeld.reset_kill_switch(str(params.get("confirmation", "")))
 
         if method == "warp_set_learning":
-            enabled = bool(params["enabled"])
+            enabled = params["enabled"]
+            if type(enabled) is not bool:
+                raise WarpError("enabled must be a strict boolean", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
             rb = self.modeld.set_learning_enabled(enabled)
             return {
                 "status": self.modeld.status(),
@@ -205,30 +263,32 @@ class _WarpUnixStreamServer(socketserver.ThreadingUnixStreamServer):
             }
 
         if method == "warp_infer":
+            _reject_case_insensitive_lora_override(params, "warp_infer")
             messages = params["messages"]
             if not isinstance(messages, list):
                 raise WarpError("messages must be a list", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
             return self.modeld.infer(
                 messages,
-                temperature=float(params.get("temperature", 0.0)),
-                top_p=float(params.get("top_p", 1.0)),
-                seed=int(params.get("seed", 42)),
-                max_tokens=int(params.get("max_tokens", 256)),
+                temperature=_require_finite_float(params.get("temperature", 0.0), "temperature", min_value=0.0, max_value=2.0),
+                top_p=_require_finite_float(params.get("top_p", 1.0), "top_p", min_value=0.0, min_exclusive=True, max_value=1.0),
+                seed=_require_strict_int(params.get("seed", 42), "seed"),
+                max_tokens=_require_strict_int(params.get("max_tokens", 256), "max_tokens", min_value=1),
                 raw_params=params,
                 expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
 
         if method == "warp_complete":
+            _reject_case_insensitive_lora_override(params, "warp_complete")
             prompt = params["prompt"]
             if not isinstance(prompt, str):
                 raise WarpError("prompt must be a string", code="ERR_INVALID_PARAMS", stage="stage4_proxy")
             return self.modeld.complete(
                 prompt,
-                temperature=float(params.get("temperature", 0.0)),
-                top_p=float(params.get("top_p", 1.0)),
-                seed=int(params.get("seed", 42)),
-                n_predict=int(params.get("n_predict", 64)),
-                n_probs=int(params.get("n_probs", 0)),
+                temperature=_require_finite_float(params.get("temperature", 0.0), "temperature", min_value=0.0, max_value=2.0),
+                top_p=_require_finite_float(params.get("top_p", 1.0), "top_p", min_value=0.0, min_exclusive=True, max_value=1.0),
+                seed=_require_strict_int(params.get("seed", 42), "seed"),
+                n_predict=_require_strict_int(params.get("n_predict", 64), "n_predict", min_value=1),
+                n_probs=_require_strict_int(params.get("n_probs", 0), "n_probs", min_value=0),
                 raw_params=params,
                 expected_zone_manifest_id=params.get("zone_manifest_id"),
             )
@@ -240,27 +300,35 @@ class WarpUnixRpcServer:
     """Lifecycle wrapper around the local Unix socket RPC server."""
 
     def __init__(self, socket_path: str | Path, modeld: WarpModeld, *, socket_mode: int = 0o600) -> None:
+        if type(socket_mode) is not int or socket_mode < 0 or socket_mode > 0o777 or (socket_mode & 0o007) != 0:
+            raise ValueError(
+                f"socket_mode must be a non-world-accessible octal permission <= 0o770 (got {socket_mode!r})"
+            )
         self.socket_path = Path(socket_path)
         self.modeld = modeld
         self.socket_mode = socket_mode
         self._server: _WarpUnixStreamServer | None = None
         self._thread: threading.Thread | None = None
 
-    def start(self) -> None:
+    def _bind_socket_server(self) -> _WarpUnixStreamServer:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self.socket_path.exists():
             self.socket_path.unlink()
-        self._server = _WarpUnixStreamServer(str(self.socket_path), self.modeld)
-        os.chmod(self.socket_path, self.socket_mode)
+        old_umask = os.umask(0o177)
+        try:
+            srv = _WarpUnixStreamServer(str(self.socket_path), self.modeld)
+            os.chmod(self.socket_path, self.socket_mode)
+            return srv
+        finally:
+            os.umask(old_umask)
+
+    def start(self) -> None:
+        self._server = self._bind_socket_server()
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True, name="warp-modeld-rpc")
         self._thread.start()
 
     def serve_forever(self) -> None:
-        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-        self._server = _WarpUnixStreamServer(str(self.socket_path), self.modeld)
-        os.chmod(self.socket_path, self.socket_mode)
+        self._server = self._bind_socket_server()
         try:
             self._server.serve_forever()
         finally:

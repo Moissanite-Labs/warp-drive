@@ -137,7 +137,8 @@ class TestLiveLlamaSmoke(unittest.TestCase):
         self.assertTrue(base_gguf.is_file(), f"base GGUF not found: {base_gguf.name}")
         self.assertTrue(weft_src.is_dir(), "WEFT_SRC directory not found")
         self.assertIsNotNone(llama_bin, "llama-server binary not found on PATH or WARP_LLAMA_BIN")
-        assert llama_bin is not None
+        if llama_bin is None:
+            self.fail("llama-server binary not found on PATH or WARP_LLAMA_BIN")
 
         if str(weft_src) not in sys.path:
             sys.path.insert(0, str(weft_src))

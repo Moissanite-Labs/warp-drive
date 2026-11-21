@@ -3,6 +3,7 @@
   "socket_mode": "0660",
   "llama_server_url": "http://127.0.0.1:8080",
   "require_localhost": true,
+  "require_loaded_adapter_files": true,
   "canary_slot_id": 0,
   "canary_suite_path": "/etc/warp/canaries/verifier-canaries.json",
   "ledger_path": "/var/lib/warp-ledger/receipts.jsonl",

@@ -13,7 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from .errors import CertificateError
 
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 WEFT_RADIX_EXP2_MIN = 8
 WEFT_RADIX_EXP2_MAX = 48
 
@@ -321,6 +321,8 @@ def verify_division_free(
 
     if not isinstance(cert, FixedRadixCertificate):
         raise CertificateError("cert must be a FixedRadixCertificate instance")
+    if not isinstance(bounds, CertificateBounds):
+        raise CertificateError("bounds must be a CertificateBounds instance")
 
     _require_exact_int(scale_num, "scale_num", allow_zero=False)
     _require_exact_int(scale_den, "scale_den", allow_zero=False)
@@ -331,20 +333,25 @@ def verify_division_free(
             f"forged certificate digest for {cert.adapter_id}: got {cert.cert_sha256}, expected {expected_digest}"
         )
 
-    if expected_adapter_id is not None and cert.adapter_id != expected_adapter_id:
-        raise CertificateError(
-            f"certificate adapter_id mismatch: cert has {cert.adapter_id}, expected {expected_adapter_id}"
-        )
-    if expected_adapter_sha256 is not None and not hmac.compare_digest(cert.adapter_sha256, expected_adapter_sha256):
-        raise CertificateError(
-            f"certificate adapter_sha256 mismatch for {cert.adapter_id}"
-        )
-    if expected_base_weights_sha256 is not None and not hmac.compare_digest(
-        cert.base_weights_sha256, expected_base_weights_sha256
-    ):
-        raise CertificateError(
-            f"certificate base_weights_sha256 mismatch for {cert.adapter_id}"
-        )
+    if expected_adapter_id is not None:
+        if not isinstance(expected_adapter_id, str) or cert.adapter_id != expected_adapter_id:
+            raise CertificateError(
+                f"certificate adapter_id mismatch: cert has {cert.adapter_id}, expected {expected_adapter_id}"
+            )
+    if expected_adapter_sha256 is not None:
+        if not isinstance(expected_adapter_sha256, str) or not SHA256_RE.match(expected_adapter_sha256):
+            raise CertificateError("expected_adapter_sha256 must be a 64-char lowercase hex digest")
+        if not hmac.compare_digest(cert.adapter_sha256, expected_adapter_sha256):
+            raise CertificateError(
+                f"certificate adapter_sha256 mismatch for {cert.adapter_id}"
+            )
+    if expected_base_weights_sha256 is not None:
+        if not isinstance(expected_base_weights_sha256, str) or not SHA256_RE.match(expected_base_weights_sha256):
+            raise CertificateError("expected_base_weights_sha256 must be a 64-char lowercase hex digest")
+        if not hmac.compare_digest(cert.base_weights_sha256, expected_base_weights_sha256):
+            raise CertificateError(
+                f"certificate base_weights_sha256 mismatch for {cert.adapter_id}"
+            )
 
     # Spectral norm squared can never exceed Frobenius norm squared for any real matrix.
     if cert.spectral_norm_sq_scaled > cert.frobenius_sq_scaled:
@@ -401,20 +408,68 @@ def verify_division_free(
 
 
 def stack_composition_digest(entries: Sequence[tuple[str, str, int, int]]) -> str:
-    """Deterministic SHA-256 binding a multi-adapter stack (adapter_id, adapter_sha256, scale_num, scale_den)."""
-    normalized = sorted(
-        (
+    """Deterministic SHA-256 binding a multi-adapter stack with reduced canonical rational scales."""
+    if not entries:
+        raise CertificateError("stack composition entries must be non-empty")
+    seen_ids: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for aid, asha, snum, sden in entries:
+        if not isinstance(aid, str) or not aid.strip():
+            raise CertificateError("stack entry adapter_id must be a non-empty string")
+        if aid in seen_ids:
+            raise CertificateError(f"duplicate adapter_id in stack_composition_digest: {aid}")
+        seen_ids.add(aid)
+        if not isinstance(asha, str) or not SHA256_RE.match(asha):
+            raise CertificateError(f"stack entry adapter_sha256 invalid for {aid}")
+        _require_exact_int(snum, f"{aid}.scale_num", allow_zero=False)
+        _require_exact_int(sden, f"{aid}.scale_den", allow_zero=False)
+        g = math.gcd(snum, sden)
+        rows.append(
             {
                 "adapter_id": aid,
                 "adapter_sha256": asha,
-                "scale_num": snum,
-                "scale_den": sden,
+                "scale_num": snum // g,
+                "scale_den": sden // g,
             }
-            for aid, asha, snum, sden in entries
-        ),
-        key=lambda item: (item["adapter_id"], item["adapter_sha256"]),
-    )
+        )
+    normalized = sorted(rows, key=lambda item: (item["adapter_id"], item["adapter_sha256"]))
     return _canonical_sha256({"stack": normalized})
+
+
+def _check_composed_norm_triangle_exact(
+    per_adapter_nums: Sequence[int],
+    composed_num: int,
+    metric_name: str,
+) -> None:
+    """Root-free exact integer triangle-inequality consistency check on a common denominator."""
+    n_items = len(per_adapter_nums)
+    total = sum(per_adapter_nums)
+    if composed_num > n_items * total:
+        raise CertificateError(
+            f"inconsistent composed certificate {metric_name}: exceeds Cauchy-Schwarz upper bound"
+        )
+    if n_items == 1:
+        if composed_num != per_adapter_nums[0]:
+            raise CertificateError(
+                f"inconsistent single-adapter composed certificate {metric_name}"
+            )
+        return
+    if n_items == 2:
+        a1, a2 = per_adapter_nums[0], per_adapter_nums[1]
+        diff = a1 + a2 - composed_num
+        if diff * diff > 4 * a1 * a2:
+            raise CertificateError(
+                f"inconsistent composed certificate {metric_name}: violates exact 2-adapter triangle inequality"
+            )
+        return
+    dominant = max(per_adapter_nums)
+    rest_bound = (n_items - 1) * (total - dominant)
+    if dominant > rest_bound:
+        diff = dominant + rest_bound - composed_num
+        if diff > 0 and diff * diff > 4 * dominant * rest_bound:
+            raise CertificateError(
+                f"inconsistent composed certificate {metric_name}: violates dominant-adapter lower triangle bound"
+            )
 
 
 def verify_stack_division_free(
@@ -464,7 +519,18 @@ def verify_stack_division_free(
     composed_bound_checked = False
     composed_cert_verified = False
 
-    if len(items) > 1:
+    if len(items) == 1:
+        cert0, aid0, asha0, snum0, sden0 = items[0]
+        verify_division_free(
+            cert0,
+            joint_bounds,
+            scale_num=snum0,
+            scale_den=sden0,
+            expected_adapter_id=aid0,
+            expected_adapter_sha256=asha0,
+            expected_base_weights_sha256=expected_base_weights_sha256,
+        )
+    else:
         n_adapters = len(items)
         common_den = math.lcm(*denominators)
         metric_specs = (
@@ -492,6 +558,18 @@ def verify_stack_division_free(
             expected_adapter_sha256=expected_stack_sha,
             expected_base_weights_sha256=expected_base_weights_sha256,
         )
+        tri_den = math.lcm(composed_certificate.radix_scale, *denominators)
+        comp_factor = tri_den // composed_certificate.radix_scale
+        for attr, metric_name in (
+            ("frobenius_sq_scaled", "composed_frobenius_sq"),
+            ("spectral_norm_sq_scaled", "composed_spectral_norm_sq"),
+        ):
+            per_nums = [
+                getattr(cert, attr) * (snum * snum) * (tri_den // tden)
+                for (cert, _aid, _asha, snum, _sden), tden in zip(items, denominators)
+            ]
+            comp_num = getattr(composed_certificate, attr) * comp_factor
+            _check_composed_norm_triangle_exact(per_nums, comp_num, metric_name)
         composed_cert_verified = True
 
     elapsed_ns = time.perf_counter_ns() - start_ns
