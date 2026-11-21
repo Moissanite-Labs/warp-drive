@@ -87,3 +87,23 @@ class UnverifiedLoraOverrideError(WarpError):
 class LedgerTamperError(WarpError):
     code = "ERR_LEDGER_TAMPERED"
     stage = "stage4_ledger"
+
+
+class CerebrasClientError(WarpError):
+    code = "ERR_CEREBRAS_CLIENT"
+    stage = "lane6_cerebras"
+
+
+class CerebrasCredentialsMissingError(CerebrasClientError):
+    code = "ERR_CEREBRAS_NO_CREDENTIAL"
+    stage = "lane6_cerebras"
+
+
+class CerebrasSchemaError(CerebrasClientError):
+    code = "ERR_CEREBRAS_SCHEMA"
+    stage = "lane6_cerebras"
+
+
+class CerebrasTransportError(CerebrasClientError):
+    code = "ERR_CEREBRAS_TRANSPORT"
+    stage = "lane6_cerebras"
