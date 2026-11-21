@@ -1,0 +1,2299 @@
+{
+  "cases": [
+    {
+      "case_id": "state-007-PUB-A-C03",
+      "decision_position": 116,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 164,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 7
+    },
+    {
+      "case_id": "state-008-PUB-A-C03",
+      "decision_position": 121,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 164,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 8
+    },
+    {
+      "case_id": "state-009-PUB-A-C03",
+      "decision_position": 161,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 164,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 9
+    },
+    {
+      "case_id": "state-010-PUB-A-C03",
+      "decision_position": 162,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 164,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 10
+    },
+    {
+      "case_id": "state-019-PUB-A-C06",
+      "decision_position": 124,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 204,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 19
+    },
+    {
+      "case_id": "state-020-PUB-A-C06",
+      "decision_position": 129,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 204,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 20
+    },
+    {
+      "case_id": "state-021-PUB-A-C06",
+      "decision_position": 201,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 204,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 21
+    },
+    {
+      "case_id": "state-022-PUB-A-C06",
+      "decision_position": 202,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 204,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 22
+    },
+    {
+      "case_id": "state-031-PUB-A-C09",
+      "decision_position": 225,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 360,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 31
+    },
+    {
+      "case_id": "state-032-PUB-A-C09",
+      "decision_position": 230,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 360,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 32
+    },
+    {
+      "case_id": "state-033-PUB-A-C09",
+      "decision_position": 357,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 360,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 33
+    },
+    {
+      "case_id": "state-034-PUB-A-C09",
+      "decision_position": 358,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 360,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 34
+    },
+    {
+      "case_id": "state-042-PUB-A-C12",
+      "decision_position": 157,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 42
+    },
+    {
+      "case_id": "state-043-PUB-A-C12",
+      "decision_position": 162,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 43
+    },
+    {
+      "case_id": "state-044-PUB-A-C12",
+      "decision_position": 273,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 44
+    },
+    {
+      "case_id": "state-045-PUB-A-C12",
+      "decision_position": 274,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 45
+    },
+    {
+      "case_id": "state-053-PUB-A-C15",
+      "decision_position": 163,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 53
+    },
+    {
+      "case_id": "state-054-PUB-A-C15",
+      "decision_position": 168,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 54
+    },
+    {
+      "case_id": "state-055-PUB-A-C15",
+      "decision_position": 273,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 55
+    },
+    {
+      "case_id": "state-056-PUB-A-C15",
+      "decision_position": 274,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 276,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 56
+    },
+    {
+      "case_id": "state-064-PUB-A-C18",
+      "decision_position": 256,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 390,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 64
+    },
+    {
+      "case_id": "state-065-PUB-A-C18",
+      "decision_position": 261,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 390,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 65
+    },
+    {
+      "case_id": "state-066-PUB-A-C18",
+      "decision_position": 387,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 390,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 66
+    },
+    {
+      "case_id": "state-067-PUB-A-C18",
+      "decision_position": 388,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 390,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 67
+    },
+    {
+      "case_id": "state-076-PUB-A-C21",
+      "decision_position": 270,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 536,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 76
+    },
+    {
+      "case_id": "state-077-PUB-A-C21",
+      "decision_position": 275,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 536,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 77
+    },
+    {
+      "case_id": "state-078-PUB-A-C21",
+      "decision_position": 533,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 536,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 78
+    },
+    {
+      "case_id": "state-079-PUB-A-C21",
+      "decision_position": 534,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 536,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 79
+    },
+    {
+      "case_id": "state-088-PUB-A-C24",
+      "decision_position": 195,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 313,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        2159
+      ],
+      "prompt_id": "PUB-A-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 88
+    },
+    {
+      "case_id": "state-089-PUB-A-C24",
+      "decision_position": 200,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 313,
+      "negative_tokens": [
+        198,
+        464,
+        8549
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-A-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 89
+    },
+    {
+      "case_id": "state-090-PUB-A-C24",
+      "decision_position": 310,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 313,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        539
+      ],
+      "prompt_id": "PUB-A-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 90
+    },
+    {
+      "case_id": "state-091-PUB-A-C24",
+      "decision_position": 311,
+      "family": "A",
+      "group": "fv",
+      "n_tokens": 313,
+      "negative_tokens": [
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327
+      ],
+      "positive_tokens": [
+        198
+      ],
+      "prompt_id": "PUB-A-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 91
+    },
+    {
+      "case_id": "state-096-PUB-B-C03",
+      "decision_position": 248,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 251,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 96
+    },
+    {
+      "case_id": "state-097-PUB-B-C03",
+      "decision_position": 249,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 251,
+      "negative_tokens": [
+        9845,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        696
+      ],
+      "prompt_id": "PUB-B-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 97
+    },
+    {
+      "case_id": "state-102-PUB-B-C06",
+      "decision_position": 293,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 296,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 102
+    },
+    {
+      "case_id": "state-103-PUB-B-C06",
+      "decision_position": 294,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 296,
+      "negative_tokens": [
+        9845,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        696
+      ],
+      "prompt_id": "PUB-B-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 103
+    },
+    {
+      "case_id": "state-108-PUB-B-C09",
+      "decision_position": 538,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 555,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 108
+    },
+    {
+      "case_id": "state-109-PUB-B-C09",
+      "decision_position": 553,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 555,
+      "negative_tokens": [
+        413,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        19603
+      ],
+      "prompt_id": "PUB-B-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 109
+    },
+    {
+      "case_id": "state-114-PUB-B-C12",
+      "decision_position": 290,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 307,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 114
+    },
+    {
+      "case_id": "state-115-PUB-B-C12",
+      "decision_position": 305,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 307,
+      "negative_tokens": [
+        3753,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        295
+      ],
+      "prompt_id": "PUB-B-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 115
+    },
+    {
+      "case_id": "state-120-PUB-B-C15",
+      "decision_position": 410,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 416,
+      "negative_tokens": [
+        727
+      ],
+      "positive_tokens": [
+        1445
+      ],
+      "prompt_id": "PUB-B-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 120
+    },
+    {
+      "case_id": "state-121-PUB-B-C15",
+      "decision_position": 414,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 416,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-B-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 121
+    },
+    {
+      "case_id": "state-126-PUB-B-C18",
+      "decision_position": 552,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 558,
+      "negative_tokens": [
+        727
+      ],
+      "positive_tokens": [
+        1445
+      ],
+      "prompt_id": "PUB-B-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 126
+    },
+    {
+      "case_id": "state-127-PUB-B-C18",
+      "decision_position": 556,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 558,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        271
+      ],
+      "prompt_id": "PUB-B-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 127
+    },
+    {
+      "case_id": "state-132-PUB-B-C21",
+      "decision_position": 349,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 366,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 132
+    },
+    {
+      "case_id": "state-133-PUB-B-C21",
+      "decision_position": 364,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 366,
+      "negative_tokens": [
+        413,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        307
+      ],
+      "prompt_id": "PUB-B-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 133
+    },
+    {
+      "case_id": "state-138-PUB-B-C24",
+      "decision_position": 355,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 372,
+      "negative_tokens": [
+        3524,
+        2153,
+        2138,
+        1992
+      ],
+      "positive_tokens": [
+        727
+      ],
+      "prompt_id": "PUB-B-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 138
+    },
+    {
+      "case_id": "state-139-PUB-B-C24",
+      "decision_position": 370,
+      "family": "B",
+      "group": "fv",
+      "n_tokens": 372,
+      "negative_tokens": [
+        413,
+        3524,
+        2153
+      ],
+      "positive_tokens": [
+        307
+      ],
+      "prompt_id": "PUB-B-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 139
+    },
+    {
+      "case_id": "state-148-PUB-C-C03",
+      "decision_position": 516,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1081,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 148
+    },
+    {
+      "case_id": "state-149-PUB-C-C03",
+      "decision_position": 520,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1081,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        3308
+      ],
+      "prompt_id": "PUB-C-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 149
+    },
+    {
+      "case_id": "state-150-PUB-C-C03",
+      "decision_position": 1029,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1081,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 150
+    },
+    {
+      "case_id": "state-151-PUB-C-C03",
+      "decision_position": 1079,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1081,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 151
+    },
+    {
+      "case_id": "state-160-PUB-C-C06",
+      "decision_position": 537,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1110,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 160
+    },
+    {
+      "case_id": "state-161-PUB-C-C06",
+      "decision_position": 541,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1110,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        28302
+      ],
+      "prompt_id": "PUB-C-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 161
+    },
+    {
+      "case_id": "state-162-PUB-C-C06",
+      "decision_position": 1037,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1110,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 162
+    },
+    {
+      "case_id": "state-163-PUB-C-C06",
+      "decision_position": 1108,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1110,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 163
+    },
+    {
+      "case_id": "state-172-PUB-C-C09",
+      "decision_position": 479,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1053,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 172
+    },
+    {
+      "case_id": "state-173-PUB-C-C09",
+      "decision_position": 483,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1053,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        3308
+      ],
+      "prompt_id": "PUB-C-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 173
+    },
+    {
+      "case_id": "state-174-PUB-C-C09",
+      "decision_position": 1001,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1053,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 174
+    },
+    {
+      "case_id": "state-175-PUB-C-C09",
+      "decision_position": 1051,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1053,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 175
+    },
+    {
+      "case_id": "state-184-PUB-C-C12",
+      "decision_position": 518,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 967,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 184
+    },
+    {
+      "case_id": "state-185-PUB-C-C12",
+      "decision_position": 522,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 967,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        3308
+      ],
+      "prompt_id": "PUB-C-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 185
+    },
+    {
+      "case_id": "state-186-PUB-C-C12",
+      "decision_position": 910,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 967,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 186
+    },
+    {
+      "case_id": "state-187-PUB-C-C12",
+      "decision_position": 965,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 967,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 187
+    },
+    {
+      "case_id": "state-196-PUB-C-C15",
+      "decision_position": 522,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1116,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 196
+    },
+    {
+      "case_id": "state-197-PUB-C-C15",
+      "decision_position": 526,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1116,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        28302
+      ],
+      "prompt_id": "PUB-C-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 197
+    },
+    {
+      "case_id": "state-198-PUB-C-C15",
+      "decision_position": 1061,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1116,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 198
+    },
+    {
+      "case_id": "state-199-PUB-C-C15",
+      "decision_position": 1114,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1116,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 199
+    },
+    {
+      "case_id": "state-208-PUB-C-C18",
+      "decision_position": 512,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1079,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 208
+    },
+    {
+      "case_id": "state-209-PUB-C-C18",
+      "decision_position": 516,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1079,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        28302
+      ],
+      "prompt_id": "PUB-C-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 209
+    },
+    {
+      "case_id": "state-210-PUB-C-C18",
+      "decision_position": 1006,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1079,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 210
+    },
+    {
+      "case_id": "state-211-PUB-C-C18",
+      "decision_position": 1077,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 1079,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 211
+    },
+    {
+      "case_id": "state-220-PUB-C-C21",
+      "decision_position": 417,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 869,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 220
+    },
+    {
+      "case_id": "state-221-PUB-C-C21",
+      "decision_position": 421,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 869,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        3308
+      ],
+      "prompt_id": "PUB-C-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 221
+    },
+    {
+      "case_id": "state-222-PUB-C-C21",
+      "decision_position": 825,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 869,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 222
+    },
+    {
+      "case_id": "state-223-PUB-C-C21",
+      "decision_position": 867,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 869,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 223
+    },
+    {
+      "case_id": "state-232-PUB-C-C24",
+      "decision_position": 506,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 971,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        44027
+      ],
+      "prompt_id": "PUB-C-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 232
+    },
+    {
+      "case_id": "state-233-PUB-C-C24",
+      "decision_position": 510,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 971,
+      "negative_tokens": [
+        5140,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        3308
+      ],
+      "prompt_id": "PUB-C-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 233
+    },
+    {
+      "case_id": "state-234-PUB-C-C24",
+      "decision_position": 908,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 971,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-C-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 234
+    },
+    {
+      "case_id": "state-235-PUB-C-C24",
+      "decision_position": 969,
+      "family": "C",
+      "group": "fv",
+      "n_tokens": 971,
+      "negative_tokens": [
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-C-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 235
+    },
+    {
+      "case_id": "state-244-PUB-D-C03",
+      "decision_position": 382,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 753,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 244
+    },
+    {
+      "case_id": "state-245-PUB-D-C03",
+      "decision_position": 387,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 753,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 245
+    },
+    {
+      "case_id": "state-246-PUB-D-C03",
+      "decision_position": 716,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 753,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 246
+    },
+    {
+      "case_id": "state-247-PUB-D-C03",
+      "decision_position": 751,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 753,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C03",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 247
+    },
+    {
+      "case_id": "state-256-PUB-D-C06",
+      "decision_position": 351,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 732,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 256
+    },
+    {
+      "case_id": "state-257-PUB-D-C06",
+      "decision_position": 356,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 732,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 257
+    },
+    {
+      "case_id": "state-258-PUB-D-C06",
+      "decision_position": 690,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 732,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 258
+    },
+    {
+      "case_id": "state-259-PUB-D-C06",
+      "decision_position": 730,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 732,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C06",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 259
+    },
+    {
+      "case_id": "state-268-PUB-D-C09",
+      "decision_position": 385,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 742,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 268
+    },
+    {
+      "case_id": "state-269-PUB-D-C09",
+      "decision_position": 391,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 742,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 269
+    },
+    {
+      "case_id": "state-270-PUB-D-C09",
+      "decision_position": 702,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 742,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 270
+    },
+    {
+      "case_id": "state-271-PUB-D-C09",
+      "decision_position": 740,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 742,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C09",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 271
+    },
+    {
+      "case_id": "state-280-PUB-D-C12",
+      "decision_position": 360,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 758,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 280
+    },
+    {
+      "case_id": "state-281-PUB-D-C12",
+      "decision_position": 366,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 758,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 281
+    },
+    {
+      "case_id": "state-282-PUB-D-C12",
+      "decision_position": 719,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 758,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 282
+    },
+    {
+      "case_id": "state-283-PUB-D-C12",
+      "decision_position": 756,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 758,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C12",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 283
+    },
+    {
+      "case_id": "state-292-PUB-D-C15",
+      "decision_position": 356,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 687,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 292
+    },
+    {
+      "case_id": "state-293-PUB-D-C15",
+      "decision_position": 360,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 687,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 293
+    },
+    {
+      "case_id": "state-294-PUB-D-C15",
+      "decision_position": 642,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 687,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 294
+    },
+    {
+      "case_id": "state-295-PUB-D-C15",
+      "decision_position": 685,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 687,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C15",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 295
+    },
+    {
+      "case_id": "state-304-PUB-D-C18",
+      "decision_position": 342,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 668,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 304
+    },
+    {
+      "case_id": "state-305-PUB-D-C18",
+      "decision_position": 348,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 668,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 305
+    },
+    {
+      "case_id": "state-306-PUB-D-C18",
+      "decision_position": 629,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 668,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 306
+    },
+    {
+      "case_id": "state-307-PUB-D-C18",
+      "decision_position": 666,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 668,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C18",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 307
+    },
+    {
+      "case_id": "state-316-PUB-D-C21",
+      "decision_position": 346,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 656,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 316
+    },
+    {
+      "case_id": "state-317-PUB-D-C21",
+      "decision_position": 351,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 656,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 317
+    },
+    {
+      "case_id": "state-318-PUB-D-C21",
+      "decision_position": 615,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 656,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 318
+    },
+    {
+      "case_id": "state-319-PUB-D-C21",
+      "decision_position": 654,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 656,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C21",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 319
+    },
+    {
+      "case_id": "state-328-PUB-D-C24",
+      "decision_position": 336,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 631,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        2
+      ],
+      "prompt_id": "PUB-D-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 328
+    },
+    {
+      "case_id": "state-329-PUB-D-C24",
+      "decision_position": 341,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 631,
+      "negative_tokens": [
+        2536,
+        2536,
+        2218
+      ],
+      "positive_tokens": [
+        63
+      ],
+      "prompt_id": "PUB-D-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 329
+    },
+    {
+      "case_id": "state-330-PUB-D-C24",
+      "decision_position": 590,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 631,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        369
+      ],
+      "prompt_id": "PUB-D-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 330
+    },
+    {
+      "case_id": "state-331-PUB-D-C24",
+      "decision_position": 629,
+      "family": "D",
+      "group": "fv",
+      "n_tokens": 631,
+      "negative_tokens": [
+        2536,
+        2218,
+        1892,
+        26,
+        464,
+        8549,
+        65318,
+        14169,
+        28767,
+        327,
+        8844,
+        5140
+      ],
+      "positive_tokens": [
+        488
+      ],
+      "prompt_id": "PUB-D-C24",
+      "scoring": "exact_top1_positive_token_at_decision_position",
+      "state_index": 331
+    }
+  ],
+  "families": {
+    "A": 32,
+    "B": 16,
+    "C": 32,
+    "D": 32
+  },
+  "n_cases": 112,
+  "note": "Cases are token-level references to published harvest states. Prompt text is not published; execution needs the ml-os dataset and the pinned checkpoint. Do not invent prompt text.",
+  "scoring": "exact_top1_positive_token_at_decision_position",
+  "suite": "task",
+  "suite_version": "0.1.0"
+}
