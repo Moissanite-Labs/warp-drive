@@ -34,6 +34,14 @@ import re
 import sys
 from pathlib import Path
 
+# Frozen counts from the contract (thresholds.json): the margin rule covers 84
+# adapter and 36 baseline probe requests, and the rollback rule needs 14 of 14
+# sequences. The verifier keeps its own copies so it does not read them back
+# from the controller under audit.
+FROZEN_MARGIN_ADAPTER_REQUESTS = 84
+FROZEN_MARGIN_BASELINE_REQUESTS = 36
+FROZEN_ROLLBACK_SEQUENCES = 14
+
 SUITE_ORDER = ("task", "retention_iid", "retention_shifted", "safety_canaries")
 SUITE_FILES = {
     "task": "suites/task.json",
@@ -540,6 +548,14 @@ def check_policy(measurements_path: Path, exp_dir: Path) -> list[dict]:
         failed.append("margin_adapter")
     if not mg["margins_baseline"] or not all(v <= threshold for v in mg["margins_baseline"]):
         failed.append("margin_baseline")
+    # Margin counts must equal the frozen counts, and each list must be as long
+    # as the number of requests the measurement reports.
+    for side, frozen in (("adapter", FROZEN_MARGIN_ADAPTER_REQUESTS),
+                         ("baseline", FROZEN_MARGIN_BASELINE_REQUESTS)):
+        if len(mg["margins_" + side]) != mg.get(side + "_requests"):
+            failed.append("margin_%s_length" % side)
+        if mg.get(side + "_requests") != frozen:
+            failed.append("margin_%s_requests" % side)
     if m["retention_iid"]["mean_kl"] > float(retention["iid_kl_max_mean"]):
         failed.append("retention_iid_kl")
     if m["retention_iid"]["top1_agreement"] < float(retention["iid_top1_agreement_min"]):
@@ -552,6 +568,8 @@ def check_policy(measurements_path: Path, exp_dir: Path) -> list[dict]:
     rb = m["rollback"]
     if rb["exact_matches"] != rb["sequences"]:
         failed.append("rollback_exact")
+    if rb["sequences"] != FROZEN_ROLLBACK_SEQUENCES:
+        failed.append("rollback_sequences")
     if rb["max_logit_diff"] != 0.0:
         failed.append("rollback_logit_diff")
     if control_id == "base-control":
