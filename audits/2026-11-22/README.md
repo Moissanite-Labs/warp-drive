@@ -93,7 +93,7 @@ Run all checkers from the repo root. Lane B needs the repo root as its sole argu
 | checkers/laneA_probes2.py | rc 0 | rc 0 | rc 0 | 3c7e7655f930aa1a |
 | checkers/laneA_probes3.py | rc 0 | rc 0 | rc 0 | c5647e7973b6bb61 |
 | checkers/laneB_checker.py . | rc 0 | rc 0 | rc 0 | d617ba7bdc21 |
-| checkers/laneD_checker.py | rc 0 | rc 0 | rc 0 | e244d9b40676b65d |
+| checkers/laneD_checker.py | rc 0 | rc 0 | rc 0 | 7055aaa4b67337c7 |
 | checkers/falsify_probe.py | rc 0 | rc 0 | rc 0 | 57895e7c9884c9b1 |
 | checkers/run_pytest_iso.py tests/test_stage2_certificate.py -q | 9 passed | 9 passed | 9 passed | per run tail |
 

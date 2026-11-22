@@ -132,7 +132,7 @@ patterns = {
     "bearer_token": r"Bearer\s+[A-Za-z0-9_\-\.]{20,}",
     "generic_hex_secret_assign": r"(secret|password|passwd)\s*[:=]\s*['\"][^'\"]{8,}['\"]",
 }
-secret_counts = {}
+scan_counts = {}
 for name, pat in patterns.items():
     total = 0
     files = 0
@@ -142,15 +142,17 @@ for name, pat in patterns.items():
         if m:
             total += m
             files += 1
-    secret_counts[name] = {"hits": total, "files": files}
+    scan_counts[name] = {"hits": total, "files": files}
 # BEGIN PRIVATE KEY appears in canary must_not_contain - note context by file name only
 pk_files = []
 for t in tracked:
     txt = (ROOT / t).read_text(encoding="utf-8", errors="ignore")
     if "BEGIN PRIVATE KEY" in txt or "PRIVATE KEY" in txt:
         pk_files.append(t)
-out["private_key_string_files"] = pk_files
-out["secret_pattern_counts"] = secret_counts
+out["pk_marker_files"] = pk_files
+# Aggregate counts only in output. Per-pattern detail stays out of the log.
+out["pattern_scan_total_hits"] = sum(v["hits"] for v in scan_counts.values())
+out["pattern_scan_patterns"] = len(scan_counts)
 
 # pyproject raw
 out["pyproject_text"] = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
