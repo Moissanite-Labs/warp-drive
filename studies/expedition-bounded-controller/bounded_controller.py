@@ -19,6 +19,7 @@ from fractions import Fraction
 import hashlib
 import hmac
 import json
+import re
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 import experiment_contract as ec
@@ -137,10 +138,26 @@ ALLOWED_KNOBS_KEYS: frozenset[str] = frozenset(
     }
 )
 FAILURE_REPORT_INT_KEYS: frozenset[str] = frozenset({"repair_round", "unrelated_kl_after_milli"})
+CANDIDATE_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9_-]{0,31}\Z")
+ALLOWED_EGRESS_VERDICTS: frozenset[str] = frozenset({"PROMOTED", "REJECTED", "CONTROL_BASE_PASS"})
+ALLOWED_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "safety_canary_failed",
+        "iid_retention_drop_exceeded",
+        "shifted_retention_drop_exceeded",
+        "goodhart_kl_latch_halted",
+        "unchanged_base_nonzero_task_gain",
+        "unchanged_base_nonzero_logprob_shift",
+        "task_exact_gain_below_threshold",
+        "logprob_margin_below_threshold",
+        "control_role_cannot_promote",
+    }
+)
 MAX_EGRESS_TOKEN_LEN = 64
-MAX_FAILURE_CODES = 16
+MAX_FAILURE_CODES = len(ALLOWED_FAILURE_CODES)
 MAX_HISTORY_SUMMARY_ITEMS = 16
 MAX_KNOB_LIST_LEN = 16
+MAX_COMPARE_TEXT_LEN = 4096
 
 
 class ControllerError(ValueError):
@@ -749,7 +766,7 @@ class BoundedExperimentController:
 
         if judge_comparison is not None:
             ec.verify_no_floats(judge_comparison)
-            ec.verify_ring0_immutability(self.manifest, judge_comparison)
+            ec.verify_ring0_immutability(self.manifest, judge_comparison, require_contract_sha256=False)
 
         self._verify_manifest_integrity()
         ev = rec["evaluation"]
@@ -863,10 +880,15 @@ class BoundedExperimentController:
 
         rb_ms = ec.require_exact_int(rb.get("deploy_rollback_ms"), "deploy_rollback_ms", min_value=0)
         rec = self._candidates[candidate_id]
+        prior_phase = rec["phase"]
+        rec["phase"] = "RolledBack"
+        rec["contact"] = "Live"
         rec["rolled_back"] = True
 
         rb_payload = {
             "reason": reason,
+            "prior_phase": prior_phase,
+            "phase": rec["phase"],
             "banks_requested": list(req_banks),
             "banks_flushed": list(flushed),
             "baseline_logit_diff_milli": logit_diff_milli,
@@ -875,7 +897,12 @@ class BoundedExperimentController:
             "evidence_scope": "logic_check_fake_runtime" if runtime.is_mock else "live_checkpoint_runtime",
         }
         receipt = self.ledger.append("rollback", candidate_id=candidate_id, payload=rb_payload)
-        return {"candidate_id": candidate_id, "baseline_logits_restored": True, "receipt": receipt}
+        return {
+            "candidate_id": candidate_id,
+            "phase": rec["phase"],
+            "baseline_logits_restored": True,
+            "receipt": receipt,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -891,11 +918,29 @@ def _is_short_printable_ascii(value: Any, max_len: int = MAX_EGRESS_TOKEN_LEN) -
     )
 
 
-def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
-    """Strict allowlist validator for outbound diagnose() failure_report payloads.
+def _require_egress_id(value: Any, label: str) -> str:
+    if type(value) is not str or CANDIDATE_ID_RE.match(value) is None:
+        raise ControllerError(
+            "ERR_EGRESS_POLICY_VIOLATION",
+            f"{label} must match ^[a-z0-9][a-z0-9_-]{{0,31}}$",
+        )
+    return value
 
-    Closes the egress alias bypass: only fixed structured diagnostic fields with exact
-    integers or short printable-ASCII enum/code strings may cross the provider boundary.
+
+def _require_compare_text(value: Any, label: str) -> str:
+    if type(value) is not str or not value.strip() or len(value) > MAX_COMPARE_TEXT_LEN or "\x00" in value:
+        raise ControllerError(
+            "ERR_EGRESS_POLICY_VIOLATION",
+            f"{label} must be non-empty str <= {MAX_COMPARE_TEXT_LEN} chars without NUL bytes",
+        )
+    return value
+
+
+def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
+    """Strict allowlist validator for outbound diagnose()/propose() structured diagnostic payloads.
+
+    Constrains candidate_id to ^[a-z0-9][a-z0-9_-]{0,31}$ and verdict, failed_gate, and failures
+    entries to closed enum sets, blocking arbitrary free-text / base64 smuggling on diagnose/propose.
     """
     if not isinstance(failure_report, Mapping):
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report must be a mapping")
@@ -907,19 +952,25 @@ def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
             if type(v) is not int or v < 0:
                 raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.{k} must be non-negative int")
             cleaned[k] = v
-        elif k == "failures":
+        elif k == "candidate_id":
+            cleaned[k] = _require_egress_id(v, "failure_report.candidate_id")
+        elif k == "verdict":
+            if type(v) is not str or v not in ALLOWED_EGRESS_VERDICTS:
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.verdict not in allowed enum: {v!r}")
+            cleaned[k] = v
+        elif k == "failed_gate":
+            if type(v) is not str or v not in ALLOWED_FAILURE_CODES:
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.failed_gate not in allowed enum: {v!r}")
+            cleaned[k] = v
+        else:
             if not isinstance(v, (list, tuple)) or len(v) > MAX_FAILURE_CODES:
-                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report.failures must be short code list")
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report.failures must be bounded enum code list")
             items: list[str] = []
             for item in v:
-                if not _is_short_printable_ascii(item):
-                    raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report.failures entry invalid")
+                if type(item) is not str or item not in ALLOWED_FAILURE_CODES:
+                    raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.failures entry not in allowed enum: {item!r}")
                 items.append(item)
             cleaned[k] = items
-        else:
-            if not _is_short_printable_ascii(v):
-                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.{k} must be short ASCII token")
-            cleaned[k] = v
     return cleaned
 
 
@@ -972,8 +1023,8 @@ def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.quantizations must be bounded non-empty list")
     quants: list[str] = []
     for q in raw_quants:
-        if not _is_short_printable_ascii(q):
-            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.quantizations entry invalid")
+        if type(q) is not str or q not in ec.ALLOWED_QUANTIZATIONS:
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.quantizations entry not in allowed enum")
         quants.append(q)
     projected["target_layer"] = target_layer
     projected["allowed_knobs"] = {
@@ -1278,9 +1329,9 @@ class CerebrasKimiAdvisoryClient:
         seed: int = 103,
     ) -> dict[str, Any]:
         payload = {
-            "case_id": ec.require_non_empty_str(case_id, "case_id"),
-            "baseline_text": ec.require_non_empty_str(baseline_text, "baseline_text"),
-            "adapted_text": ec.require_non_empty_str(adapted_text, "adapted_text"),
+            "case_id": _require_egress_id(case_id, "case_id"),
+            "baseline_text": _require_compare_text(baseline_text, "baseline_text"),
+            "adapted_text": _require_compare_text(adapted_text, "adapted_text"),
         }
 
         def _check_compare(parsed: dict[str, Any]) -> None:

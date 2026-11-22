@@ -218,13 +218,18 @@ def test_group3_frozen_manifest_and_ring0() -> None:
         code="ERR_EXTENSION_COLLISION",
     )
 
-    # Ring-0 immutability checks (top-level, uppercase, nested dict & list!)
+    # Ring-0 immutability checks (top-level, uppercase, nested dict & list, missing/mismatched contract_sha256!)
     ec.verify_ring0_immutability(m, {"candidate_id": "c1", "contract_sha256": m["manifest_sha256"], "notes": ["ok"]})
+    ec.verify_ring0_immutability(m, {"advisory_vote": "BETTER"}, require_contract_sha256=False)
     _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, "bad"), "non-map proposal")  # type: ignore[arg-type]
-    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"lora": []}), "forbidden lora")
-    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"LORA": []}), "uppercase LORA")
-    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"nested": [{"thresholds_override": [0, 1]}]}), "nested list override")
-    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": _sha("x")}), "contract drift")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": m["manifest_sha256"], "lora": []}), "forbidden lora", code="ERR_RING0_TAMPER")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": m["manifest_sha256"], "LORA": []}), "uppercase LORA", code="ERR_RING0_TAMPER")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": m["manifest_sha256"], "nested": [{"thresholds_override": [0, 1]}]}), "nested list override", code="ERR_RING0_TAMPER")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"candidate_id": "c1"}), "missing contract_sha256", code="ERR_CONTRACT_DRIFT")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"candidate_id": "c1", "contract_sha256": None}), "null contract_sha256", code="ERR_CONTRACT_DRIFT")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": _sha("x")}), "contract drift", code="ERR_CONTRACT_DRIFT")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": _sha("x")}, require_contract_sha256=False), "optional contract drift", code="ERR_CONTRACT_DRIFT")
+    _expect_err(ec.ExperimentContractError, lambda: ec.verify_ring0_immutability(m, {"contract_sha256": 123}, require_contract_sha256=False), "optional non-str contract_sha256", code="ERR_CONTRACT_DRIFT")
 
 
 def test_group4_reconciler_clock_latch_and_ledger() -> None:
@@ -329,6 +334,11 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     ctrl.propose_candidate(_valid_proposal(m, "c-min", strength_num=1, repair_round=1))
     ctrl.propose_candidate(_valid_proposal(m, "c-max", strength_num=20, repair_round=3))
     _require(ctrl.candidate_state("c-max")["phase"] == "Proposing", "c-max proposing")
+
+    # Issue #29 item 3d: proposal omitting contract_sha256 fails closed (not silently stamped)
+    no_sha_prop = _valid_proposal(m, "c-nosha", repair_round=2)
+    no_sha_prop.pop("contract_sha256")
+    _expect_err(ec.ExperimentContractError, lambda: ctrl.propose_candidate(no_sha_prop), "missing contract_sha256 in propose", code="ERR_CONTRACT_DRIFT")
 
     # Propose refusals (including CTRL-BYPASS-1 duplicate round-1 replay & candidate round 0 & control round 1!)
     _expect_err(bc.ControllerError, lambda: ctrl.propose_candidate(_valid_proposal(m, "c-unk", repair_round=2, extra_field=1)), "unknown key")
@@ -472,6 +482,76 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     )
     _require(ctrl_rt.candidate_state("c-adv-rt")["verdict"] is None, "no promoted verdict after runtime hash tamper")
 
+    # Issue #29 item 2a: deep-copy isolation of candidate_record passed to runtime (and proposal passed to compiler!)
+    class _MutateProposalRuntime:
+        is_mock = True
+
+        def evaluate_candidate(self, *, manifest, candidate_record):
+            candidate_record["proposal"]["strength_num"] = 999
+            return _base_metrics()
+
+    class _MutateProposalCompiler:
+        is_mock = True
+
+        def compile_candidate(self, *, manifest, proposal):
+            proposal["strength_num"] = 888
+            return comp.compile_candidate(manifest=manifest, proposal=proposal)
+
+    ctrl_iso_rt = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"d" * 32))
+    ctrl_iso_rt.propose_candidate(_valid_proposal(m, "c-iso-rt", repair_round=1, strength_num=10))
+    b_iso_rt = ctrl_iso_rt.compile_and_bind(
+        "c-iso-rt",
+        compiler=_MutateProposalCompiler(),
+        live_checkpoint_digest=ckpt_dig,
+        live_runtime_flags_sha256=flags_dig,
+    )
+    _require(
+        ctrl_iso_rt.candidate_state("c-iso-rt")["proposal"]["strength_num"] == 10,
+        "compiler proposal deepcopy must isolate stored strength_num (10 != 888)",
+    )
+    ctrl_iso_rt.evaluate(
+        "c-iso-rt",
+        runtime=_MutateProposalRuntime(),
+        live_adapter_sha256=b_iso_rt["candidate_adapter_sha256"],
+        live_checkpoint_digest=ckpt_dig,
+    )
+    _require(
+        ctrl_iso_rt.candidate_state("c-iso-rt")["proposal"]["strength_num"] == 10,
+        "runtime candidate_record deepcopy must isolate stored strength_num (10 != 999)",
+    )
+
+    # Issue #29 item 2b: post-runtime manifest digest check catches runtime editing its manifest copy
+    class _TamperManifestRuntime:
+        is_mock = True
+
+        def evaluate_candidate(self, *, manifest, candidate_record):
+            manifest["frozen_thresholds"]["min_task_exact_gain"] = [-100, 1]
+            return _base_metrics()
+
+    ctrl_rt_man = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"m" * 32))
+    ctrl_rt_man.propose_candidate(_valid_proposal(m, "c-rt-man", repair_round=1))
+    b_rt_man = ctrl_rt_man.compile_and_bind(
+        "c-rt-man",
+        compiler=comp,
+        live_checkpoint_digest=ckpt_dig,
+        live_runtime_flags_sha256=flags_dig,
+    )
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_rt_man.evaluate(
+            "c-rt-man",
+            runtime=_TamperManifestRuntime(),
+            live_adapter_sha256=b_rt_man["candidate_adapter_sha256"],
+            live_checkpoint_digest=ckpt_dig,
+        ),
+        "post-runtime manifest snapshot tamper rejected",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+    _require(
+        ctrl_rt_man.manifest["frozen_thresholds"]["min_task_exact_gain"] == [1, 20],
+        "internal manifest remains uncorrupted after runtime snapshot tamper",
+    )
+
     # 4. Direct internal manifest tamper caught before promote_or_reject
     ctrl_int = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"i" * 32))
     ctrl_int.propose_candidate(_valid_proposal(m, "c-adv-int", repair_round=1))
@@ -596,6 +676,22 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     rt.inject_logit_drift_milli = 0
     rb_ok = ctrl.rollback("c-min", runtime=rt)
     _require(rb_ok["baseline_logits_restored"] is True, "rb exact 0 diff passes")
+    # Issue #29 item 3c: rollback MUST transition candidate phase from Promoted -> RolledBack
+    _require(rb_ok["phase"] == "RolledBack", "rollback return reports RolledBack phase")
+    _require(ctrl.candidate_state("c-min")["phase"] == "RolledBack", "candidate_state phase moved to RolledBack")
+    _require(ctrl.candidate_state("c-min")["rolled_back"] is True, "candidate_state rolled_back flag True")
+
+    # Issue #29 item 3a & 3b: explicit hmac_key resolution, env override, and ledger-derived timings
+    k_param, src_param = vbc.resolve_study_hmac_key(manifest_sha256=m["manifest_sha256"], hmac_key=b"z" * 32)
+    _require(k_param == b"z" * 32 and src_param == "explicit_parameter", "explicit hmac_key resolution")
+    _expect_err(bc.ControllerError, lambda: vbc.resolve_study_hmac_key(manifest_sha256=m["manifest_sha256"], hmac_key=b"short"), "short explicit hmac_key")
+    k_fix, src_fix = vbc.resolve_study_hmac_key(manifest_sha256=m["manifest_sha256"])
+    _require(len(k_fix) == 32 and src_fix == "deterministic_study_fixture", "deterministic fixture hmac key")
+    cert_out = vbc.run_all(standalone=True, hmac_key=b"x" * 32)
+    _require(cert_out["evidence_boundary_disclosure"]["hmac_key_source"] == "explicit_parameter", "cert records hmac_key_source")
+    _require(cert_out["evidence_boundary_disclosure"]["ledger_hmac_scope"] == "tamper_evidence_only_not_external_secrecy", "cert documents tamper-evidence-only scope")
+    _require(cert_out["part3_issue5_controller_lifecycle"]["round2_post_rollback_phase"] == "RolledBack", "cert records RolledBack phase")
+    _require(cert_out["part2_reconciler_and_clock_invariants"]["separated_timings"]["timing_source"] == "aggregated_from_mock_ledger_receipts_not_wall_clock", "cert records timing_source")
 
 
 def test_group6_cerebras_advisory_boundary() -> None:
@@ -622,19 +718,41 @@ def test_group6_cerebras_advisory_boundary() -> None:
     c = cli.compare(case_id="c1", baseline_text="a", adapted_text="b")
     _require(c["parsed"]["advisory_vote"] == "BETTER", "compare ok")
 
-    # PR #13 review #3: strict failure_report allowlist rejects alias keys & raw byte lists BEFORE transport
+    # Issue #29 item 1: base64 of 48 raw bytes MUST be rejected across candidate_id, failures, verdict, failed_gate!
+    import base64 as _b64
+    b64_48 = _b64.b64encode(bytes(range(48))).decode("ascii")
+
+    class _SubStr(str):
+        pass
+
     for bad_report in (
         "not-a-dict",
         {"adapter": [0, 1, 2, 255]},
         {"Adapter_Bytes": "AAEC/w=="},
+        {"unlisted_alias": ["task_exact_gain_below_threshold"]},
+        {123: ["task_exact_gain_below_threshold"]},
+        {_SubStr("verdict"): "REJECTED"},
         {"repair_round": True},
         {"repair_round": -1},
         {"failures": "not-a-list"},
-        {"failures": ["x"] * 17},
+        {"failures": {"safety_canary_failed"}},
+        {"failures": ["task_exact_gain_below_threshold"] * (bc.MAX_FAILURE_CODES + 1)},
         {"failures": [0, 1, 2, 255]},
+        {"failures": [b64_48]},
+        {"failures": [_SubStr("safety_canary_failed")]},
+        {"failures": ["unlisted_free_text_code"]},
         {"candidate_id": ""},
-        {"candidate_id": "a" * 65},
+        {"candidate_id": "a" * 33},
+        {"candidate_id": "UpperCaseNotAllowed"},
+        {"candidate_id": _SubStr("c1")},
+        {"candidate_id": b64_48},
         {"candidate_id": "bad\x1b[31m"},
+        {"verdict": b64_48},
+        {"verdict": _SubStr("REJECTED")},
+        {"verdict": "FREE_TEXT_VERDICT"},
+        {"failed_gate": b64_48},
+        {"failed_gate": _SubStr("safety_canary_failed")},
+        {"failed_gate": "unlisted_gate"},
     ):
         _expect_err(
             bc.ControllerError,
@@ -643,16 +761,42 @@ def test_group6_cerebras_advisory_boundary() -> None:
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
 
-    # Boundary-length token (64 chars) & 16 failure codes pass allowlist cleanly
+    # Exact boundary token (32 chars) & all allowed enum codes pass allowlist cleanly
+    all_codes = sorted(bc.ALLOWED_FAILURE_CODES)
     ok_rep = bc.validate_failure_report_egress(
-        {"candidate_id": "a" * 64, "failures": ["f"] * 16, "repair_round": 0}
+        {
+            "candidate_id": "a" * 32,
+            "verdict": "REJECTED",
+            "failed_gate": all_codes[0],
+            "failures": all_codes,
+            "repair_round": 0,
+        }
     )
-    _require(len(ok_rep["candidate_id"]) == 64 and len(ok_rep["failures"]) == 16, "allowlist boundary passes")
+    _require(len(ok_rep["candidate_id"]) == 32 and len(ok_rep["failures"]) == bc.MAX_FAILURE_CODES, "allowlist boundary passes")
+
+    # compare() rejects bad case_id, str-subclass, oversized text, blank text, and NUL bytes
+    for bad_cmp_kw in (
+        {"case_id": b64_48, "baseline_text": "a", "adapted_text": "b"},
+        {"case_id": _SubStr("c1"), "baseline_text": "a", "adapted_text": "b"},
+        {"case_id": "c1", "baseline_text": _SubStr("a"), "adapted_text": "b"},
+        {"case_id": "c1", "baseline_text": "", "adapted_text": "b"},
+        {"case_id": "c1", "baseline_text": "a" * (bc.MAX_COMPARE_TEXT_LEN + 1), "adapted_text": "b"},
+        {"case_id": "c1", "baseline_text": "a", "adapted_text": "b\x00c"},
+    ):
+        _expect_err(
+            bc.ControllerError,
+            lambda kw=bad_cmp_kw: cli.compare(**kw),
+            f"bad compare egress {bad_cmp_kw!r}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
 
     # PR13-BUG-01 closures: propose() history_summary & frozen_manifest strict allowlist egress
     p_hist = cli.propose(
         frozen_manifest=m,
-        history_summary=[{"candidate_id": f"c-{i}", "repair_round": i, "verdict": "REJECTED", "failures": ["low_gain"]} for i in range(16)],
+        history_summary=[
+            {"candidate_id": f"c-{i}", "repair_round": i, "verdict": "REJECTED", "failures": ["task_exact_gain_below_threshold"]}
+            for i in range(16)
+        ],
     )
     _require(p_hist["parsed"]["candidate_id"] == "cand-r1-underfit", "16-item valid history_summary passes")
     for bad_hist in (
@@ -690,8 +834,9 @@ def test_group6_cerebras_advisory_boundary() -> None:
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_max", 0)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", True)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", [])),
-        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["q"] * 17)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["f16"] * 17)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["bad\x1b"])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["int2"])),
     ):
         _expect_err(
             bc.ControllerError,
@@ -699,13 +844,13 @@ def test_group6_cerebras_advisory_boundary() -> None:
             "propose rejects tampered/smuggled manifest egress",
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
-    # Exact max boundary (16 ranks & 16 quantizations, strength_num_min == strength_num_max == 1, strength_den == 1) passes!
+    # Exact max boundary (16 ranks & 16 allowed quantizations, strength_num_min == strength_num_max == 1, strength_den == 1) passes!
     m_bound = _mut_manifest(lambda d: d["allowed_knobs"].update({
         "ranks": list(range(1, 17)),
         "strength_den": 1,
         "strength_num_min": 1,
         "strength_num_max": 1,
-        "quantizations": [f"q{i}" for i in range(16)],
+        "quantizations": ["f16", "q8_0"] * 8,
     }))
     cli.propose(frozen_manifest=m_bound, history_summary=[])
     _expect_err(

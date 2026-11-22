@@ -16,6 +16,7 @@ import argparse
 from fractions import Fraction
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any, Mapping
@@ -29,7 +30,31 @@ import bounded_controller as bc  # noqa: E402
 import experiment_contract as ec  # noqa: E402
 
 IN_REPO_ROOT = HERE.parent.parent
-SECRET_KEY = b"audit063-warp-experiment-hmac-key-32b"
+HMAC_KEY_ENV_VAR = "WARP_STUDY_HMAC_KEY"
+
+
+def resolve_study_hmac_key(
+    *,
+    manifest_sha256: str,
+    hmac_key: bytes | None = None,
+) -> tuple[bytes, str]:
+    """Resolve tamper-evidence-only HMAC key from parameter, env var, or deterministic fixture.
+
+    The ledger HMAC signature in this study provides local tamper-evidence over receipts,
+    not external confidentiality or production key management.
+    """
+    if hmac_key is not None:
+        if not isinstance(hmac_key, (bytes, bytearray)) or len(hmac_key) < 16:
+            raise bc.ControllerError("ERR_INVALID_KEY", "explicit hmac_key must be >= 16 bytes")
+        return bytes(hmac_key), "explicit_parameter"
+    env_val = os.environ.get(HMAC_KEY_ENV_VAR)
+    if env_val is not None:
+        raw = env_val.encode("utf-8")
+        if len(raw) < 16:
+            raise bc.ControllerError("ERR_INVALID_KEY", f"{HMAC_KEY_ENV_VAR} must be >= 16 UTF-8 bytes")
+        return raw, f"env:{HMAC_KEY_ENV_VAR}"
+    derived = hashlib.sha256(f"warp-study-tamper-evidence-only:{manifest_sha256}".encode("ascii")).digest()
+    return derived, "deterministic_study_fixture"
 
 
 def _require(cond: bool, msg: str) -> None:
@@ -423,7 +448,7 @@ def _check_live_warp_drive_compat(
             sys.path.remove(src_path)
 
 
-def run_all(*, standalone: bool = False) -> dict[str, Any]:
+def run_all(*, standalone: bool = False, hmac_key: bytes | None = None) -> dict[str, Any]:
     # 1. Split-leakage audit (98% leaky fixture rejected vs 0% family-separated frozen split passed)
     train_cases, clean_heldout, leaky_heldout = build_reference_splits()
     leaky_audit = ec.audit_split_leakage(train_cases, leaky_heldout, max_pair_overlap_ratio=Fraction(0))
@@ -450,7 +475,11 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
     _require(t_mapped == Fraction(505, 1), "affine clock pair failed")
 
     # 4. End-to-end 5-op bounded controller + redacted Cerebras/Kimi 3-call loop (Issues #5, #6, #7)
-    ledger = bc.SignedExperimentLedger(SECRET_KEY, key_id="warp-exp-hmac-v1")
+    resolved_key, hmac_key_source = resolve_study_hmac_key(
+        manifest_sha256=manifest["manifest_sha256"],
+        hmac_key=hmac_key,
+    )
+    ledger = bc.SignedExperimentLedger(resolved_key, key_id="warp-exp-hmac-v1")
     ctrl = bc.BoundedExperimentController(manifest, ledger)
     compiler = _DeterministicMockCompiler()
     runtime = _DeterministicMockRuntime(
@@ -642,6 +671,10 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         expected_state_banks=("kv_cache", "ssm_recurrent", "lattice_horizontal_streams"),
     )
     _require(rb_r2["baseline_logits_restored"] is True, "expected exact rollback restore")
+    _require(
+        ctrl.candidate_state("cand-r2-repaired")["phase"] == "RolledBack",
+        "rollback must transition candidate phase to RolledBack",
+    )
 
     # 5. Adversarial Trust-Boundary Matrix (Issue #7)
     adversarial: dict[str, str] = {}
@@ -655,10 +688,26 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         raise RuntimeError(f"adversarial control failed to reject: {label}")
 
     _capture_err(
+        "missing_contract_sha256_rejected",
+        lambda: ctrl.propose_candidate(
+            {
+                "candidate_id": "adv-no-sha",
+                "repair_round": 3,
+                "target_layer": "blk.31",
+                "rank": 8,
+                "strength_num": 10,
+                "strength_den": 10,
+                "quantization": "f16",
+                "seed": 9,
+            }
+        ),
+    )
+    _capture_err(
         "raw_lora_override_rejected",
         lambda: ctrl.propose_candidate(
             {
                 "candidate_id": "adv-lora",
+                "contract_sha256": manifest["manifest_sha256"],
                 "repair_round": 3,
                 "target_layer": "blk.31",
                 "rank": 8,
@@ -685,6 +734,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         lambda: ctrl.propose_candidate(
             {
                 "candidate_id": "adv-layer",
+                "contract_sha256": manifest["manifest_sha256"],
                 "repair_round": 3,
                 "target_layer": "blk.12",
                 "rank": 8,
@@ -700,6 +750,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         lambda: ctrl.propose_candidate(
             {
                 "candidate_id": "adv-dup-r1",
+                "contract_sha256": manifest["manifest_sha256"],
                 "repair_round": 1,
                 "target_layer": "blk.31",
                 "rank": 8,
@@ -715,6 +766,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         lambda: ctrl.propose_candidate(
             {
                 "candidate_id": "adv-r4",
+                "contract_sha256": manifest["manifest_sha256"],
                 "repair_round": 4,
                 "target_layer": "blk.31",
                 "rank": 8,
@@ -730,6 +782,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         lambda: ctrl.propose_candidate(
             {
                 "candidate_id": "adv-ring0",
+                "contract_sha256": manifest["manifest_sha256"],
                 "repair_round": 3,
                 "target_layer": "blk.31",
                 "rank": 8,
@@ -745,6 +798,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
     ctrl.propose_candidate(
         {
             "candidate_id": "adv-drift-cand",
+            "contract_sha256": manifest["manifest_sha256"],
             "repair_round": 3,
             "target_layer": "blk.31",
             "rank": 8,
@@ -809,7 +863,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
         "unhashed_extra_receipt_key_rejected",
         lambda: bc.verify_receipt_chain_independent(
             [dict(ledger.records[0], forged_verdict="PROMOTED")],
-            secret_key=SECRET_KEY,
+            secret_key=resolved_key,
             key_id="warp-exp-hmac-v1",
         ),
     )
@@ -875,14 +929,26 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
     transport.mode = "normal"
 
     # 6. Independent verification of append-only HMAC receipt chain + hash-before-eval audit
-    chain_ver = bc.verify_receipt_chain_independent(ledger.records, secret_key=SECRET_KEY, key_id="warp-exp-hmac-v1")
+    chain_ver = bc.verify_receipt_chain_independent(ledger.records, secret_key=resolved_key, key_id="warp-exp-hmac-v1")
     cerebras_ms_total = sum(r["latency_ms"] for r in kimi.receipts if r["status"] == "ok")
-    timings = bc.build_separated_timings(
-        cerebras_ms=cerebras_ms_total,
-        compile_ms=420 * 3,
-        local_eval_ms=110 + 140 + 135 + 145,
-        deploy_rollback_ms=18,
+    compile_ms_total = sum(
+        r["payload"]["compile_ms"] for r in ledger.records if r["operation"] == "compile_and_bind"
     )
+    local_eval_ms_total = sum(
+        r["payload"]["local_eval_ms"] for r in ledger.records if r["operation"] == "evaluate"
+    )
+    deploy_rollback_ms_total = sum(
+        r["payload"]["deploy_rollback_ms"] for r in ledger.records if r["operation"] == "rollback"
+    )
+    timings = {
+        **bc.build_separated_timings(
+            cerebras_ms=cerebras_ms_total,
+            compile_ms=compile_ms_total,
+            local_eval_ms=local_eval_ms_total,
+            deploy_rollback_ms=deploy_rollback_ms_total,
+        ),
+        "timing_source": "aggregated_from_mock_ledger_receipts_not_wall_clock",
+    }
 
     warp_compat = (
         {"checked_live_repo": False, "mode": "standalone_forced"}
@@ -901,6 +967,8 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
             "cerebras_transport_mode": "mock_contract",
             "live_credentials_used": False,
             "live_rtx3080_checkpoint_scored": False,
+            "ledger_hmac_scope": "tamper_evidence_only_not_external_secrecy",
+            "hmac_key_source": hmac_key_source,
         },
         "part1_issue4_frozen_contract": {
             "manifest_sha256": manifest["manifest_sha256"],
@@ -925,6 +993,7 @@ def run_all(*, standalone: bool = False) -> dict[str, Any]:
             "round2_repaired_verdict": v_r2["verdict"],
             "round2_adapter_sha256": b_r2["candidate_adapter_sha256"],
             "round2_rollback_logits_restored": rb_r2["baseline_logits_restored"],
+            "round2_post_rollback_phase": ctrl.candidate_state("cand-r2-repaired")["phase"],
             "ledger_independent_verification": chain_ver,
         },
         "part4_issue6_cerebras_kimi_boundary": {

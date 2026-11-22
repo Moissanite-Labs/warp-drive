@@ -434,13 +434,21 @@ def _scan_forbidden_override_keys(obj: Any, path: str = "$") -> None:
             _scan_forbidden_override_keys(val, f"{path}[{idx}]")
 
 
-def verify_ring0_immutability(frozen_manifest: Mapping[str, Any], proposal: Mapping[str, Any]) -> None:
+def verify_ring0_immutability(
+    frozen_manifest: Mapping[str, Any],
+    proposal: Mapping[str, Any],
+    *,
+    require_contract_sha256: bool = True,
+) -> None:
     """Fail-closed Ring-0 lock: candidates cannot modify manifest, suites, thresholds, or schema."""
     if not isinstance(proposal, Mapping):
         raise ExperimentContractError("ERR_INVALID_PROPOSAL", "proposal must be a mapping")
     _scan_forbidden_override_keys(proposal)
     pinned_sha = frozen_manifest["manifest_sha256"]
     cand_contract_sha = proposal.get("contract_sha256")
-    if cand_contract_sha is not None:
+    if require_contract_sha256:
+        if not isinstance(cand_contract_sha, str) or not hmac.compare_digest(cand_contract_sha, pinned_sha):
+            raise ExperimentContractError("ERR_CONTRACT_DRIFT", "proposal missing or mismatched contract_sha256")
+    elif cand_contract_sha is not None:
         if not isinstance(cand_contract_sha, str) or not hmac.compare_digest(cand_contract_sha, pinned_sha):
             raise ExperimentContractError("ERR_CONTRACT_DRIFT", "proposal contract_sha256 does not match frozen manifest")
