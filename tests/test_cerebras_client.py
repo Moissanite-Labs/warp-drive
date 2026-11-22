@@ -7,7 +7,11 @@ checks, never model evidence.
 
 from __future__ import annotations
 
+import io
+import json
 import unittest
+import urllib.error
+from unittest import mock
 
 from warp_modeld.cerebras_client import (
     DEFAULT_MODEL_ID,
@@ -54,6 +58,14 @@ def valid_report() -> dict[str, object]:
         "measurements": {"task_exact": 0.64, "retention_iid": 0.79},
         "rounds_used": 1,
     }
+
+
+def receipt_from_exception(exc: BaseException) -> dict:
+    """Parse the receipt JSON out of a transport error message."""
+    text = str(exc)
+    marker = " (receipt: "
+    start = text.index(marker) + len(marker)
+    return json.loads(text[start:-1])
 
 
 def make_client(server: MockCerebrasServer, **kwargs: object) -> CerebrasKimiClient:
@@ -278,6 +290,60 @@ class TestTransportFailures(unittest.TestCase):
                 client.propose_candidate(valid_context())
         self.assertIn("receipt", str(ctx.exception))
 
+    def test_http_error_receipt_redacts_key_and_pii(self) -> None:
+        body = b"fake-key user@example.invalid private-text"
+        error = urllib.error.HTTPError(
+            "http://127.0.0.1/v1/chat/completions",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(body),
+        )
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            client = CerebrasKimiClient(
+                API_KEY, base_url="http://127.0.0.1:1", max_retries=0, retry_delay_seconds=0.0
+            )
+            with self.assertRaises(CerebrasTransportError) as ctx:
+                client.propose_candidate(valid_context())
+        text = str(ctx.exception)
+        self.assertNotIn("fake-key", text)
+        self.assertNotIn("user@example.invalid", text)
+        self.assertNotIn("private-text", text)
+        self.assertIn("HTTP 400", text)
+        receipt = receipt_from_exception(ctx.exception)
+        self.assertEqual(receipt["failures"], ["HTTP 400"])
+
+    def test_wrapped_timeouts_count_every_attempt_within_retry_budget(self) -> None:
+        calls: list[int] = []
+
+        def flaky(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            raise urllib.error.URLError(TimeoutError("timed out"))
+
+        with mock.patch("urllib.request.urlopen", side_effect=flaky):
+            client = CerebrasKimiClient(
+                API_KEY, base_url="http://127.0.0.1:1", max_retries=2, retry_delay_seconds=0.0
+            )
+            with self.assertRaises(CerebrasTransportError) as ctx:
+                client.propose_candidate(valid_context())
+        receipt = receipt_from_exception(ctx.exception)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(receipt["retries"], 2)
+        self.assertEqual(receipt["timeouts"], 3)
+
+    def test_oversized_integer_is_schema_error_not_numeric_crash(self) -> None:
+        huge = 10**10000
+        with self.assertRaises(CerebrasSchemaError) as ctx:
+            validate_candidate(
+                {"target_layer": "last", "strength": huge, "rank": 16, "quantization": "q8_0"}
+            )
+        self.assertLess(len(str(ctx.exception)), 500)
+        with self.assertRaises(CerebrasSchemaError) as ctx:
+            validate_candidate(
+                {"target_layer": "last", "strength": 0.5, "rank": huge, "quantization": "q8_0"}
+            )
+        self.assertLess(len(str(ctx.exception)), 500)
+
 
 class TestReceiptHonesty(unittest.TestCase):
     def test_wrong_served_model_is_recorded_not_substituted(self) -> None:
@@ -325,6 +391,15 @@ class TestCredentials(unittest.TestCase):
             {"CEREBRAS_API_KEY": "env-key", "CEREBRAS_MODEL_ID": "dedicated-endpoint-123"}
         )
         self.assertEqual(client.model_id, "dedicated-endpoint-123")
+
+    def test_from_env_rejects_non_cerebras_https_host(self) -> None:
+        with self.assertRaises(CerebrasClientError):
+            CerebrasKimiClient.from_env(
+                {
+                    "CEREBRAS_API_KEY": "env-key",
+                    "CEREBRAS_BASE_URL": "https://evil.example.com/v1",
+                }
+            )
 
 
 class TestFixedPromptFixtures(unittest.TestCase):

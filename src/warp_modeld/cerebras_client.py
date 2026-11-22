@@ -167,7 +167,26 @@ class ProviderReceipt:
 
 
 def _is_number(value: Any) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
+    if type(value) is int:
+        # Bound the size first: float() on a huge int raises OverflowError.
+        return value.bit_length() <= 1023
+    return type(value) is float and math.isfinite(value)
+
+
+def _describe_value(value: Any) -> str:
+    """Short description for error messages; never prints huge values."""
+    if type(value) is int and value.bit_length() > 1023:
+        return "int with %d bits" % value.bit_length()
+    if type(value) is str and len(value) > 100:
+        return "str of %d characters" % len(value)
+    return repr(value)
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    """True for a timeout, including one wrapped in a URLError."""
+    if isinstance(exc, TimeoutError):
+        return True
+    return isinstance(getattr(exc, "reason", None), TimeoutError)
 
 
 def _is_int(value: Any) -> bool:
@@ -184,18 +203,18 @@ def validate_candidate(payload: Any) -> CandidateConfig:
         )
     if payload["target_layer"] != PINNED_TARGET_LAYER:
         raise CerebrasSchemaError(
-            f"target_layer must be {PINNED_TARGET_LAYER!r}, got {payload['target_layer']!r}"
+            f"target_layer must be {PINNED_TARGET_LAYER!r}, got {_describe_value(payload['target_layer'])}"
         )
     strength = payload["strength"]
     if not _is_number(strength) or not 0.0 < float(strength) <= MAX_STRENGTH:
-        raise CerebrasSchemaError(f"strength must be a number in (0, {MAX_STRENGTH}], got {strength!r}")
+        raise CerebrasSchemaError(f"strength must be a number in (0, {MAX_STRENGTH}], got {_describe_value(strength)}")
     rank = payload["rank"]
     if not _is_int(rank) or rank not in ALLOWED_RANKS:
-        raise CerebrasSchemaError(f"rank must be one of {list(ALLOWED_RANKS)}, got {rank!r}")
+        raise CerebrasSchemaError(f"rank must be one of {list(ALLOWED_RANKS)}, got {_describe_value(rank)}")
     quantization = payload["quantization"]
     if quantization not in ALLOWED_QUANTIZATIONS:
         raise CerebrasSchemaError(
-            f"quantization must be one of {list(ALLOWED_QUANTIZATIONS)}, got {quantization!r}"
+            f"quantization must be one of {list(ALLOWED_QUANTIZATIONS)}, got {_describe_value(quantization)}"
         )
     return CandidateConfig(
         target_layer=PINNED_TARGET_LAYER,
@@ -216,16 +235,16 @@ def validate_failure_report(report: Any) -> dict[str, Any]:
         )
     failed = validate_candidate(report["failed_candidate"])
     if report["failed_gate"] not in FAILED_GATES:
-        raise CerebrasSchemaError(f"failed_gate must be one of {list(FAILED_GATES)}, got {report['failed_gate']!r}")
+        raise CerebrasSchemaError(f"failed_gate must be one of {list(FAILED_GATES)}, got {_describe_value(report['failed_gate'])}")
     measurements = report["measurements"]
     if not isinstance(measurements, dict) or not measurements or len(measurements) > MAX_MEASUREMENTS:
         raise CerebrasSchemaError("measurements must be a non-empty object with at most 32 entries")
     for key, value in measurements.items():
         if not isinstance(key, str) or not key or not _is_number(value):
-            raise CerebrasSchemaError(f"measurement {key!r} must map to a finite number, got {value!r}")
+            raise CerebrasSchemaError(f"measurement {key!r} must map to a finite number, got {_describe_value(value)}")
     rounds_used = report["rounds_used"]
     if not _is_int(rounds_used) or not 0 <= rounds_used <= MAX_REPAIR_ROUNDS:
-        raise CerebrasSchemaError(f"rounds_used must be an integer in 0..{MAX_REPAIR_ROUNDS}, got {rounds_used!r}")
+        raise CerebrasSchemaError(f"rounds_used must be an integer in 0..{MAX_REPAIR_ROUNDS}, got {_describe_value(rounds_used)}")
     if rounds_used >= MAX_REPAIR_ROUNDS:
         raise CerebrasSchemaError(
             f"repair budget exhausted: rounds_used {rounds_used} reaches the {MAX_REPAIR_ROUNDS} round limit"
@@ -257,12 +276,12 @@ def validate_comparison_verdict(payload: Any) -> ComparisonVerdict:
             f"comparison keys must be exactly preference, reason, confidence, got {sorted(payload.keys())}"
         )
     if payload["preference"] not in ("baseline", "adapted", "tie"):
-        raise CerebrasSchemaError(f"preference must be baseline, adapted, or tie, got {payload['preference']!r}")
+        raise CerebrasSchemaError(f"preference must be baseline, adapted, or tie, got {_describe_value(payload['preference'])}")
     reason = payload["reason"]
     if not isinstance(reason, str) or not reason.strip() or len(reason) > MAX_REASON_CHARS:
         raise CerebrasSchemaError(f"reason must be non-empty text of at most {MAX_REASON_CHARS} characters")
     if payload["confidence"] not in ("low", "medium", "high"):
-        raise CerebrasSchemaError(f"confidence must be low, medium, or high, got {payload['confidence']!r}")
+        raise CerebrasSchemaError(f"confidence must be low, medium, or high, got {_describe_value(payload['confidence'])}")
     return ComparisonVerdict(
         preference=str(payload["preference"]), reason=reason, confidence=str(payload["confidence"])
     )
@@ -290,7 +309,7 @@ def validate_propose_context(context: Any) -> dict[str, Any]:
             raise CerebrasSchemaError("baseline_metrics must be a non-empty object with at most 32 entries")
         for key, value in metrics.items():
             if not isinstance(key, str) or not key or not _is_number(value):
-                raise CerebrasSchemaError(f"baseline metric {key!r} must map to a finite number, got {value!r}")
+                raise CerebrasSchemaError(f"baseline metric {key!r} must map to a finite number, got {_describe_value(value)}")
         cleaned["baseline_metrics"] = {str(k): float(v) for k, v in metrics.items()}
     constraints = context.get("constraints")
     if constraints is not None:
@@ -298,7 +317,7 @@ def validate_propose_context(context: Any) -> dict[str, Any]:
             raise CerebrasSchemaError("constraints must be an object")
         for key, value in constraints.items():
             if not isinstance(key, str) or not isinstance(value, (str, int, float, bool)):
-                raise CerebrasSchemaError(f"constraint {key!r} must map to a plain scalar, got {value!r}")
+                raise CerebrasSchemaError(f"constraint {key!r} must map to a plain scalar, got {_describe_value(value)}")
         cleaned["constraints"] = dict(constraints)
     return cleaned
 
@@ -332,6 +351,14 @@ class CerebrasKimiClient:
             pass  # Local mock endpoints in tests use plain http on localhost.
         elif parsed.scheme != "https" or not parsed.hostname:
             raise CerebrasClientError(f"Cerebras base URL must be an https URL, got {base_url!r}")
+        elif parsed.hostname != "api.cerebras.ai":
+            # The bearer key is attached to whatever host this names, so
+            # an https URL to any other host is a credential-exfiltration
+            # path when the environment is attacker-influenced.
+            raise CerebrasClientError(
+                "Cerebras base URL host must be api.cerebras.ai, "
+                f"got {parsed.hostname!r}"
+            )
         if timeout_seconds <= 0:
             raise CerebrasClientError("timeout_seconds must be positive")
         if max_retries < 0:
@@ -440,20 +467,22 @@ class CerebrasKimiClient:
                     f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
                 ) from exc
             except urllib.error.HTTPError as exc:
+                # The error body is provider-controlled text: never copy
+                # it into a receipt or an exception. Record only the code.
                 try:
-                    detail = exc.read().decode("utf-8", errors="replace")[:200]
+                    exc.read()
                 except Exception:
-                    detail = ""
+                    pass
                 finally:
                     exc.close()
-                failures.append(f"HTTP {exc.code}: {detail}")
-                last_error = CerebrasTransportError(f"Cerebras HTTP {exc.code} on {call_kind}: {detail}")
+                failures.append(f"HTTP {exc.code}")
+                last_error = CerebrasTransportError(f"Cerebras HTTP {exc.code} on {call_kind}")
                 if exc.code not in RETRYABLE_HTTP_CODES or attempt >= self.max_retries:
                     break
                 retries += 1
                 time.sleep(self.retry_delay_seconds)
             except (TimeoutError, urllib.error.URLError, OSError) as exc:
-                if isinstance(exc, TimeoutError):
+                if _is_timeout(exc):
                     timeouts += 1
                     failures.append(f"timeout after {self.timeout_seconds}s")
                 else:
