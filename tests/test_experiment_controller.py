@@ -492,14 +492,14 @@ def test_warp_lifecycle_adapter_collects_flush_banks():
                         banks_requested=ALL_STATE_BANKS,
                         banks_confirmed=("kv_cache", "ssm_recurrent"),
                         zone_manifest_id=None,
-                        verified_clean=True,
+                        verified_clean=False,
                     ),
                     BankFlushReceipt(
                         slot_id=1,
                         banks_requested=ALL_STATE_BANKS,
                         banks_confirmed=("lattice_horizontal_streams",),
                         zone_manifest_id=None,
-                        verified_clean=True,
+                        verified_clean=False,
                     ),
                 ),
             )
