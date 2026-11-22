@@ -931,3 +931,91 @@ def test_rollback_reraises_a_lifecycle_failure_after_recording_it(controller):
         controller.rollback()
     events = [e["event"] for e in controller.receipts.read_all()]
     assert events == ["rollback_failed"]
+
+
+# --- acceptance integrity, preregistered 2026-11-22 -------------------------
+
+
+NON_FINITE_GATES = (
+    "task_top1",
+    "task_contested_fix_fraction",
+    "task_break_fraction",
+    "margin_threshold",
+    "iid_mean_kl",
+    "iid_top1_agreement",
+    "shifted_mean_kl",
+)
+
+
+@pytest.mark.parametrize("gate", NON_FINITE_GATES)
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), -float("inf")))
+def test_non_finite_scalar_gate_never_accepts(contract, gate, value):
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(contract)
+    fields[gate] = value
+    with pytest.raises(ControllerError):
+        apply_acceptance_policy(
+            Measurements(**fields), contract.thresholds, expected_canaries=CANARIES
+        )
+
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf")))
+def test_non_finite_margin_never_accepts(contract, value):
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(contract)
+    fields["margins_adapter"] = (value, *ADAPTER_MARGINS[1:])
+    with pytest.raises(ControllerError):
+        apply_acceptance_policy(
+            Measurements(**fields), contract.thresholds, expected_canaries=CANARIES
+        )
+
+
+def test_non_finite_rollback_diff_never_accepts(contract):
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(contract)
+    fields["rollback_max_logit_diff"] = float("nan")
+    with pytest.raises(ControllerError):
+        apply_acceptance_policy(
+            Measurements(**fields), contract.thresholds, expected_canaries=CANARIES
+        )
+
+
+def test_acceptance_integrity_clean_control_still_accepts(contract):
+    from warp_modeld.experiment import Measurements
+
+    verdict = apply_acceptance_policy(
+        Measurements(**passing_measurements(contract)),
+        contract.thresholds,
+        expected_canaries=CANARIES,
+    )
+    assert verdict.verdict == "ACCEPT"
+
+
+def test_tampered_receipt_log_refuses_append(tmp_path):
+    log = ReceiptLog(tmp_path / "receipts.jsonl")
+    log.append("first", value=1)
+    log.append("second", value=2)
+    assert log.verify_chain()
+
+    entries = log.read_all()
+    entries[0]["value"] = 99
+    with (tmp_path / "receipts.jsonl").open("w", encoding="utf-8") as f:
+        for entry in entries:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+
+    assert not log.verify_chain()
+    with pytest.raises(ControllerError):
+        log.append("third", value=3)
+    assert len(log.read_all()) == 2
+
+
+def test_clean_receipt_log_accepts_append(tmp_path):
+    log = ReceiptLog(tmp_path / "receipts.jsonl")
+    log.append("first", value=1)
+    log.append("second", value=2)
+    assert log.verify_chain()
+    assert log.append("third", value=3)["seq"] == 3
+    assert log.verify_chain()
