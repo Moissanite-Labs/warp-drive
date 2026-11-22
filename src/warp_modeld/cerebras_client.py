@@ -79,6 +79,7 @@ FAILED_GATES = ("task", "retention_iid", "retention_shifted", "safety", "logprob
 MAX_MEASUREMENTS = 32
 MAX_TEXT_CHARS = 4000
 MAX_TASK_ID_CHARS = 128
+MAX_MODEL_NAME_CHARS = 128
 MAX_TASK_SUMMARY_CHARS = 500
 MAX_REASON_CHARS = 280
 RETRYABLE_HTTP_CODES = (408, 429, 500, 502, 503, 504)
@@ -188,6 +189,20 @@ def _is_timeout(exc: BaseException) -> bool:
     if isinstance(exc, TimeoutError):
         return True
     return isinstance(getattr(exc, "reason", None), TimeoutError)
+
+
+def _is_valid_model_name(value: Any) -> bool:
+    """True for a non-empty, trimmed, printable ASCII string of at most 128 chars.
+
+    The same rule applies to the configured model id and to the served name.
+    """
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+        and len(value) <= MAX_MODEL_NAME_CHARS
+        and all(32 <= ord(ch) <= 126 for ch in value)
+    )
 
 
 def _is_int(value: Any) -> bool:
@@ -359,6 +374,13 @@ class CerebrasKimiClient:
             raise CerebrasClientError(
                 "Cerebras base URL host must be api.cerebras.ai, "
                 f"got {parsed.hostname!r}"
+            )
+        if not _is_valid_model_name(model_id):
+            # Never echo the value: it may come from the environment.
+            raise CerebrasClientError(
+                "Cerebras model_id must be a non-empty trimmed printable ASCII string "
+                f"(<= {MAX_MODEL_NAME_CHARS} chars)",
+                code="ERR_CEREBRAS_MODEL_ID_CONFIG",
             )
         if timeout_seconds <= 0:
             raise CerebrasClientError("timeout_seconds must be positive")
@@ -557,13 +579,7 @@ class CerebrasKimiClient:
                 f"Cerebras response omitted required model field on {call_kind} (requested {self.model_id!r})",
                 code="ERR_CEREBRAS_MODEL_MISSING",
             )
-        if (
-            not isinstance(served_model, str)
-            or not served_model
-            or served_model != served_model.strip()
-            or len(served_model) > 128
-            or any(ord(ch) < 32 or ord(ch) > 126 for ch in served_model)
-        ):
+        if not _is_valid_model_name(served_model):
             raise CerebrasSchemaError(
                 f"Cerebras response model must be a non-empty trimmed printable ASCII string (<= 128 chars) on {call_kind}",
                 code="ERR_CEREBRAS_MODEL_INVALID",
