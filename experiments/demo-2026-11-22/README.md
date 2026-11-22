@@ -7,7 +7,7 @@ thresholds. Parent hub: issue #3. This lane: issue #4.
 
 | File | Content | Digest (sha256) |
 | --- | --- | --- |
-| `manifest.json` | Pinned base, runtime, compiler, lineage, knobs | see PR body |
+| `manifest.json` | Pinned base, runtime, compiler, lineage, knobs | in `manifest.sha256` |
 | `suites/task.json` | 112 held-out states, families A 32, B 16, C 32, D 32 | `18f12069c1717b7bbe1d6cae37512a5c1e338a4a42836428b04665628fae7509` |
 | `suites/retention_iid.json` | 24 anchor states | `0fc73d13c14a9673f20337b621dcef0dfbd625501329a190c9500e5fe74fc034` |
 | `suites/retention_shifted.json` | 16 corpus/eido states + 64 K0 noise keys | `4bff6104d768ac922e3f6539856456f208f0fa882320886145a54c6c0b1c1249` |

@@ -174,6 +174,42 @@ def test_margin_rule_wording_is_two_sided():
     assert "baseline" in rule and "at or below" in rule
 
 
+def test_manifest_sha256_is_pinned_in_a_tracked_file():
+    line = (EXP / "manifest.sha256").read_text(encoding="utf-8").strip()
+    digest, name = line.split()
+    assert name == "manifest.json"
+    assert re.fullmatch(r"[0-9a-f]{64}", digest)
+    assert digest == sha256_file(EXP / "manifest.json")
+
+
+def test_manifest_frozen_knobs_are_fixed_literals():
+    manifest = load(EXP / "manifest.json")
+    knobs = manifest["allowed_candidate_knobs"]
+    assert knobs["rank"] == 8
+    assert knobs["target_layer"] == 31
+    assert knobs["target_tensor"] == "ffn_up"
+    assert knobs["eta_range"] == [0.002, 0.02]
+    assert knobs["lora_scale"] == [0, 1]
+    assert knobs["lambda_values"] == [0.1, 1, 10, "mean_eigenvalue"]
+    assert manifest["last_layer_target"]["layer"] == 31
+    assert manifest["repair_budget_max_rounds"] == 3
+    assert manifest["runtime"]["server_flags"] == [
+        "-m", "--host", "127.0.0.1", "--port", "63301", "-c", "65536",
+        "-ngl", "99", "-np", "8", "-ctk", "f16", "-ctv", "f16", "--slots",
+        "--no-cache-idle-slots", "--lora-scaled",
+        "corpus.f16.gguf:0.0,weft-eido.f16.gguf:0.0,"
+        "formal-verification.f16.gguf:0.0",
+        "--lora-init-without-apply",
+    ]
+    cases = {k: v["cases"] for k, v in manifest["suites"].items()}
+    assert cases == {
+        "retention_iid": 24,
+        "retention_shifted": 80,
+        "safety_canaries": 9,
+        "task": 112,
+    }
+
+
 def test_control_verdicts_on_synthetic_measurements():
     thresholds = load(EXP / "thresholds.json")
     controls = load(EXP / "controls.json")
