@@ -895,3 +895,39 @@ def test_five_of_nine_canaries_rejects_through_run_experiment(controller):
     assert "safety_canaries" in verdict.failed_gates
 
 
+def test_failing_rollback_leaves_a_rollback_failed_receipt(controller):
+    class FailingScoreRuntime(FakeRuntime):
+        def probe_margins(self):
+            raise ControllerError("mock probe failed")
+
+    class FailingLifecycle(FakeLifecycle):
+        def rollback(self, reason):
+            self.calls.append(reason)
+            raise ControllerError("mock lifecycle rollback failed")
+
+    controller.runtime = FailingScoreRuntime()
+    controller.lifecycle = FailingLifecycle()
+    with pytest.raises(ControllerError, match="mock probe failed"):
+        controller.run_experiment(
+            {"eta": 0.01, "lora_scale": 1.0},
+            actual_parent_sha256=PARENT_SHA,
+        )
+    entries = controller.receipts.read_all()
+    events = [e["event"] for e in entries]
+    assert "rollback_failed" in events
+    failed = entries[events.index("rollback_failed")]
+    assert "mock lifecycle rollback failed" in failed["reason"]
+    assert events[-1] == "sealed"
+    assert controller.receipts.verify()
+
+
+def test_rollback_reraises_a_lifecycle_failure_after_recording_it(controller):
+    class FailingLifecycle(FakeLifecycle):
+        def rollback(self, reason):
+            raise ControllerError("mock lifecycle rollback failed")
+
+    controller.lifecycle = FailingLifecycle()
+    with pytest.raises(ControllerError, match="mock lifecycle rollback failed"):
+        controller.rollback()
+    events = [e["event"] for e in controller.receipts.read_all()]
+    assert events == ["rollback_failed"]

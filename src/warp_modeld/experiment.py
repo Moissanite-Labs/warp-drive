@@ -1264,7 +1264,19 @@ class ExperimentController:
         baseline is then verified by comparing restored logits with the
         pinned baseline: any nonzero difference fails verification.
         """
-        rolled = self.lifecycle.rollback(reason)
+        try:
+            rolled = self.lifecycle.rollback(reason)
+        except Exception as exc:
+            # The adapter may still be mounted. Record that before the
+            # error propagates, so the log never ends without a trace.
+            self.receipts.append(
+                "rollback_failed",
+                reason=(
+                    f"lifecycle rollback raised {type(exc).__name__}: {exc}"
+                ),
+                requested_reason=reason,
+            )
+            raise
         missing = [bank for bank in ALL_STATE_BANKS if bank not in rolled.banks_flushed]
         if missing:
             self.receipts.append(
