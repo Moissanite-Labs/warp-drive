@@ -127,6 +127,11 @@ def _make_handler(state: MockCerebrasState) -> type[BaseHTTPRequestHandler]:
                 )
                 self._send(200, json.dumps(payload).encode("utf-8"))
                 return
+            if state.mode == "missing_model":
+                payload = _chat_response(content=MODE_CONTENT["ok_propose"], usage=dict(DEFAULT_USAGE))
+                payload.pop("model", None)
+                self._send(200, json.dumps(payload).encode("utf-8"))
+                return
             if state.mode == "missing_usage":
                 payload = _chat_response(content=MODE_CONTENT["ok_propose"], usage=None)
                 self._send(200, json.dumps(payload).encode("utf-8"))
