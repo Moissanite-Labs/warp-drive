@@ -1,10 +1,12 @@
 {
   "arm": "R6-3",
   "audit_id": "AUDIT-063",
-  "canonical_sha256": "5200107049fd9abd05d885b90db2a486c4758dc9206a06c762a32419f2a21cde",
+  "canonical_sha256": "c418da2c433bedc4d26e91f1b5e1953a91127a2ebf8f3c65bd4364febb1c7b52",
   "evidence_boundary_disclosure": {
     "cerebras_transport_mode": "mock_contract",
     "controller_runtime_mode": "logic_check_fake_runtime",
+    "hmac_key_source": "deterministic_study_fixture",
+    "ledger_hmac_scope": "tamper_evidence_only_not_external_secrecy",
     "live_credentials_used": false,
     "live_rtx3080_checkpoint_scored": false
   },
@@ -62,16 +64,17 @@
     },
     "separated_timings": {
       "cerebras_ms": 256,
-      "compile_ms": 1260,
+      "compile_ms": 2100,
       "deploy_rollback_ms": 18,
-      "local_eval_ms": 530,
-      "total_ms": 2064
+      "local_eval_ms": 580,
+      "timing_source": "aggregated_from_mock_ledger_receipts_not_wall_clock",
+      "total_ms": 2954
     }
   },
   "part3_issue5_controller_lifecycle": {
     "ledger_independent_verification": {
       "count": 23,
-      "head_sha256": "77a347dc9fd7fac0e990c65aefc7f12f36e27eb373f98f995dcfe9cdb1ec3036",
+      "head_sha256": "e8a4085f902e6c2bad3b795ee77bb086aebda0952d228e977b76007784063d79",
       "valid": true
     },
     "regressed_plausible_failures": [
@@ -85,6 +88,7 @@
     "regressed_plausible_verdict": "REJECTED",
     "round1_underfit_verdict": "REJECTED",
     "round2_adapter_sha256": "3ce3e117fac61b176305d1792f885b8d25b39f363a96bb08ea8ea10d7a230f13",
+    "round2_post_rollback_phase": "RolledBack",
     "round2_repaired_verdict": "PROMOTED",
     "round2_rollback_logits_restored": true,
     "unchanged_base_verdict": "CONTROL_BASE_PASS"
@@ -123,14 +127,18 @@
     "cerebras_weight_egress_blocked": "ERR_EGRESS_POLICY_VIOLATION",
     "checkpoint_drift_rejected_before_compile": "ERR_CHECKPOINT_DRIFT",
     "duplicate_repair_round1_replay_rejected": "ERR_REPAIR_BUDGET_EXCEEDED",
+    "egress_unbounded_int_smuggling_rejected": "ERR_EGRESS_POLICY_VIOLATION",
     "eval_before_hash_recorded_rejected": "ERR_HASH_ORDER_VIOLATION",
     "incomplete_multibank_lattice_flush_rejected": "ERR_STATE_FLUSH_INCOMPLETE",
     "kv_only_rollback_omitting_checkpoint_banks_rejected": "ERR_INVALID_STATE_BANKS",
+    "missing_contract_sha256_rejected": "ERR_CONTRACT_DRIFT",
     "nested_case_insensitive_ring0_override_rejected": "ERR_RING0_TAMPER",
     "raw_lora_override_rejected": "ERR_RING0_TAMPER",
     "regressed_control_passing_metrics_blocked_from_promote": "control_role_cannot_promote",
     "repair_round_4_budget_exceeded": "ERR_REPAIR_BUDGET_EXCEEDED",
     "ring0_threshold_mutation_rejected": "ERR_RING0_TAMPER",
+    "rollback_from_rejected_phase_rejected": "ERR_INVALID_PHASE",
+    "second_rollback_from_rolledback_rejected": "ERR_INVALID_PHASE",
     "trailing_newline_digest_and_layer_rejected": "ERR_INVALID_SHA256",
     "unhashed_extra_receipt_key_rejected": "ERR_LEDGER_TAMPER",
     "unsupported_layer_blk12_rejected": "ERR_UNSUPPORTED_LAYER"
