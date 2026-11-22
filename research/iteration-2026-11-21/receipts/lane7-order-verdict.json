@@ -1,0 +1,17 @@
+{
+  "events_independently_hashed": [
+    "candidate_proposed",
+    "evaluated",
+    "candidate_digest_recorded"
+  ],
+  "receipt_log": {
+    "check": "receipt_log",
+    "verdict": "VERIFIED",
+    "evidence": "exact: 3 entries, sequence and hash chain recompute. Events: candidate_proposed -> evaluated -> candidate_digest_recorded"
+  },
+  "config_digests": {
+    "check": "config_digests",
+    "verdict": "VERIFIED",
+    "evidence": "exact: 2 logged config digests recompute from the logged configs (canonical JSON, sorted keys). The digest recorded before evaluation matches the proposed digest"
+  }
+}

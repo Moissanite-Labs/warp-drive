@@ -1,0 +1,7 @@
+=== PROBE S2 COMPLETE: TOKENPAGE PR #5 AUDIT & EXACT NULLMODEM THEOREMS ===
+Part 1 (tokenpage#5/#9): unpaired english extra rows=112 (msg 46 truncated 2/5)
+  G1 legend floor inversion: floored delta=-1.97 bits vs proper KL delta=+1.77 bits!
+  G1+legend title pos01 bias: 19/24 pred vs 1/24 gold
+Part 2 (exact Q/Q(i) nullmodem): NM-1 Gram/PGL2 exact=0 | NM-2 Zeno rate=11/50, IZ=0 | NM-3 Bregman residual=0
+Saved: /private/tmp/tokenpage-pr13-a694232/studies/expedition-proper-kl-audit/probe_s2_nullmodem_tokenpage_results.json
+File SHA-256: b0cba027918e623b6f1169499eb49693aa47bede08c0c58411542bd91c9408f8

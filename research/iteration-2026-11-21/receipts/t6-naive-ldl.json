@@ -1,0 +1,72 @@
+{
+  "schema": "warp-drive-research-t6/v1",
+  "source_base": "38a7072f8d23fe865b4d48d1da285a6db4fc14d1",
+  "singular_psd_cases": [
+    {
+      "matrix": [
+        [
+          0
+        ]
+      ],
+      "inertia": [
+        0,
+        0,
+        1
+      ],
+      "naive_ldl_bits": 1
+    },
+    {
+      "matrix": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "inertia": [
+        1,
+        0,
+        1
+      ],
+      "naive_ldl_bits": 1
+    },
+    {
+      "matrix": [
+        [
+          1,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "inertia": [
+        1,
+        0,
+        1
+      ],
+      "naive_ldl_bits": 1
+    }
+  ],
+  "suspected_singular_psd_failure_reproduced": false,
+  "indefinite_control": {
+    "matrix": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "primary_gate_is_psd": false,
+    "diagnostic_only_naive_ldl_bits": 1
+  },
+  "scope": "No claimed singular-PSD crash reproduced. The naive helper remains a diagnostic, not a PSD oracle.",
+  "novelty": "N0"
+}

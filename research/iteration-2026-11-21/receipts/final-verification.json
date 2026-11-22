@@ -1,0 +1,37 @@
+{
+  "schema": "warp-drive-iteration-final-verification/v1",
+  "recorded_at": "2026-11-22T01:01:19.607477+00:00",
+  "initial_baseline_invocation": {
+    "command": "python3 -m unittest discover -s tests -v",
+    "exit": 1,
+    "ran": 9,
+    "failure": "ModuleNotFoundError: No module named warp_modeld; source import path was not configured",
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "79f5053749956c2b74474fe94197bae9565f144dcd79fae1fda384f4b13cace6",
+    "scientific_result_changed": false
+  },
+  "corrected_baseline_invocation": {
+    "command": "PYTHONPATH=src:. python3 -m unittest discover -s tests -v",
+    "exit": 0,
+    "ran": 58,
+    "passed": 57,
+    "skipped": 1,
+    "seconds": 16.286,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1cc9a21e681a0233d94878099ce75a48187ee60902c2f9441d6eac65504593a3",
+    "skip_scope": "optional live llama smoke; no live model claim"
+  },
+  "spectral_portability_replay": {
+    "exit": 0,
+    "comparison": "byte-identical to preserved probe-normal.json",
+    "published_source_sha256": "a0198b21e653b04f67776ccf117d7c9207f3787f20248d1a25b7a8edd97e9b5b",
+    "output_sha256": "ffd4ca1c745912a33e4f4dd123d4fbedfe9e5821ea6ef0299493c9ac966850ef",
+    "scope": "path-only replay, not a new scientific trial"
+  },
+  "ledger_prose": {
+    "style": "clean",
+    "duplicates": "clean"
+  },
+  "live_credentials_used_in_these_checks": false,
+  "paid_calls": 0
+}

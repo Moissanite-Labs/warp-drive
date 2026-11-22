@@ -1,0 +1,59 @@
+{
+  "schema": "warp-drive-research-receipt/v1",
+  "trial": "T1",
+  "verdict": "VERIFIED",
+  "novelty": "N0",
+  "scope": "Aletheia tooling reproducibility only; not a scientific finding",
+  "source": {
+    "repository": "Foundation-0/aletheia",
+    "pull_request": 1,
+    "commit": "58207b422ca31c29bb498bc7aebb2ebc4f1fe41c",
+    "version": "1.3.0"
+  },
+  "environment": {
+    "python": "3.14.6",
+    "platform": "macOS arm64",
+    "gpu": "Apple M1 Max"
+  },
+  "commands": [
+    "python3 -I -B tests/run_all.py",
+    "python3 -I -O -B tests/run_all.py",
+    "python3 -I -B -W error tests/run_all.py",
+    "python3 -I -O -B -W error tests/run_all.py"
+  ],
+  "observed_per_mode": {
+    "tests_run": 13,
+    "failures": 0,
+    "errors": 0,
+    "mutation_mutants": 13,
+    "mutation_killed": 13,
+    "mutation_survived": 0,
+    "package_bare_asserts": 0,
+    "test_bare_asserts": 0
+  },
+  "stdout_sha256_all_modes": "f96e9367040861e4397b5c70bc18069a660fc92f268a2cb620ca77508cffd785",
+  "stdout_byte_identical": true,
+  "study_audit": {
+    "source_base": "38a7072f8d23fe865b4d48d1da285a6db4fc14d1",
+    "target": "studies/expedition-bareiss-gram-cert",
+    "status": "PASS",
+    "files_scanned": 3,
+    "python_files_scanned": 2,
+    "bare_assert_count": 0,
+    "crlf_count": 0,
+    "pycache_count": 0,
+    "leak_count": 0,
+    "syntax_error_count": 0,
+    "json_error_count": 0,
+    "unseeded_rng_warning_count": 0,
+    "audit_modes": 3,
+    "audit_modes_passed": 3,
+    "stdout_bit_identical": true,
+    "study_stdout_sha256": "ad358f5c8bdf707ef7782abeaa7d56d388a46bc433ef7ad951853486639f295c",
+    "study_stdout_bytes": 1771
+  },
+  "harness_notes": [
+    "One shell loop failed before executing tests because zsh did not split a stored interpreter-flag string. Re-running with explicit commands passed.",
+    "The framework revision is an open PR head, not a merged Aletheia release."
+  ]
+}

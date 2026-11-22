@@ -1,0 +1,66 @@
+test_01_ropt_boundary_guards (test_track_a_higher_moments.TestTrackAHigherMoments.test_01_ropt_boundary_guards) ... ok
+test_02_noncommuting_complex_hermitian_all_theorems_exact_qi (test_track_a_higher_moments.TestTrackAHigherMoments.test_02_noncommuting_complex_hermitian_all_theorems_exact_qi)
+Exhaustive exact Q(i) non-commuting complex Hermitian test of Theorems A1, A2 (H4 & H6), ... ok
+test_03_theorem_a4_strictly_beats_both_ceil_ropt_and_hankel4 (test_track_a_higher_moments.TestTrackAHigherMoments.test_03_theorem_a4_strictly_beats_both_ceil_ropt_and_hankel4)
+Theorem A4 beats BOTH ceil(R_opt) AND Hankel4 - b on exact 4x4 matrices (both diagonal ... ok
+test_04_scan23848_high_interference_breakthrough (test_track_a_higher_moments.TestTrackAHigherMoments.test_04_scan23848_high_interference_breakthrough)
+Verify Project-ASMA Scan 23848 Mode A & Mode B breakthroughs: ... ok
+test_05_gate2_unitary_and_scale_invariance (test_track_a_higher_moments.TestTrackAHigherMoments.test_05_gate2_unitary_and_scale_invariance)
+Gate 2: Verify exact unitary basis invariance & positive scale invariance of A1-A4. ... ok
+test_06_gate3_negative_controls_and_invalid_witnesses (test_track_a_higher_moments.TestTrackAHigherMoments.test_06_gate3_negative_controls_and_invalid_witnesses)
+Gate 3 & R5: Invalid theorem witnesses MUST be rejected with CertError. ... ok
+test_01_exact_sqrt_and_bernstein_tightness (test_track_b_box_certifier.TestTrackBBoxCertifier.test_01_exact_sqrt_and_bernstein_tightness) ... ok
+test_02_fibral_rigidity_5_two_bar_truss (test_track_b_box_certifier.TestTrackBBoxCertifier.test_02_fibral_rigidity_5_two_bar_truss) ... ok
+test_03_complex_hermitian_bloch_and_morse_boxes (test_track_b_box_certifier.TestTrackBBoxCertifier.test_03_complex_hermitian_bloch_and_morse_boxes) ... ok
+test_04_ratmatrix_and_zero_diagonal_2x2_block_box (test_track_b_box_certifier.TestTrackBBoxCertifier.test_04_ratmatrix_and_zero_diagonal_2x2_block_box)
+Test BOTH: ... ok
+test_05_reject_non_hermitian_symbolic_and_interval_forgeries (test_track_b_box_certifier.TestTrackBBoxCertifier.test_05_reject_non_hermitian_symbolic_and_interval_forgeries)
+Regression test closing AUDIT-015 critical TCB exploit: ... ok
+test_01_r1_r2_r3_strict_parsers (test_track_c_dual_oracle.TestTrackCDualOracle.test_01_r1_r2_r3_strict_parsers) ... ok
+test_02_all_six_audit001_exploits_closed (test_track_c_dual_oracle.TestTrackCDualOracle.test_02_all_six_audit001_exploits_closed) ... ok
+test_03_all_five_2x2_block_rows_real_and_complex (test_track_c_dual_oracle.TestTrackCDualOracle.test_03_all_five_2x2_block_rows_real_and_complex)
+Directly test all 5 rows of the 2x2 Hermitian block inertia table (real & complex). ... ok
+test_04_loom7_structural_guards_and_r2_omission (test_track_c_dual_oracle.TestTrackCDualOracle.test_04_loom7_structural_guards_and_r2_omission) ... ok
+test_05_120_random_complex_hermitian_dual_oracle_agreement (test_track_c_dual_oracle.TestTrackCDualOracle.test_05_120_random_complex_hermitian_dual_oracle_agreement)
+Cross-verify Oracle 1 (PLDL* AND C M C* = D) vs Oracle 2 (Faddeev-LeVerrier + ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 1.641s
+
+OK
+{
+  "unittest": {
+    "tests_run": 16,
+    "failures": 0,
+    "errors": 0,
+    "ok": true
+  },
+  "mutation_suite_r5": {
+    "total_mutants": 41,
+    "killed": 41,
+    "survivors": 0,
+    "kill_rate_pct": 100.0
+  },
+  "track_a_scan23848_summary": {
+    "mode_a_strict_ceil_wins_over_R_opt": 6,
+    "mode_b_all_exact_1": true,
+    "three_component_mode_b": {
+      "description": "Q=diag(10,0,0,0) (b=1), P=diag(0,1,1/10,1/10) (true rank=3)",
+      "R_opt": "24/17",
+      "R_opt_float": 1.411765,
+      "ceil_R_opt": 2,
+      "Hankel4_minus_1_float": 1.449757,
+      "Hankel6_minus_1_exact": "3",
+      "Theorem_A4_exact": "3"
+    }
+  },
+  "track_b_validations": {
+    "fibral_truss_full_status": "SINGULARITY_DETECTED",
+    "fibral_truss_taut_status": "CERTIFIED_CONSTANT_INERTIA",
+    "fibral_truss_buckled_status": "CERTIFIED_CONSTANT_INERTIA",
+    "bloch_gapped_status": "CERTIFIED_CONSTANT_INERTIA",
+    "bloch_dirac_status": "SINGULARITY_DETECTED",
+    "morse_saddle_status": "CERTIFIED_CONSTANT_INERTIA",
+    "morse_bifurcation_status": "INERTIA_CHANGE_DETECTED"
+  }
+}

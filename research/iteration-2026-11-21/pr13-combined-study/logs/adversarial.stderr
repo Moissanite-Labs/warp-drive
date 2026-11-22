@@ -1,0 +1,69 @@
+test_01_pre_evaluation_hash_survives_runtime_callback (__main__.AdversarialReview.test_01_pre_evaluation_hash_survives_runtime_callback) ... FAIL
+test_02_compiler_cannot_change_frozen_acceptance_policy (__main__.AdversarialReview.test_02_compiler_cannot_change_frozen_acceptance_policy) ... FAIL
+test_03_provider_egress_rejects_raw_adapter_alias (__main__.AdversarialReview.test_03_provider_egress_rejects_raw_adapter_alias) ... FAIL
+test_04_malformed_provider_metadata_records_rejected_receipt (__main__.AdversarialReview.test_04_malformed_provider_metadata_records_rejected_receipt) ... FAIL
+test_05_nested_duplicate_provider_json_fails_closed_with_receipt (__main__.AdversarialReview.test_05_nested_duplicate_provider_json_fails_closed_with_receipt) ... ok
+test_06_live_adapter_mismatch_rejected_before_runtime (__main__.AdversarialReview.test_06_live_adapter_mismatch_rejected_before_runtime) ... ok
+test_07_multibank_rollback_rejects_missing_lattice_flush (__main__.AdversarialReview.test_07_multibank_rollback_rejects_missing_lattice_flush) ... ok
+
+======================================================================
+FAIL: test_01_pre_evaluation_hash_survives_runtime_callback (__main__.AdversarialReview.test_01_pre_evaluation_hash_survives_runtime_callback)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/warp-drive-pr13-review.dZEg30/adversarial_pr13.py", line 149, in test_01_pre_evaluation_hash_survives_runtime_callback
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        bound,
+        ^^^^^^
+        evaluated["evaluation"]["candidate_adapter_sha256"],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f"post-eval hash replaced bound hash; verdict={verdict}, valid_signed_chain={chain}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: '7dc4d8166cec58672c733e167e0b729be3d0c9ee2c1da5a6d44cf65fdb78830e' != 'ec4e65b6674e9d74b267d6844125358de8caebe28ac7e7ea68a7a9fe41db8bef'
+- 7dc4d8166cec58672c733e167e0b729be3d0c9ee2c1da5a6d44cf65fdb78830e
++ ec4e65b6674e9d74b267d6844125358de8caebe28ac7e7ea68a7a9fe41db8bef
+ : post-eval hash replaced bound hash; verdict=PROMOTED, valid_signed_chain={'valid': True, 'count': 4, 'head_sha256': '306669a99eb45e1d266ef0bb07365210e77e2a68b8b3b355273c256b82d2dcb4'}
+
+======================================================================
+FAIL: test_02_compiler_cannot_change_frozen_acceptance_policy (__main__.AdversarialReview.test_02_compiler_cannot_change_frozen_acceptance_policy)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/warp-drive-pr13-review.dZEg30/adversarial_pr13.py", line 172, in test_02_compiler_cannot_change_frozen_acceptance_policy
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        "REJECTED",
+        ^^^^^^^^^^^
+    ...<3 lines>...
+        f"live threshold={manifest['frozen_thresholds']['min_task_exact_gain']}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: 'REJECTED' != 'PROMOTED'
+- REJECTED
++ PROMOTED
+ : 0 task gain promoted after policy mutation; stored sha=18281c6db1641b3361a7d4e116331bc3cd616b6049705b2ebb9e864f1e273740, recomputed=e00de7156d6cf568bbd83be5e0dde2cdbfe9aa32d3b1a91eb2a65620258f6a1f, live threshold=[-100, 1]
+
+======================================================================
+FAIL: test_03_provider_egress_rejects_raw_adapter_alias (__main__.AdversarialReview.test_03_provider_egress_rejects_raw_adapter_alias)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/warp-drive-pr13-review.dZEg30/adversarial_pr13.py", line 193, in test_03_provider_egress_rejects_raw_adapter_alias
+    self.fail(f"synthetic raw adapter bytes reached transport: {transport.requests[0]['payload']}")
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: synthetic raw adapter bytes reached transport: {'contract_sha256': '18281c6db1641b3361a7d4e116331bc3cd616b6049705b2ebb9e864f1e273740', 'remaining_rounds': 1, 'failure_report': {'adapter': [0, 1, 2, 255], 'repair_round': 1}}
+
+======================================================================
+FAIL: test_04_malformed_provider_metadata_records_rejected_receipt (__main__.AdversarialReview.test_04_malformed_provider_metadata_records_rejected_receipt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/warp-drive-pr13-review.dZEg30/adversarial_pr13.py", line 201, in test_04_malformed_provider_metadata_records_rejected_receipt
+    self.assertEqual(1, len(client.receipts), "metadata validation escaped before receipt recording")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0 : metadata validation escaped before receipt recording
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.008s
+
+FAILED (failures=4)

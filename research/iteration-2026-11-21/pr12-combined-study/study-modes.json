@@ -1,0 +1,146 @@
+[
+  {
+    "job": "bridge",
+    "mode": "-I -B",
+    "returncode": 0,
+    "stdout_sha256": "371495f0ef46ff9401d43300d008caa7e39486e6b562b707dcb7c486ea09524d",
+    "stdout_bytes": 4539,
+    "stderr_bytes": 0,
+    "seconds": 0.143
+  },
+  {
+    "job": "bridge",
+    "mode": "-I -O -B",
+    "returncode": 0,
+    "stdout_sha256": "371495f0ef46ff9401d43300d008caa7e39486e6b562b707dcb7c486ea09524d",
+    "stdout_bytes": 4539,
+    "stderr_bytes": 0,
+    "seconds": 0.1
+  },
+  {
+    "job": "bridge",
+    "mode": "-I -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "371495f0ef46ff9401d43300d008caa7e39486e6b562b707dcb7c486ea09524d",
+    "stdout_bytes": 4539,
+    "stderr_bytes": 0,
+    "seconds": 0.072
+  },
+  {
+    "job": "bridge",
+    "mode": "-I -O -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "371495f0ef46ff9401d43300d008caa7e39486e6b562b707dcb7c486ea09524d",
+    "stdout_bytes": 4539,
+    "stderr_bytes": 0,
+    "seconds": 0.073
+  },
+  {
+    "job": "bridge_r5",
+    "mode": "-I -B",
+    "returncode": 0,
+    "stdout_sha256": "95c5233e3c6e0ccd85c0bd05aa5979a2beb2871fe58af83c3f6e9e9e5989f127",
+    "stdout_bytes": 64,
+    "stderr_bytes": 0,
+    "seconds": 0.149
+  },
+  {
+    "job": "bridge_r5",
+    "mode": "-I -O -B",
+    "returncode": 0,
+    "stdout_sha256": "95c5233e3c6e0ccd85c0bd05aa5979a2beb2871fe58af83c3f6e9e9e5989f127",
+    "stdout_bytes": 64,
+    "stderr_bytes": 0,
+    "seconds": 0.146
+  },
+  {
+    "job": "bridge_r5",
+    "mode": "-I -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "95c5233e3c6e0ccd85c0bd05aa5979a2beb2871fe58af83c3f6e9e9e5989f127",
+    "stdout_bytes": 64,
+    "stderr_bytes": 0,
+    "seconds": 0.147
+  },
+  {
+    "job": "bridge_r5",
+    "mode": "-I -O -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "95c5233e3c6e0ccd85c0bd05aa5979a2beb2871fe58af83c3f6e9e9e5989f127",
+    "stdout_bytes": 64,
+    "stderr_bytes": 0,
+    "seconds": 0.147
+  },
+  {
+    "job": "gram",
+    "mode": "-I -B",
+    "returncode": 0,
+    "stdout_sha256": "192a1a4e1292c0153c4e3db37a7d633ae90ac9d7f59aabfeddc67bf12c90b4fa",
+    "stdout_bytes": 3183,
+    "stderr_bytes": 0,
+    "seconds": 0.073
+  },
+  {
+    "job": "gram",
+    "mode": "-I -O -B",
+    "returncode": 0,
+    "stdout_sha256": "192a1a4e1292c0153c4e3db37a7d633ae90ac9d7f59aabfeddc67bf12c90b4fa",
+    "stdout_bytes": 3183,
+    "stderr_bytes": 0,
+    "seconds": 0.073
+  },
+  {
+    "job": "gram",
+    "mode": "-I -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "192a1a4e1292c0153c4e3db37a7d633ae90ac9d7f59aabfeddc67bf12c90b4fa",
+    "stdout_bytes": 3183,
+    "stderr_bytes": 0,
+    "seconds": 0.073
+  },
+  {
+    "job": "gram",
+    "mode": "-I -O -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "192a1a4e1292c0153c4e3db37a7d633ae90ac9d7f59aabfeddc67bf12c90b4fa",
+    "stdout_bytes": 3183,
+    "stderr_bytes": 0,
+    "seconds": 0.076
+  },
+  {
+    "job": "gram_r5",
+    "mode": "-I -B",
+    "returncode": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stderr_bytes": 98,
+    "seconds": 0.15
+  },
+  {
+    "job": "gram_r5",
+    "mode": "-I -O -B",
+    "returncode": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stderr_bytes": 98,
+    "seconds": 0.125
+  },
+  {
+    "job": "gram_r5",
+    "mode": "-I -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stderr_bytes": 98,
+    "seconds": 0.116
+  },
+  {
+    "job": "gram_r5",
+    "mode": "-I -O -B -W error",
+    "returncode": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_bytes": 0,
+    "stderr_bytes": 98,
+    "seconds": 0.111
+  }
+]
