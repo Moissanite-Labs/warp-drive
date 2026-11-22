@@ -57,6 +57,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     raw_req_files = cfg.get("require_loaded_adapter_files", True)
     if type(raw_req_files) is not bool:
         raise ValueError("require_loaded_adapter_files must be a boolean")
+    raw_legacy_kv = cfg.get("allow_legacy_implicit_kv_flush", False)
+    if type(raw_legacy_kv) is not bool:
+        raise ValueError("allow_legacy_implicit_kv_flush must be a boolean")
 
     modeld = WarpModeld(
         pinned_checkpoint=checkpoint,
@@ -71,6 +74,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         pinned_zone_manifest_id=cfg.get("pinned_zone_manifest_id"),
         pinned_zone_manifest=zone_manifest_obj,
         require_loaded_adapter_files=raw_req_files,
+        allow_legacy_implicit_kv_flush=raw_legacy_kv,
     )
 
     server = WarpUnixRpcServer(

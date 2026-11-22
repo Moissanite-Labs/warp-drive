@@ -245,10 +245,14 @@ class TestWeftCrossAuditR5(unittest.TestCase):
 
         with self.assertRaisesRegex(TypeError, "exact booleans"):
             wca.verify_weft_binding_strict(wm, wc, has_ssm_recurrent=1)  # type: ignore[arg-type]
-        with self.assertRaisesRegex(ValueError, "must be positive"):
-            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=True, lattice_layers=0)
+        with self.assertRaisesRegex(ValueError, "must both be positive"):
+            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=True, lattice_layers=0, lattice_width=4)
+        with self.assertRaisesRegex(ValueError, "must both be positive"):
+            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=True, lattice_layers=4, lattice_width=0)
         with self.assertRaisesRegex(ValueError, "must be 0"):
-            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=False, lattice_layers=4)
+            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=False, lattice_layers=4, lattice_width=0)
+        with self.assertRaisesRegex(ValueError, "must be 0"):
+            wca.verify_weft_binding_strict(wm, wc, has_horizontal_lattice=False, lattice_layers=0, lattice_width=4)
 
         # Boundary checks: exact equal spectral == frobenius and class2_open_recipe_base pass
         wc_eq = dict(wc, spectral_norm_sq_scaled=wc["frobenius_sq_scaled"])

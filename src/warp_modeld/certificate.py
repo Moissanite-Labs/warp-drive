@@ -563,6 +563,8 @@ def verify_stack_division_free(
         for attr, metric_name in (
             ("frobenius_sq_scaled", "composed_frobenius_sq"),
             ("spectral_norm_sq_scaled", "composed_spectral_norm_sq"),
+            ("leakage_energy_scaled", "composed_leakage_energy"),
+            ("max_safety_dot_sq_scaled", "composed_max_safety_dot_sq"),
         ):
             per_nums = [
                 getattr(cert, attr) * (snum * snum) * (tri_den // tden)

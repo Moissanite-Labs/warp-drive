@@ -107,6 +107,7 @@ class WarpModeld:
                 canary_suite,
                 canary_slot_id=canary_slot_id,
                 max_tokens=canary_max_tokens,
+                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
             )
         )
 
@@ -264,6 +265,9 @@ class WarpModeld:
 
         try:
             slots = self.llama_client.list_slots()
+            if not slots:
+                err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                raise err_cls("llama-server /slots returned empty slot list; refusing unverified zero-slot flush")
             requested_slot_ids = {slot.id for slot in slots}
             flushed: list[int] = []
             confirmed_by_slot: dict[int, tuple[str, ...]] = {}
@@ -277,13 +281,21 @@ class WarpModeld:
 
             for slot, resp in slot_resps:
                 flushed.append(slot.id)
-                raw_confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
-                if isinstance(raw_confirmed, list):
-                    confirmed = tuple(str(b) for b in raw_confirmed)
-                elif raw_confirmed is None and not needs_lattice and not needs_ssm and getattr(self, "allow_legacy_implicit_kv_flush", False):
-                    confirmed = (STATE_BANK_KV,)
+                if not isinstance(resp, dict):
+                    confirmed: tuple[str, ...] = ()
                 else:
-                    confirmed = ()
+                    raw_confirmed = resp.get("banks_flushed")
+                    if isinstance(raw_confirmed, list):
+                        confirmed = tuple(str(b) for b in raw_confirmed)
+                    elif (
+                        raw_confirmed is None
+                        and not needs_lattice
+                        and not needs_ssm
+                        and self.allow_legacy_implicit_kv_flush
+                    ):
+                        confirmed = (STATE_BANK_KV,)
+                    else:
+                        confirmed = ()
 
                 missing_banks = [b for b in required_banks if b not in confirmed]
                 if missing_banks:

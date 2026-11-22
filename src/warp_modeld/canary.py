@@ -407,6 +407,74 @@ def _extract_chat_content(response: dict[str, Any]) -> str:
     raise CanaryFailedError("llama-server returned response without assistant text content")
 
 
+def _is_slot_clean_for_banks(
+    llama_client: LlamaServerClient,
+    sid: int,
+    expected_banks: tuple[str, ...],
+) -> bool:
+    """Verify post-erase slot cleanliness across every expected and reported state bank."""
+    if not hasattr(llama_client, "list_slots"):
+        return True
+    try:
+        slots_now = llama_client.list_slots()
+    except LlamaClientError:
+        return False
+    by_id = {int(s.id): s for s in slots_now}
+    s_info = by_id.get(sid)
+    if s_info is None:
+        return False
+    if (
+        getattr(s_info, "is_processing", False)
+        or getattr(s_info, "recurrent_state_tainted", False)
+        or getattr(s_info, "lattice_state_tainted", False)
+        or getattr(s_info, "ssm_state_tainted", False)
+        or getattr(s_info, "lattice_layers_tainted", 0) > 0
+        or bool(getattr(s_info, "active_lora_ids", ()))
+        or getattr(s_info, "n_decoded", 0) > 0
+        or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
+    ):
+        return False
+    sbanks = s_info.state_banks
+    if not isinstance(sbanks, dict):
+        return False
+    for req_b in expected_banks:
+        st_b = sbanks.get(req_b)
+        if st_b is None or not st_b.is_clean:
+            return False
+    for st_b in sbanks.values():
+        if not st_b.is_clean:
+            return False
+    return True
+
+
+def _erase_slot_and_confirm(
+    llama_client: LlamaServerClient,
+    sid: int,
+    *,
+    erase_banks: tuple[str, ...] | None,
+    expected_banks: tuple[str, ...],
+    allow_legacy_implicit_kv_flush: bool = False,
+) -> bool:
+    """Erase one slot, confirm required banks, and verify post-erase cleanliness."""
+    resp = llama_client.erase_slot(sid, banks=erase_banks)
+    if not isinstance(resp, dict):
+        return False
+    confirmed = resp.get("banks_flushed")
+    if isinstance(confirmed, list):
+        confirmed_set = {str(b) for b in confirmed}
+    elif (
+        confirmed is None
+        and expected_banks == ("kv_cache",)
+        and allow_legacy_implicit_kv_flush
+    ):
+        confirmed_set = {"kv_cache"}
+    else:
+        return False
+    if any(b not in confirmed_set for b in expected_banks):
+        return False
+    return _is_slot_clean_for_banks(llama_client, sid, expected_banks)
+
+
 class CanaryRunner:
     """Executes shadow-loaded verifier-owned canaries against llama-server."""
 
@@ -419,6 +487,7 @@ class CanaryRunner:
         seed: int = 42,
         max_tokens: int = 256,
         top_p: float = 1.0,
+        allow_legacy_implicit_kv_flush: bool = False,
     ) -> None:
         self.llama_client = llama_client
         self.suite = suite
@@ -426,6 +495,7 @@ class CanaryRunner:
         self.seed = seed
         self.max_tokens = max_tokens
         self.top_p = float(top_p)
+        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
 
     def run(
         self,
@@ -485,49 +555,14 @@ class CanaryRunner:
             else ("kv_cache",)
         )
 
-        def _slot_is_clean(sid: int) -> bool:
-            if not hasattr(self.llama_client, "list_slots"):
-                return True
-            try:
-                slots_now = self.llama_client.list_slots()
-            except LlamaClientError:
-                return False
-            by_id = {int(s.id): s for s in slots_now}
-            s_info = by_id.get(sid)
-            if s_info is None:
-                return False
-            if (
-                getattr(s_info, "is_processing", False)
-                or getattr(s_info, "recurrent_state_tainted", False)
-                or getattr(s_info, "lattice_state_tainted", False)
-                or getattr(s_info, "ssm_state_tainted", False)
-                or getattr(s_info, "lattice_layers_tainted", 0) > 0
-                or bool(getattr(s_info, "active_lora_ids", ()))
-                or getattr(s_info, "n_decoded", 0) > 0
-                or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
-            ):
-                return False
-            sbanks = getattr(s_info, "state_banks", None)
-            if not isinstance(sbanks, dict):
-                return False
-            for req_b in expected_banks:
-                st_b = sbanks.get(req_b)
-                if st_b is None or not st_b.is_clean:
-                    return False
-            for st_b in sbanks.values():
-                if not st_b.is_clean:
-                    return False
-            return True
-
         def _erase_and_confirm(sid: int) -> bool:
-            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
-            confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
-            if not isinstance(confirmed, list):
-                return False
-            confirmed_set = {str(b) for b in confirmed}
-            if any(b not in confirmed_set for b in expected_banks):
-                return False
-            return _slot_is_clean(sid)
+            return _erase_slot_and_confirm(
+                self.llama_client,
+                sid,
+                erase_banks=erase_banks,
+                expected_banks=expected_banks,
+                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
+            )
 
         try:
             if len(slot_ids) == 1:
@@ -654,27 +689,6 @@ class CanaryRunner:
 
                 with ThreadPoolExecutor(max_workers=len(slot_ids)) as pool:
                     all_flushed = all(pool.map(_safe_erase, slot_ids))
-            if all_flushed and erase_banks is not None and hasattr(self.llama_client, "list_slots"):
-                try:
-                    post_slots = self.llama_client.list_slots()
-                    post_by_id = {int(s.id): s for s in post_slots}
-                    for sid in slot_ids:
-                        s_info = post_by_id.get(sid)
-                        if s_info is None:
-                            all_flushed = False
-                            break
-                        if getattr(s_info, "lattice_state_tainted", False) or getattr(s_info, "ssm_state_tainted", False):
-                            all_flushed = False
-                            break
-                        sbanks = getattr(s_info, "state_banks", None)
-                        if isinstance(sbanks, dict):
-                            for req_b in erase_banks:
-                                st_b = sbanks.get(req_b)
-                                if st_b is None or not st_b.is_clean:
-                                    all_flushed = False
-                                    break
-                except LlamaClientError:
-                    all_flushed = False
             slot_flushed = all_flushed
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -720,6 +734,7 @@ class ExternalCommandCanaryRunner:
         canary_slot_id: int = 0,
         timeout_seconds: float = 30.0,
         min_preservation: int = 4,
+        allow_legacy_implicit_kv_flush: bool = False,
     ) -> None:
         if not command:
             raise CanaryConfigError("external canary command must be non-empty")
@@ -736,6 +751,7 @@ class ExternalCommandCanaryRunner:
         self.canary_slot_id = canary_slot_id
         self.timeout_seconds = float(timeout_seconds)
         self.min_preservation = int(min_preservation)
+        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
 
     def run(
         self,
@@ -819,41 +835,13 @@ class ExternalCommandCanaryRunner:
         )
 
         def _ext_erase_and_verify(sid: int) -> bool:
-            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
-            c_banks = resp.get("banks_flushed") if isinstance(resp, dict) else None
-            if not isinstance(c_banks, list):
-                return False
-            c_set = {str(b) for b in c_banks}
-            if any(b not in c_set for b in expected_banks):
-                return False
-            if hasattr(self.llama_client, "list_slots"):
-                post_slots = self.llama_client.list_slots()
-                by_id = {int(s.id): s for s in post_slots}
-                s_info = by_id.get(sid)
-                if s_info is None:
-                    return False
-                if (
-                    getattr(s_info, "is_processing", False)
-                    or getattr(s_info, "recurrent_state_tainted", False)
-                    or getattr(s_info, "lattice_state_tainted", False)
-                    or getattr(s_info, "ssm_state_tainted", False)
-                    or getattr(s_info, "lattice_layers_tainted", 0) > 0
-                    or bool(getattr(s_info, "active_lora_ids", ()))
-                    or getattr(s_info, "n_decoded", 0) > 0
-                    or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
-                ):
-                    return False
-                sbanks = getattr(s_info, "state_banks", None)
-                if not isinstance(sbanks, dict):
-                    return False
-                for req_b in expected_banks:
-                    st_b = sbanks.get(req_b)
-                    if st_b is None or not st_b.is_clean:
-                        return False
-                for st_b in sbanks.values():
-                    if not st_b.is_clean:
-                        return False
-            return True
+            return _erase_slot_and_confirm(
+                self.llama_client,
+                sid,
+                erase_banks=erase_banks,
+                expected_banks=expected_banks,
+                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
+            )
 
         slot_flushed = False
         try:

@@ -18,12 +18,21 @@ fi
 WORKTREE="$1"
 shift
 
+normalize_abs_path() {
+    local p="$1"
+    # Collapse leading multiple slashes (POSIX allows `pwd -P` to preserve `//`).
+    p="/${p#"${p%%[!/]*}"}"
+    printf '%s\n' "${p}"
+}
+
 resolve_existing_dir() {
     local target="$1"
+    local resolved
     if [[ ! -d "${target}" ]]; then
         return 1
     fi
-    (cd -P -- "${target}" 2>/dev/null && pwd -P)
+    resolved="$(cd -P -- "${target}" 2>/dev/null && pwd -P)" || return 1
+    normalize_abs_path "${resolved}"
 }
 
 resolve_existing_file() {
@@ -41,6 +50,7 @@ resolve_existing_file() {
         fi
         dir="$(dirname -- "${target}")"
         resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
+        resolved_dir="$(normalize_abs_path "${resolved_dir}")"
         link_target="$(readlink -- "${target}" 2>/dev/null)" || return 1
         if [[ -z "${link_target}" ]]; then
             return 1
@@ -59,6 +69,7 @@ resolve_existing_file() {
     dir="$(dirname -- "${target}")"
     base="$(basename -- "${target}")"
     resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
+    resolved_dir="$(normalize_abs_path "${resolved_dir}")"
     if [[ "${resolved_dir}" == "/" ]]; then
         printf '/%s\n' "${base}"
     else
@@ -70,6 +81,7 @@ if ! WORKTREE_REAL="$(resolve_existing_dir "${WORKTREE}")" || [[ ! -d "${WORKTRE
     echo "ERR_SANDBOX_WORKTREE: worktree directory does not exist: ${WORKTREE}" >&2
     exit 126
 fi
+WORKTREE_REAL="/${WORKTREE_REAL#"${WORKTREE_REAL%%[!/]*}"}"
 
 if [[ "${WORKTREE_REAL}" == "/" ]]; then
     echo "ERR_SANDBOX_WORKTREE: refusing root directory as worktree" >&2

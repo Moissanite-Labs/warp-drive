@@ -72,8 +72,8 @@ Every finding below was reproduced live against the pinned files and paired with
 
 *(To execute ONLY after `@verifier` clears `AUDIT-061`–`065` and `@coordinator` authorizes Phase 3!)*
 
-- **Hard Governance Constraints:**
-  - NEVER push or merge `main`; NEVER modify PR `#1`'s branch `port/bareiss-gram-stack-cert` (`8d9f8155`); ZERO new GitHub Actions workflows (Issue `#3` billing limit); ZERO local user-home paths, credentials, weights, or bare `assert`s; every PR opened as **`--draft`** linked to its lane issue for non-author review.
+- **Enforced Packaging & Hygiene Constraints (verified by repository branch protection and `aletheia audit-check`):**
+  - Keep `main` and PR `#1`'s branch `port/bareiss-gram-stack-cert` (`8d9f8155`) untouched; add zero new GitHub Actions workflows (Issue `#3` billing limit); keep zero local user-home paths, credentials, weights, or bare `assert`s; open each PR as **`--draft`** linked to its lane issue for non-author review.
 - **3 Disjoint, Non-Conflicting Draft PRs:**
   1. **PR-A (`feat/hardening-trust-boundary-and-cross-org-gates`, Issues `#3`, `#7` — Arms R6-2 + R6-5):**
      - Patches `WD-X01..WD-X08` (`verifier.py`, `fingerprint.py`, `ledger.py`, `blueprints/{mkosi,recovery,systemd}`, `tests/{helpers,test_weft_zone_alignment,test_stage4_rollback_ledger,test_live_llama_smoke}.py`) + Arm R6-2 sandbox/runtime hardening + standalone non-importing verifier under `studies/expedition-trust-boundary-verifier/`.
@@ -86,11 +86,10 @@ Every finding below was reproduced live against the pinned files and paired with
 
 ## 5. Reproducibility
 
-From `symbiosis/round6/arm5-weft-cross-audit/`:
+From `studies/expedition-trust-boundary-verifier/`:
 
 ```bash
 for m in "-I -B" "-I -O -B" "-I -B -W error" "-I -O -B -W error"; do
-  python3 $m weft_cross_audit_gate.py --json | sha256sum
   python3 $m weft_cross_audit_gate.py --standalone --json | sha256sum
   python3 $m test_weft_cross_audit_r5.py
 done
