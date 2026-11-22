@@ -344,6 +344,18 @@ class SignedLedger:
     def count(self) -> int:
         return self._next_seq - 1
 
+    def _require_undisturbed_tail(self) -> None:
+        """Fail closed if the on-disk head no longer matches this handle."""
+        on_disk = LedgerVerifier.verify_file(self.path, self.signer)
+        if self.count == 0:
+            if on_disk:
+                raise LedgerTamperError("ledger file has entries unknown to this handle")
+            return
+        if not on_disk or on_disk[-1].seq != self.count:
+            raise LedgerTamperError("ledger file tail is missing or out of sequence")
+        if on_disk[-1].receipt_sha256 != self._prev_hash:
+            raise LedgerTamperError("ledger file head changed since this handle was opened")
+
     def append(
         self,
         event: str,
@@ -360,6 +372,8 @@ class SignedLedger:
     ) -> LedgerReceipt:
         if event not in VALID_EVENTS:
             raise ValueError(f"unsupported ledger event: {event}")
+
+        self._require_undisturbed_tail()
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         adapters_list = [_redact_secrets(dict(a)) for a in adapters]
