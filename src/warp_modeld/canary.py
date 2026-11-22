@@ -414,7 +414,7 @@ def _is_slot_clean_for_banks(
 ) -> bool:
     """Verify post-erase slot cleanliness across every expected and reported state bank."""
     if not hasattr(llama_client, "list_slots"):
-        return True
+        return False
     try:
         slots_now = llama_client.list_slots()
     except LlamaClientError:
