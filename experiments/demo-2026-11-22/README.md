@@ -69,8 +69,13 @@ python3 experiments/demo-2026-11-22/scripts/generate_suites.py \
   --ml-manifest ml-manifest.json \
   --out-dir experiments/demo-2026-11-22
 sha256sum experiments/demo-2026-11-22/audit/split_leakage.json \
-  experiments/demo-2026-11-22/suites/*.json
+  experiments/demo-2026-11-22/suites/task.json \
+  experiments/demo-2026-11-22/suites/retention_iid.json \
+  experiments/demo-2026-11-22/suites/retention_shifted.json
 ```
+
+`suites/safety_canaries.json` is hand-pinned by id and is not produced by
+the generator, so it is not part of this checksum step.
 
 Run the contract tests (mock fixtures only: parsing and control flow, never
 model evidence):

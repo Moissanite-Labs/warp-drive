@@ -7,6 +7,7 @@ checkpoint, a GPU, or a live server.
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -150,7 +151,16 @@ def test_control_verdicts_on_synthetic_measurements():
     controls = load(EXP / "controls.json")
     base = controls["unchanged_base"]["expected"]
     assert base["verdict"] == "PASS"
-    assert abs(0.518 - 0.518) <= 0.02
+    # Cross-check the two pinned files: the published base top1 in
+    # thresholds.json must be the same value the base control in
+    # controls.json is expected to reproduce within 0.02. No measured
+    # base top1 exists in the tree yet (the base control runs live),
+    # so this asserts the pinned expectation, not a measured value.
+    published = float(
+        re.search(r"Base measured ([0-9.]+)", thresholds["task"]["top1_basis"]).group(1)
+    )
+    assert published == 0.518
+    assert f"{published:.3f}" in base["task_top1"] and "0.02" in base["task_top1"]
     regressed = controls["deliberately_regressed"]["expected"]
     assert regressed["verdict"] == "REJECT"
     assert regressed["task_top1"] == "below the base value 0.518"
