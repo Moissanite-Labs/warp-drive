@@ -619,5 +619,33 @@ class TestFixedPromptFixtures(unittest.TestCase):
             validate_propose_context({**valid_context(), "checkpoint_path": "/tmp/model.gguf"})
 
 
+class TestDataHygiene(unittest.TestCase):
+    def test_nan_constraint_rejected(self) -> None:
+        with self.assertRaises(CerebrasSchemaError):
+            validate_propose_context(
+                {**valid_context(), "constraints": {"max": float("nan")}}
+            )
+
+    def test_infinite_constraints_rejected(self) -> None:
+        for value in (float("inf"), -float("inf")):
+            with self.assertRaises(CerebrasSchemaError):
+                validate_propose_context(
+                    {**valid_context(), "constraints": {"max": value}}
+                )
+
+    def test_clean_constraint_still_valid(self) -> None:
+        cleaned = validate_propose_context(
+            {**valid_context(), "constraints": {"max": 0.5}}
+        )
+        self.assertEqual(cleaned["constraints"], {"max": 0.5})
+
+    def test_strict_encoder_rejects_non_finite(self) -> None:
+        from warp_modeld.cerebras_client import _json_dumps
+
+        for value in (float("nan"), float("inf"), -float("inf")):
+            with self.assertRaises(ValueError):
+                _json_dumps({"x": value})
+
+
 if __name__ == "__main__":
     unittest.main()

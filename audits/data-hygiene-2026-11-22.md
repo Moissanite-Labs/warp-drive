@@ -35,3 +35,19 @@ E5. Every suite passes in every mode.
 ## Decision rule
 
 Submit for independent review only if E1 through E5 hold in every mode. A missed expectation stays recorded as a negative result. Do not merge on logic checks alone.
+
+## Results, 2026-11-22
+
+E1 held. Boolean ids and non-finite scales raise LlamaClientError in both the list and set paths. The audit checker `falsify_probe.py` now reports `F6_bool_id=raise:LlamaClientError` at this head.
+
+E2 held. Clean adapter entries still parse and set, with the outbound payload unchanged.
+
+E3 held. NaN and both infinities in constraints raise CerebrasSchemaError. The audit checker reports `F10_nan_constraint_accepted=raise:CerebrasSchemaError` at this head.
+
+E4 held. Every Cerebras encoder now routes through `_json_dumps`, which forces `allow_nan=False`. A direct test confirms ValueError for NaN and both infinities.
+
+E5 held. `PYTHONPATH=src python3 -m pytest -q` gave 267 passed, 2 skipped, and 134 subtests passed. The same result held under `-B`, `-O -B`, and `-B -W error`. `PYTHONPATH=src python3 -m unittest discover -s tests` gave 139 tests, OK, skipped 2, and the same result held under the same three modes.
+
+At the audited main head the checker reported a boolean id of 1, a NaN scale, and an accepted NaN constraint. The local checker copy was guarded so it could reach its later probes. The guard changed only the copy, not the product code.
+
+No live endpoint, GPU, paid provider, or network backend was used. These are input-boundary logic checks only. No adapted-model quality or novelty claim follows from them.

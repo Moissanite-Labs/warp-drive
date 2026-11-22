@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 import shutil
 import subprocess
 from typing import Any, Sequence
@@ -63,6 +64,24 @@ def probe_llama_server_binary(binary: str = "llama-server", *, timeout_seconds: 
 class LlamaClientError(WarpError):
     code = "ERR_LLAMA_BACKEND"
     stage = "backend"
+
+
+def _require_adapter_id(value: Any) -> int:
+    """Accept only an exact integer id. Booleans are not ids."""
+    if type(value) is not int:
+        raise LlamaClientError(
+            f"adapter id must be an exact integer, got {type(value).__name__}"
+        )
+    return value
+
+
+def _require_adapter_scale(value: Any) -> float:
+    """Accept only a finite exact number. Numeric strings and NaN are rejected."""
+    if type(value) not in (int, float) or not math.isfinite(float(value)):
+        raise LlamaClientError(
+            f"adapter scale must be a finite number, got {type(value).__name__}"
+        )
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -184,15 +203,21 @@ class LlamaServerClient:
                 raise LlamaClientError("malformed adapter item in /lora-adapters")
             adapters.append(
                 LlamaAdapterInfo(
-                    id=int(entry["id"]),
+                    id=_require_adapter_id(entry["id"]),
                     path=str(entry.get("path", "")),
-                    scale=float(entry.get("scale", 0.0)),
+                    scale=_require_adapter_scale(entry.get("scale", 0.0)),
                 )
             )
         return adapters
 
     def set_lora_adapters(self, adapters: list[dict[str, Any]]) -> dict[str, Any]:
-        payload = [{"id": int(item["id"]), "scale": float(item["scale"])} for item in adapters]
+        payload = [
+            {
+                "id": _require_adapter_id(item["id"]),
+                "scale": _require_adapter_scale(item["scale"]),
+            }
+            for item in adapters
+        ]
         res = self._request("POST", "/lora-adapters", payload)
         return res if isinstance(res, dict) else {"result": res}
 

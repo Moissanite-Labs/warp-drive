@@ -175,6 +175,12 @@ def _is_number(value: Any) -> bool:
     return type(value) is float and math.isfinite(value)
 
 
+def _json_dumps(value: Any, **kwargs: Any) -> str:
+    """Encode JSON without ever emitting bare NaN or infinity tokens."""
+    kwargs["allow_nan"] = False
+    return json.dumps(value, **kwargs)
+
+
 def _describe_value(value: Any) -> str:
     """Short description for error messages; never prints huge values."""
     if type(value) is int and value.bit_length() > 1023:
@@ -334,6 +340,10 @@ def validate_propose_context(context: Any) -> dict[str, Any]:
         for key, value in constraints.items():
             if not isinstance(key, str) or not isinstance(value, (str, int, float, bool)):
                 raise CerebrasSchemaError(f"constraint {key!r} must map to a plain scalar, got {_describe_value(value)}")
+            if type(value) is float and not math.isfinite(value):
+                raise CerebrasSchemaError(
+                    f"constraint {key!r} must be finite, got {_describe_value(value)}"
+                )
         cleaned["constraints"] = dict(constraints)
     return cleaned
 
@@ -438,7 +448,7 @@ class CerebrasKimiClient:
         }
         if self.seed is not None:
             payload["seed"] = int(self.seed)
-        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        body = _json_dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         url = f"{self.base_url}{CEREBRAS_CHAT_COMPLETIONS_PATH}"
         failures: list[str] = []
         retries = 0
@@ -491,7 +501,7 @@ class CerebrasKimiClient:
                     error_code=err_code,
                 )
                 err = CerebrasSchemaError(
-                    f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})",
+                    f"{exc} (receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})",
                     code=err_code,
                 )
                 err.served_model = observed_model  # type: ignore[attr-defined]
@@ -545,7 +555,7 @@ class CerebrasKimiClient:
             error_code=last_error.code if last_error is not None else "ERR_CEREBRAS_TRANSPORT",
         )
         raise CerebrasTransportError(
-            f"{last_error} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
+            f"{last_error} (receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})"
         ) from last_error
 
     def _parse_response(
@@ -634,32 +644,32 @@ class CerebrasKimiClient:
     def propose_candidate(self, context: dict[str, Any]) -> tuple[CandidateConfig, ProviderReceipt]:
         """Ask the model for one schema-valid candidate. Returns only valid candidates."""
         cleaned = validate_propose_context(context)
-        context_json = json.dumps(cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        context_json = _json_dumps(cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         messages = build_propose_messages(context_json)
         content, receipt = self._chat(call_kind="propose", messages=messages)
         try:
             return validate_candidate(self._parse_json_object(content, "propose")), receipt
         except CerebrasSchemaError as exc:
             raise CerebrasSchemaError(
-                f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
+                f"{exc} (receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})"
             ) from exc
 
     def diagnose_failure(self, report: dict[str, Any]) -> tuple[CandidateConfig, ProviderReceipt]:
         """Ask the model for one repair candidate inside the remaining budget."""
         cleaned = validate_failure_report(report)
-        report_json = json.dumps(cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        report_json = _json_dumps(cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         messages = build_diagnose_messages(report_json)
         content, receipt = self._chat(call_kind="diagnose", messages=messages)
         try:
             repair = validate_candidate(self._parse_json_object(content, "diagnose"))
         except CerebrasSchemaError as exc:
             raise CerebrasSchemaError(
-                f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
+                f"{exc} (receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})"
             ) from exc
         if repair.to_dict() == cleaned["failed_candidate"]:
             raise CerebrasSchemaError(
                 "repair candidate repeats the failed candidate unchanged "
-                f"(receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
+                f"(receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})"
             )
         return repair, receipt
 
@@ -680,5 +690,5 @@ class CerebrasKimiClient:
             return validate_comparison_verdict(self._parse_json_object(content, "compare")), receipt
         except CerebrasSchemaError as exc:
             raise CerebrasSchemaError(
-                f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
+                f"{exc} (receipt: {_json_dumps(receipt.to_dict(), sort_keys=True)})"
             ) from exc
