@@ -7,12 +7,12 @@ thresholds. Parent hub: issue #3. This lane: issue #4.
 
 | File | Content | Digest (sha256) |
 | --- | --- | --- |
-| `manifest.json` | Pinned base, runtime, compiler, lineage, knobs | see PR body |
+| `manifest.json` | Pinned base, runtime, compiler, lineage, knobs | in `manifest.sha256` |
 | `suites/task.json` | 112 held-out states, families A 32, B 16, C 32, D 32 | `18f12069c1717b7bbe1d6cae37512a5c1e338a4a42836428b04665628fae7509` |
 | `suites/retention_iid.json` | 24 anchor states | `0fc73d13c14a9673f20337b621dcef0dfbd625501329a190c9500e5fe74fc034` |
 | `suites/retention_shifted.json` | 16 corpus/eido states + 64 K0 noise keys | `4bff6104d768ac922e3f6539856456f208f0fa882320886145a54c6c0b1c1249` |
 | `suites/safety_canaries.json` | 9 canaries by id (prompts live in `schemas/verifier-canaries.json`) | `031d9e32247bbaa2a3c93ac5600c2441bdf97318c8c40c2e841a18f97197ef31` |
-| `thresholds.json` | Preregistered gates, repair budget 3 | `eb2c654ed39823308d768ee38c49211fc7bba9dab063ca828727bdbf72e76dcc` |
+| `thresholds.json` | Preregistered gates, repair budget 3 | `47ef8560b5991aba2ab3eeaa3dd06e58a7205e07567bdd3aeec0651925a5cb38` |
 | `controls.json` | Base control (expect PASS), sign-flipped control (expect REJECT) | `99277bfb989d7e4c0a6625f94d4dbadb033006434e2b450bd5875645e4abee77` |
 | `receipt.schema.json` | Receipt schema: seeds, hashes, env, timings, verdicts | `009a148ed22cd58f23a988ea10f588ae84ebdd0c0d32c9b100fc58bf60af9b19` |
 | `audit/split_leakage.json` | Split-leakage audit | `f6381b6a076f9f9bd15128e53ad1b6165bb19e418feb1fada7d63594c672ca0c` |
@@ -95,8 +95,10 @@ llama-server -m Qwen3.5-4B-Q8_0.gguf --host 127.0.0.1 --port 63301 \
 
 ## Rules
 
-- Candidates cannot modify the manifest, suites, thresholds, or receipt
-  schema. Candidate hashes are recorded before behavioral evaluation.
+- Lane 5 controller requirements, not enforced by this contract:
+  candidates cannot modify the manifest, suites, thresholds, or receipt
+  schema; hash drift and raw LoRA overrides are rejected.
+- Candidate hashes are recorded before behavioral evaluation.
 - Repair budget: at most 3 rounds.
 - A threshold changes only by a versioned manifest bump with a stated
   reason, never by silent edit.
