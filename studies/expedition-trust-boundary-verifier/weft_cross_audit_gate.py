@@ -462,8 +462,8 @@ def verify_weft_binding_strict(
         raise TypeError("has_ssm_recurrent and has_horizontal_lattice must be exact booleans")
     layers = require_strict_int(lattice_layers, "lattice_layers", min_val=0)
     width = require_strict_int(lattice_width, "lattice_width", min_val=0)
-    if has_horizontal_lattice and layers <= 0:
-        raise ValueError("lattice_layers must be positive when has_horizontal_lattice is True")
+    if has_horizontal_lattice and (layers <= 0 or width <= 0):
+        raise ValueError("lattice_layers and lattice_width must both be positive when has_horizontal_lattice is True")
     if not has_horizontal_lattice and (layers != 0 or width != 0):
         raise ValueError("lattice_layers and lattice_width must be 0 when has_horizontal_lattice is False")
 

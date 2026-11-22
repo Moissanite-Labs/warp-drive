@@ -86,6 +86,7 @@ class WarpModeld:
         pinned_zone_manifest_id: str | None = None,
         pinned_zone_manifest: Mapping[str, Any] | None = None,
         require_loaded_adapter_files: bool = False,
+        allow_legacy_implicit_kv_flush: bool = False,
     ) -> None:
         self._lock = threading.RLock()
         self.pinned_checkpoint = pinned_checkpoint
@@ -97,6 +98,7 @@ class WarpModeld:
         self.llama_client = llama_client
         self.ledger = ledger
         self.require_loaded_adapter_files = bool(require_loaded_adapter_files)
+        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
         self.canary_runner = (
             canary_runner_override
             if canary_runner_override is not None
@@ -275,22 +277,21 @@ class WarpModeld:
 
             for slot, resp in slot_resps:
                 flushed.append(slot.id)
-                raw_confirmed = resp.get("banks_flushed")
+                raw_confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
                 if isinstance(raw_confirmed, list):
                     confirmed = tuple(str(b) for b in raw_confirmed)
-                elif not needs_lattice and not needs_ssm:
+                elif raw_confirmed is None and not needs_lattice and not needs_ssm and getattr(self, "allow_legacy_implicit_kv_flush", False):
                     confirmed = (STATE_BANK_KV,)
                 else:
                     confirmed = ()
 
-                if needs_lattice or needs_ssm:
-                    missing_banks = [b for b in required_banks if b not in confirmed]
-                    if missing_banks:
-                        err_cls = LatticeFlushError if needs_lattice else StateFlushError
-                        raise err_cls(
-                            f"slot {slot.id} erase failed to confirm required state banks "
-                            f"{missing_banks} (confirmed={list(confirmed)})"
-                        )
+                missing_banks = [b for b in required_banks if b not in confirmed]
+                if missing_banks:
+                    err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                    raise err_cls(
+                        f"slot {slot.id} erase failed to confirm required state banks "
+                        f"{missing_banks} (confirmed={list(confirmed)})"
+                    )
                 confirmed_by_slot[slot.id] = confirmed
 
             # Re-verify zero residual recurrent state, KV cache tokens, or horizontal lattice taint.

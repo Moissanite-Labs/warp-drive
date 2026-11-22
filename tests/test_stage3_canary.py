@@ -309,12 +309,35 @@ class TestStage3Canary(unittest.TestCase):
                 return [SimpleNamespace(id=2, scale=0.0)]
 
             def list_slots(self):
-                return [SimpleNamespace(id=i) for i in range(4)]
+                from warp_modeld.state_banks import STATE_BANK_KV, StateBankStatus
+
+                return [
+                    SimpleNamespace(
+                        id=i,
+                        is_processing=False,
+                        recurrent_state_tainted=False,
+                        lattice_state_tainted=False,
+                        ssm_state_tainted=False,
+                        lattice_layers_tainted=0,
+                        active_lora_ids=(),
+                        n_decoded=0,
+                        n_prompt_tokens_cache=0,
+                        state_banks={
+                            STATE_BANK_KV: StateBankStatus(
+                                bank=STATE_BANK_KV,
+                                tainted=False,
+                                active_lora_ids=(),
+                                tokens_or_layers=0,
+                            )
+                        },
+                    )
+                    for i in range(4)
+                ]
 
             def erase_slot(self, sid: int, banks=None):
                 with lock:
                     erase_calls.append(sid)
-                return {"id_slot": sid}
+                return {"id_slot": sid, "banks_flushed": ["kv_cache"]}
 
             def chat_completion(self, messages, **kwargs):
                 return {"choices": [{"message": {"content": "391 Nat.add_zero"}}]}

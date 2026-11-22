@@ -47,9 +47,13 @@ class StateBankStatus:
             raise StateFlushError("StateBankStatus.tainted must be a strict boolean")
         if not isinstance(self.active_lora_ids, tuple):
             raise StateFlushError("StateBankStatus.active_lora_ids must be a tuple of ints")
+        seen_aids: set[int] = set()
         for aid in self.active_lora_ids:
             if type(aid) is not int or aid < 0:
                 raise StateFlushError(f"invalid active_lora_id in StateBankStatus: {aid!r}")
+            if aid in seen_aids:
+                raise StateFlushError(f"duplicate active_lora_id in StateBankStatus: {aid!r}")
+            seen_aids.add(aid)
         if type(self.tokens_or_layers) is not int or self.tokens_or_layers < 0:
             raise StateFlushError("StateBankStatus.tokens_or_layers must be a non-negative exact int")
         if self.capability_tag is not None:
@@ -92,12 +96,19 @@ class BankFlushReceipt:
             raise StateFlushError("BankFlushReceipt.banks_requested must be a non-empty tuple")
         if not isinstance(self.banks_confirmed, tuple):
             raise StateFlushError("BankFlushReceipt.banks_confirmed must be a tuple")
+        if len(set(self.banks_requested)) != len(self.banks_requested):
+            raise StateFlushError("duplicate bank in BankFlushReceipt.banks_requested")
         for b in self.banks_requested:
             if not isinstance(b, str) or b not in VALID_STATE_BANK_SET:
                 raise StateFlushError(f"invalid requested bank in BankFlushReceipt: {b!r}")
+        if len(set(self.banks_confirmed)) != len(self.banks_confirmed):
+            raise StateFlushError("duplicate bank in BankFlushReceipt.banks_confirmed")
+        req_set = set(self.banks_requested)
         for b in self.banks_confirmed:
             if not isinstance(b, str) or b not in VALID_STATE_BANK_SET:
                 raise StateFlushError(f"invalid confirmed bank in BankFlushReceipt: {b!r}")
+            if b not in req_set:
+                raise StateFlushError(f"unrequested bank in BankFlushReceipt.banks_confirmed: {b!r}")
         if self.zone_manifest_id is not None:
             if not isinstance(self.zone_manifest_id, str) or not _ZONE_MANIFEST_ID_RE.match(self.zone_manifest_id):
                 raise StateFlushError("BankFlushReceipt.zone_manifest_id must match sha256:<64 hex>")

@@ -479,23 +479,62 @@ class CanaryRunner:
             except LlamaClientError:
                 slot_ids = (self.canary_slot_id,)
 
-        def _erase_and_confirm(sid: int) -> bool:
-            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
-            if erase_banks is not None:
-                confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
-                if not isinstance(confirmed, list):
+        expected_banks: tuple[str, ...] = (
+            tuple(str(b) for b in required_state_banks)
+            if required_state_banks
+            else ("kv_cache",)
+        )
+
+        def _slot_is_clean(sid: int) -> bool:
+            if not hasattr(self.llama_client, "list_slots"):
+                return True
+            try:
+                slots_now = self.llama_client.list_slots()
+            except LlamaClientError:
+                return False
+            by_id = {int(s.id): s for s in slots_now}
+            s_info = by_id.get(sid)
+            if s_info is None:
+                return False
+            if (
+                getattr(s_info, "is_processing", False)
+                or getattr(s_info, "recurrent_state_tainted", False)
+                or getattr(s_info, "lattice_state_tainted", False)
+                or getattr(s_info, "ssm_state_tainted", False)
+                or getattr(s_info, "lattice_layers_tainted", 0) > 0
+                or bool(getattr(s_info, "active_lora_ids", ()))
+                or getattr(s_info, "n_decoded", 0) > 0
+                or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
+            ):
+                return False
+            sbanks = getattr(s_info, "state_banks", None)
+            if not isinstance(sbanks, dict):
+                return False
+            for req_b in expected_banks:
+                st_b = sbanks.get(req_b)
+                if st_b is None or not st_b.is_clean:
                     return False
-                confirmed_set = {str(b) for b in confirmed}
-                if any(b not in confirmed_set for b in erase_banks):
+            for st_b in sbanks.values():
+                if not st_b.is_clean:
                     return False
             return True
+
+        def _erase_and_confirm(sid: int) -> bool:
+            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
+            confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
+            if not isinstance(confirmed, list):
+                return False
+            confirmed_set = {str(b) for b in confirmed}
+            if any(b not in confirmed_set for b in expected_banks):
+                return False
+            return _slot_is_clean(sid)
 
         try:
             if len(slot_ids) == 1:
                 for spec in selected:
                     if not _erase_and_confirm(self.canary_slot_id):
                         raise CanaryFailedError(
-                            f"canary slot {self.canary_slot_id} erase failed to confirm required banks {list(erase_banks or ())}"
+                            f"canary slot {self.canary_slot_id} erase failed to confirm required banks {list(expected_banks)}"
                         )
                     messages: list[dict[str, str]] = []
                     if spec.system_prompt:
@@ -551,7 +590,7 @@ class CanaryRunner:
                     for orig_idx, spec in items:
                         if not _erase_and_confirm(sid):
                             raise CanaryFailedError(
-                                f"canary slot {sid} erase failed to confirm required banks {list(erase_banks or ())}"
+                                f"canary slot {sid} erase failed to confirm required banks {list(expected_banks)}"
                             )
                         msgs: list[dict[str, str]] = []
                         if spec.system_prompt:
@@ -773,10 +812,56 @@ class ExternalCommandCanaryRunner:
             except LlamaClientError:
                 slot_ids = (self.canary_slot_id,)
 
+        expected_banks: tuple[str, ...] = (
+            tuple(str(b) for b in required_state_banks)
+            if required_state_banks
+            else ("kv_cache",)
+        )
+
+        def _ext_erase_and_verify(sid: int) -> bool:
+            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
+            c_banks = resp.get("banks_flushed") if isinstance(resp, dict) else None
+            if not isinstance(c_banks, list):
+                return False
+            c_set = {str(b) for b in c_banks}
+            if any(b not in c_set for b in expected_banks):
+                return False
+            if hasattr(self.llama_client, "list_slots"):
+                post_slots = self.llama_client.list_slots()
+                by_id = {int(s.id): s for s in post_slots}
+                s_info = by_id.get(sid)
+                if s_info is None:
+                    return False
+                if (
+                    getattr(s_info, "is_processing", False)
+                    or getattr(s_info, "recurrent_state_tainted", False)
+                    or getattr(s_info, "lattice_state_tainted", False)
+                    or getattr(s_info, "ssm_state_tainted", False)
+                    or getattr(s_info, "lattice_layers_tainted", 0) > 0
+                    or bool(getattr(s_info, "active_lora_ids", ()))
+                    or getattr(s_info, "n_decoded", 0) > 0
+                    or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
+                ):
+                    return False
+                sbanks = getattr(s_info, "state_banks", None)
+                if not isinstance(sbanks, dict):
+                    return False
+                for req_b in expected_banks:
+                    st_b = sbanks.get(req_b)
+                    if st_b is None or not st_b.is_clean:
+                        return False
+                for st_b in sbanks.values():
+                    if not st_b.is_clean:
+                        return False
+            return True
+
         slot_flushed = False
         try:
             for sid in slot_ids:
-                self.llama_client.erase_slot(sid, banks=erase_banks)
+                if not _ext_erase_and_verify(sid):
+                    raise CanaryFailedError(
+                        f"opaque canary pre-run erase failed to confirm clean slot {sid} for banks {list(expected_banks)}"
+                    )
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -791,11 +876,8 @@ class ExternalCommandCanaryRunner:
             all_ok = True
             for sid in slot_ids:
                 try:
-                    resp = self.llama_client.erase_slot(sid, banks=erase_banks)
-                    if erase_banks is not None:
-                        c_banks = resp.get("banks_flushed") if isinstance(resp, dict) else None
-                        if not isinstance(c_banks, list) or any(b not in c_banks for b in erase_banks):
-                            all_ok = False
+                    if not _ext_erase_and_verify(sid):
+                        all_ok = False
                 except LlamaClientError:
                     all_ok = False
             slot_flushed = all_ok

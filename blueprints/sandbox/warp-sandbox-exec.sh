@@ -18,7 +18,55 @@ fi
 WORKTREE="$1"
 shift
 
-if ! WORKTREE_REAL="$(realpath -e -- "${WORKTREE}" 2>/dev/null)" || [[ ! -d "${WORKTREE_REAL}" ]]; then
+resolve_existing_dir() {
+    local target="$1"
+    if [[ ! -d "${target}" ]]; then
+        return 1
+    fi
+    (cd -P -- "${target}" 2>/dev/null && pwd -P)
+}
+
+resolve_existing_file() {
+    local target="$1"
+    local hops=0
+    local max_hops=40
+    local dir base resolved_dir link_target
+    if [[ ! -e "${target}" && ! -L "${target}" ]]; then
+        return 1
+    fi
+    while [[ -L "${target}" ]]; do
+        hops=$((hops + 1))
+        if (( hops > max_hops )); then
+            return 1
+        fi
+        dir="$(dirname -- "${target}")"
+        resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
+        link_target="$(readlink -- "${target}" 2>/dev/null)" || return 1
+        if [[ -z "${link_target}" ]]; then
+            return 1
+        fi
+        if [[ "${link_target}" == /* ]]; then
+            target="${link_target}"
+        elif [[ "${resolved_dir}" == "/" ]]; then
+            target="/${link_target}"
+        else
+            target="${resolved_dir}/${link_target}"
+        fi
+    done
+    if [[ ! -e "${target}" ]]; then
+        return 1
+    fi
+    dir="$(dirname -- "${target}")"
+    base="$(basename -- "${target}")"
+    resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
+    if [[ "${resolved_dir}" == "/" ]]; then
+        printf '/%s\n' "${base}"
+    else
+        printf '%s/%s\n' "${resolved_dir}" "${base}"
+    fi
+}
+
+if ! WORKTREE_REAL="$(resolve_existing_dir "${WORKTREE}")" || [[ ! -d "${WORKTREE_REAL}" ]]; then
     echo "ERR_SANDBOX_WORKTREE: worktree directory does not exist: ${WORKTREE}" >&2
     exit 126
 fi
@@ -47,7 +95,7 @@ done
 BWRAP_BIN=""
 for candidate in /usr/bin/bwrap /bin/bwrap; do
     if [[ -x "${candidate}" ]]; then
-        resolved_bwrap="$(realpath -e -- "${candidate}" 2>/dev/null || true)"
+        resolved_bwrap="$(resolve_existing_file "${candidate}" 2>/dev/null || true)"
         if [[ "${resolved_bwrap}" == "/usr/bin/bwrap" || "${resolved_bwrap}" == "/bin/bwrap" ]]; then
             BWRAP_BIN="${resolved_bwrap}"
             break
