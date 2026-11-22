@@ -88,3 +88,12 @@ During `PR1-B4`, `aletheia v1.3.0 mutate` missed all 51 `_req(...)` calls in `ba
   - [test_r5_warp_drive_gram_cert.py](test_r5_warp_drive_gram_cert.py)
   - [warp_drive_gram_cert_certificate.json](warp_drive_gram_cert_certificate.json)
   - [REPORT_R6_1_WARP_DRIVE_GRAM_CERT.md](REPORT_R6_1_WARP_DRIVE_GRAM_CERT.md)
+
+---
+
+## 7. PR #12 Review Closure Addendum
+
+Following non-author review on `Moissanite-Labs/warp-drive#12`:
+1. **Singleton Composed-Certificate Equality (`n == 1`):** `check_composed_norm_triangle_exact()` now requires exact equality `composed_sq == component_sq[0]` (`COMPOSED_SINGLETON_MISMATCH`) when `n == 1`, while retaining `COMPOSED_EXCEEDS_CS` on overstated singleton claims (`17`, `100` for true `16`). Both direct unit tests (`0`, `1`, `15` understated; `17`, `100` overstated; `16` exact) and full `verify_stack_hardened()` singleton forgery regressions are enforced in `test_r5_warp_drive_gram_cert.py`.
+2. **Self-Contained Standalone Certificate Reproducibility:** `warp_drive_gram_cert_certificate.json` has been regenerated directly from `python3 -I -B warp_drive_gram_cert_audit.py --standalone` (`SHA-256: 9c40dd410564d677d01800a36cdeaab2eb9d8156efce52d8fcdb76c591d2ee76`, `certificate_sha256: d70e966bc8988760948671868e5c79af5b8ab5dabc362989dab01e9afd6887a0`, `live_clones_present: false`, `WARP_CERT_03A_singleton_forged_zero_rejected: true`, ZERO floats) so any reviewer can reproduce it byte-for-byte from the PR tree alone.
+3. **Updated `aletheia v2.0.0` Verification:** `104/104` (`100.0%`) R5 mutants killed (`0` survivors), `4/4` isolated `-I` R4 modes bit-identical, `audit-check --strict-ancestors --safety-scan PASS` (`0` defects, `0` safety findings).

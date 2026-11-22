@@ -731,13 +731,21 @@ def check_composed_norm_triangle_exact(
     Exact root-free, division-free rational norm consistency check (closes WARP-CERT-03A):
     For norms ||x_1||^2 = a_1, ..., ||x_N||^2 = a_N and ||sum x_i||^2 = c:
       1. Upper Cauchy-Schwarz: c <= N * sum_i a_i
-      2. Exact 2-term reverse+forward triangle: (a_1 + a_2 - c)^2 <= 4 * a_1 * a_2
-      3. General N-term dominant reverse triangle: for every k with a_k > B_k = (N-1)*sum_{j!=k} a_j,
+      2. Singleton exact equality (N == 1): c == a_1 (blocks understated forged singleton norms)
+      3. Exact 2-term reverse+forward triangle: (a_1 + a_2 - c)^2 <= 4 * a_1 * a_2
+      4. General N-term dominant reverse triangle: for every k with a_k > B_k = (N-1)*sum_{j!=k} a_j,
          either c >= a_k + B_k or (a_k + B_k - c)^2 <= 4 * a_k * B_k.
     """
     n = len(component_sq)
     total = sum(component_sq, Fraction(0, 1))
     require(composed_sq <= n * total, "COMPOSED_EXCEEDS_CS", f"{metric_name} composed_sq exceeds N * sum a_i")
+    if n == 1:
+        require(
+            composed_sq == component_sq[0],
+            "COMPOSED_SINGLETON_MISMATCH",
+            f"{metric_name} singleton composed_sq must equal component_sq[0]",
+        )
+        return
     if n == 2:
         a1, a2 = component_sq[0], component_sq[1]
         diff = a1 + a2 - composed_sq
@@ -1553,12 +1561,17 @@ def build_audit_certificate(*, standalone: bool = False) -> dict[str, Any]:
     # 1B: Canonical gcd scale digest
     canon_d1 = canonical_stack_composition_digest([("a1", h1, 1, 1)])
     canon_d2 = canonical_stack_composition_digest([("a1", h1, 1000, 1000)])
-    # 1C: Forged frobenius_sq=0 composed cert rejected on (16, 1) where true >= 9
+    # 1C: Forged frobenius_sq=0 composed cert rejected on (16, 1) where true >= 9 AND on singleton (16,)
     forged_rejected = False
     try:
         check_composed_norm_triangle_exact([Fraction(16, 1), Fraction(1, 1)], Fraction(0, 1), "frob")
     except GramCertError as exc:
         forged_rejected = (exc.code == "COMPOSED_TRIANGLE_VIOLATION")
+    singleton_forged_rejected = False
+    try:
+        check_composed_norm_triangle_exact([Fraction(16, 1)], Fraction(0, 1), "frob")
+    except GramCertError as exc:
+        singleton_forged_rejected = (exc.code == "COMPOSED_SINGLETON_MISMATCH")
     # 1D: Honest orthogonal 2-adapter stack ACCEPTED via verified Bareiss Gram escape hatch
     orth_adapters = [
         {"adapter_id": "a1", "B_int": [[1], [0]], "A_int": [[1, 0]], "scale_div": 1},
@@ -1635,6 +1648,7 @@ def build_audit_certificate(*, standalone: bool = False) -> dict[str, Any]:
             "WARP_CERT_02_canonical_gcd_digest_equal": (canon_d1 == canon_d2),
             "WARP_CERT_02_canonical_digest": canon_d1,
             "WARP_CERT_03A_forged_zero_composed_cert_rejected": forged_rejected,
+            "WARP_CERT_03A_singleton_forged_zero_rejected": singleton_forged_rejected,
             "WARP_CERT_03B_orthogonal_stack_gram_escape": {
                 "gram_frobenius_exact": gram_orth["exact_frobenius_sq"],
                 "gram_Q_stack_inertia": gram_orth["Q_stack_inertia"],

@@ -2,8 +2,8 @@
 
 Self-contained, zero-dependency Python 3 standard-library (`int`, `fractions.Fraction`) study accompanying `Moissanite-Labs/warp-drive` (`src/warp_modeld/certificate.py`, Issue `#2`, Issue `#3`, and PR `#1` `studies/expedition-bareiss-gram-cert/`).
 
-- **Audit Status:** `AUDIT-061R` independently **`VERIFIED`** (`exact+anchor`, honest Law-4 novelty **`N1`**, **`100/100` (`100.0%`)** R5 mutation kill via `aletheia v1.3.0 mutate --add-cwd`, `0` floats in JSON, `0` bare `assert`s).
-- **Pinned Audit Snapshots:** Audited read-only against `main @ e3899d3e0ef7697052e74e7a4f99f510d2b63ad5` and PR `#1` pre-merge snapshot `8d9f81557059631dfbb71eebf61988dfde5ef70a`. *(Note: PR `#1` subsequently landed review fixes `0cb8fbd` in `38a7072` on `main`; this study preserves the pinned audit certificate and delivers the net-new exact upgrades below without modifying `src/warp_modeld/` or `studies/expedition-bareiss-gram-cert/`.)*
+- **Audit Status:** `AUDIT-061R` independently **`VERIFIED`** (`exact+anchor`, honest Law-4 novelty **`N1`**, upgraded with PR `#12` review singleton-equality closure -> **`104/104` (`100.0%`)** R5 mutation kill via `aletheia v2.0.0 mutate --max-mutants 0 --add-cwd`, `0` floats in JSON, `0` bare `assert`s).
+- **Pinned Audit Snapshots:** Audited read-only against `main @ e3899d3e0ef7697052e74e7a4f99f510d2b63ad5` and PR `#1` pre-merge snapshot `8d9f81557059631dfbb71eebf61988dfde5ef70a`. *(Note: PR `#1` subsequently landed review fixes `0cb8fbd` in `38a7072` on `main`; this study preserves the exact Stage-2/Gram upgrades without modifying `src/warp_modeld/` or `studies/expedition-bareiss-gram-cert/`.)*
 
 ---
 
@@ -11,25 +11,27 @@ Self-contained, zero-dependency Python 3 standard-library (`int`, `fractions.Fra
 
 | File | Role |
 |---|---|
-| [`warp_drive_gram_cert_audit.py`](warp_drive_gram_cert_audit.py) | Zero-float pure-stdlib exact KKT indefinite `R_H4`, constructive singular-$G_{kk}$ blind-drift witness extractor, multifrontal `SignedTree` block-Schur certifier, hardened `verify_stack_hardened`, and 8-glyph operator compression (`⧄ ⧅ ⦺ ⩩ ⫩`). |
-| [`test_r5_warp_drive_gram_cert.py`](test_r5_warp_drive_gram_cert.py) | 11-test R1–R5 verification, dual-oracle Bareiss vs. Faddeev–LeVerrier, recursive zero-float, and `100/100` mutation-kill suite. |
-| [`warp_drive_gram_cert_certificate.json`](warp_drive_gram_cert_certificate.json) | Sealed zero-float canonical JSON certificate from the live-anchored `AUDIT-061R` run (`48acf244...`). |
+| [`warp_drive_gram_cert_audit.py`](warp_drive_gram_cert_audit.py) | Zero-float pure-stdlib exact KKT indefinite `R_H4`, constructive singular-$G_{kk}$ blind-drift witness extractor, multifrontal `SignedTree` block-Schur certifier, hardened `verify_stack_hardened` (incl. `n == 1` singleton equality `COMPOSED_SINGLETON_MISMATCH`), and 8-glyph operator compression (`⧄ ⧅ ⦺ ⩩ ⫩`). |
+| [`test_r5_warp_drive_gram_cert.py`](test_r5_warp_drive_gram_cert.py) | 11-test R1–R5 verification, dual-oracle Bareiss vs. Faddeev–LeVerrier, singleton forgery regression, recursive zero-float, and `104/104` mutation-kill suite. |
+| [`warp_drive_gram_cert_certificate.json`](warp_drive_gram_cert_certificate.json) | Sealed zero-float canonical JSON certificate regenerated directly from `--standalone` (`9c40dd41...`, `certificate_sha256: d70e966b...`) so it is 100% byte-for-byte reproducible from this PR tree alone. |
 | [`REPORT_R6_1_WARP_DRIVE_GRAM_CERT.md`](REPORT_R6_1_WARP_DRIVE_GRAM_CERT.md) | Full audit report, Law-2 steelman, Law-4 `R6-N0-01..08` quarantine, `WARP-CERT-01..05` & `PR1-B1..B5` tables, and exact mathematical derivations. |
 
 ---
 
 ## Quick Standalone Reproduction
 
-Run directly from `studies/expedition-gram-cert-upgrades/` (zero external clones or third-party packages required):
+Run directly from `studies/expedition-gram-cert-upgrades/` (zero external clones or third-party packages required; reproduces `warp_drive_gram_cert_certificate.json` byte-for-byte):
 
 ```bash
-# 4-mode isolated -I R4 bit-identical standalone certificate
+# 4-mode isolated -I R4 bit-identical standalone certificate (matches committed JSON byte-for-byte)
 for f in "-I -B" "-I -O -B" "-I -B -W error" "-I -O -B -W error"; do
   python3 $f warp_drive_gram_cert_audit.py --standalone | sha256sum
-  # Expected: 192a1a4e1292c0153c4e3db37a7d633ae90ac9d7f59aabfeddc67bf12c90b4fa
+  # Expected: 9c40dd410564d677d01800a36cdeaab2eb9d8156efce52d8fcdb76c591d2ee76
   python3 $f test_r5_warp_drive_gram_cert.py
 done
 ```
+
+*(Optional live-clone inspection mode: omitting `--standalone` additionally inspects read-only sibling checkouts `../repos/warp-drive` @ `e3899d3` and `../repos/warp-drive-pr1` @ `8d9f815` when present locally; those external checkouts are not committed in this PR, so the committed JSON is sealed from `--standalone` for full self-contained reproducibility.)*
 
 ---
 

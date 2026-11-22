@@ -260,6 +260,17 @@ class TestStage2HardenedCertificates(unittest.TestCase):
             with self.assertRaises(mod.GramCertError):
                 mod.canonical_stack_composition_digest(bad_entries)  # type: ignore[arg-type]
 
+        # Exact 1-term singleton equality (closes PR #12 review forgery): a=[16] => c must equal 16
+        mod.check_composed_norm_triangle_exact([Fraction(16)], Fraction(16), "f")
+        for under in (Fraction(0), Fraction(1), Fraction(15)):
+            with self.assertRaises(mod.GramCertError) as ctx_u:
+                mod.check_composed_norm_triangle_exact([Fraction(16)], under, "f")
+            self.assertEqual(ctx_u.exception.code, "COMPOSED_SINGLETON_MISMATCH")
+        for over in (Fraction(17), Fraction(100)):
+            with self.assertRaises(mod.GramCertError) as ctx_o:
+                mod.check_composed_norm_triangle_exact([Fraction(16)], over, "f")
+            self.assertEqual(ctx_o.exception.code, "COMPOSED_EXCEEDS_CS")
+
         # Exact 2-term triangle boundaries: a1=16, a2=1 => valid c in [9, 25]
         mod.check_composed_norm_triangle_exact([Fraction(16), Fraction(1)], Fraction(9), "f")
         mod.check_composed_norm_triangle_exact([Fraction(16), Fraction(1)], Fraction(25), "f")
@@ -307,6 +318,40 @@ class TestStage2HardenedCertificates(unittest.TestCase):
             mod.verify_stack_hardened([(c_mid, "a1", self.h1, 1, 1)], b10, b1, expected_base_weights_sha256=self.base_h)
         r_single = mod.verify_stack_hardened([(c1, "a1", self.h1, 1, 1)], b10, b1, expected_base_weights_sha256=self.base_h)
         self.assertTrue(r_single["joint_bounds_checked"])
+
+        # Singleton composed-certificate forgery regression (n == 1 must match component norm exactly!)
+        b20 = _mk_bounds((20, 1), (20, 1), (20, 1), (20, 1))
+        c16 = _mk_cert("a1", self.h1, self.base_h, 1, 16, 16, 0, 0)
+        single_stack_sha = mod.canonical_stack_composition_digest([("a1", self.h1, 1, 1)])
+        comp_zero = _mk_cert("composed_stack", single_stack_sha, self.base_h, 1, 0, 0, 0, 0)
+        with self.assertRaises(mod.GramCertError) as ctx_s0:
+            mod.verify_stack_hardened(
+                [(c16, "a1", self.h1, 1, 1)],
+                b20,
+                b20,
+                expected_base_weights_sha256=self.base_h,
+                composed_certificate=comp_zero,
+            )
+        self.assertEqual(ctx_s0.exception.code, "COMPOSED_SINGLETON_MISMATCH")
+        comp_over = _mk_cert("composed_stack", single_stack_sha, self.base_h, 1, 17, 17, 0, 0)
+        with self.assertRaises(mod.GramCertError) as ctx_s17:
+            mod.verify_stack_hardened(
+                [(c16, "a1", self.h1, 1, 1)],
+                b20,
+                b20,
+                expected_base_weights_sha256=self.base_h,
+                composed_certificate=comp_over,
+            )
+        self.assertEqual(ctx_s17.exception.code, "COMPOSED_EXCEEDS_CS")
+        comp_exact = _mk_cert("composed_stack", single_stack_sha, self.base_h, 1, 16, 16, 0, 0)
+        r_single_comp = mod.verify_stack_hardened(
+            [(c16, "a1", self.h1, 1, 1)],
+            b20,
+            b20,
+            expected_base_weights_sha256=self.base_h,
+            composed_certificate=comp_exact,
+        )
+        self.assertTrue(r_single_comp["composed_cert_verified"])
 
         # Multi-adapter CS check without Gram escape rejects orthogonal stack under tight b2 (4 > 2), passes under b10
         r_cs = mod.verify_stack_hardened(
