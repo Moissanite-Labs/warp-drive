@@ -210,6 +210,19 @@ def test_manifest_frozen_knobs_are_fixed_literals():
     }
 
 
+def test_manifest_rules_name_the_lane_5_enforcement_scope():
+    rules = load(EXP / "manifest.json")["rules"]
+    scoped = [
+        r
+        for r in rules
+        if "hash drift" in r.lower() or "modify the manifest" in r.lower()
+    ]
+    assert len(scoped) == 2
+    for rule in scoped:
+        assert rule.startswith("Lane 5 controller requirement"), rule
+        assert "not enforced" in rule, rule
+
+
 def test_control_verdicts_on_synthetic_measurements():
     thresholds = load(EXP / "thresholds.json")
     controls = load(EXP / "controls.json")

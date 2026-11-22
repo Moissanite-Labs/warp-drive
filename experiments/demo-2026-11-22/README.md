@@ -95,8 +95,10 @@ llama-server -m Qwen3.5-4B-Q8_0.gguf --host 127.0.0.1 --port 63301 \
 
 ## Rules
 
-- Candidates cannot modify the manifest, suites, thresholds, or receipt
-  schema. Candidate hashes are recorded before behavioral evaluation.
+- Lane 5 controller requirements, not enforced by this contract:
+  candidates cannot modify the manifest, suites, thresholds, or receipt
+  schema; hash drift and raw LoRA overrides are rejected.
+- Candidate hashes are recorded before behavioral evaluation.
 - Repair budget: at most 3 rounds.
 - A threshold changes only by a versioned manifest bump with a stated
   reason, never by silent edit.
