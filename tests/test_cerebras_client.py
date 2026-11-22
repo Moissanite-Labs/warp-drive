@@ -11,6 +11,7 @@ import io
 import json
 import unittest
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 from warp_modeld.cerebras_client import (
@@ -112,6 +113,12 @@ def propose_with_served_model(served_model: object, **client_kwargs: object) -> 
 
 
 class TestCandidateSchema(unittest.TestCase):
+    def test_schema_matches_provider_contract(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "schemas" / "cerebras-candidate.schema.json"
+        schema = json.loads(path.read_text())
+        self.assertEqual(schema["properties"]["quantization"]["enum"], ["q8_0", "q4_0", "bf16"])
+        self.assertEqual(set(schema["properties"]), {"target_layer", "strength", "rank", "quantization"})
+
     def test_valid_candidate(self) -> None:
         cfg = validate_candidate(valid_candidate())
         self.assertEqual(cfg.to_dict(), valid_candidate())
