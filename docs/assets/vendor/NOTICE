@@ -1,0 +1,23 @@
+Warp Drive site: third-party notices
+
+Eido modules vendored verbatim in this folder:
+  aesthetic-mixer.js, simplex-pad.js, cell-layout.js, glyph-font.js
+
+Origin: Eido, Moissanite Labs, https://github.com/Moissanite-Labs/weft-eido
+Vendored from commit be27665255d9aa2553060d275f7d1b1b3306c703 (origin/main),
+re-checked 2026-11-22. The four src/ files are byte-identical to the audited
+commit 99350ce. Only NOTICE and package.json changed between those commits.
+Neither change affects these modules or their licence.
+
+Copyright 2026 Moissanite Labs and the Weft contributors.
+Licensed under the Apache License, Version 2.0. A copy is in LICENSE in this
+folder. No vendored file was modified. Wrapper code lives in
+docs/assets/style-pad.js, docs/assets/module-map.js and docs/assets/warp.js.
+
+Attribution for CC BY 4.0 reuse, where Eido documentation wording is quoted:
+"Eido, Moissanite Labs, https://w3ft.org".
+
+"Eido", "ML Weft" and "Moissanite Labs" are names of Moissanite Labs. This
+site uses them only to describe the origin of the vendored code.
+
+No Eido CSS file is vendored. All site CSS is original to this repository.

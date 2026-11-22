@@ -1,0 +1,26 @@
+name: site
+# Pull request gate for the site. No network needed beyond checkout.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: python3 scripts/check_site.py
+      - run: python3 scripts/build_expeditions.py --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/site-math.test.mjs

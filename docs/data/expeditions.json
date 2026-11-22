@@ -1,0 +1,100 @@
+{
+  "generated_at": "build-time",
+  "notice": "Certificates pin older commits (e3899d3e or 8d9f815) and do not certify current main. Dates are git last-touch dates on origin/main, not authored expedition dates.",
+  "records": [
+    {
+      "audit_id_json": "AUDIT-062 + AUDIT-065",
+      "audit_id_readme": "AUDIT-062R + AUDIT-065",
+      "evidence_scope": "non-importing logic checks, live read-only anchors",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Trust Boundary Verifier",
+      "pinned_commit": "e3899d3e",
+      "repo_path": "studies/expedition-trust-boundary-verifier",
+      "slug": "expedition-trust-boundary-verifier",
+      "summary": "Checked runtime, sandbox and cross-repo trust boundaries with two non-importing verifier suites.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-061",
+      "audit_id_readme": "AUDIT-061R",
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Gram Cert Upgrades",
+      "pinned_commit": "e3899d3e",
+      "repo_path": "studies/expedition-gram-cert-upgrades",
+      "slug": "expedition-gram-cert-upgrades",
+      "summary": "Checked Stage 2 Gram certificate upgrades with exact integer arithmetic and adversarial mutation tests.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-063",
+      "audit_id_readme": "AUDIT-063R2",
+      "evidence_scope": "logic_check_fake_runtime, mock_contract",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Bounded Controller",
+      "pinned_commit": "e3899d3e",
+      "repo_path": "studies/expedition-bounded-controller",
+      "slug": "expedition-bounded-controller",
+      "summary": "Checked a study-only bounded experiment controller with synthetic digests and a fake runtime.",
+      "verdicts": [
+        "PROMOTED",
+        "REJECTED",
+        "CONTROL_BASE_PASS"
+      ]
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": null,
+      "evidence_scope": "preregistered thresholds, unverified live; tokenizer digest unverified",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": false,
+      "kind": "demo",
+      "name": "Demo lane 2026-11-22",
+      "pinned_commit": null,
+      "repo_path": "experiments/demo-2026-11-22",
+      "slug": "demo-2026-11-22",
+      "summary": "Demo lane contract with frozen suites and preregistered thresholds. It is not a study and has not run live. Suite cases: 112, 24, 80, 9. Split leakage: 110 of 112 task cases reuse a seen pair, 20 distinct pairs.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-064",
+      "audit_id_readme": "AUDIT-064",
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-21",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Weight Iteration Bridge",
+      "pinned_commit": "e3899d3e",
+      "repo_path": "studies/expedition-weight-iteration-bridge",
+      "slug": "expedition-weight-iteration-bridge",
+      "summary": "Checked governed weight iteration and multi-bank state isolation with exact fractions.",
+      "verdicts": [
+        "REJECTED",
+        "CONTROL_BASE_PASS",
+        "ALL_VERIFIED",
+        "WARP_WEIGHT_ITERATION_BRIDGE_ALL_VERIFIED"
+      ]
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": null,
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-21",
+      "has_certificate": false,
+      "kind": "study",
+      "name": "Bareiss Gram Cert",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-bareiss-gram-cert",
+      "slug": "expedition-bareiss-gram-cert",
+      "summary": "Checked a fraction-free Bareiss gate for stacked adapter Gram certificates with a dual oracle.",
+      "verdicts": []
+    }
+  ],
+  "source_main_sha": "063aaee"
+}

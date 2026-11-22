@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Warp Drive · Verified model loading you can roll back</title>
+<meta name="description" content="Warp Drive checks open-weight model adapters before load, tests them in shadow, records what happened, and can roll them back. Open source, zero runtime dependencies.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Warp Drive · Verified model loading you can roll back">
+<meta property="og:description" content="Check an adapter before load. Test it in shadow. Record it. Roll it back.">
+<meta property="og:url" content="https://moissanite-labs.github.io/warp-drive/">
+<link rel="canonical" href="https://moissanite-labs.github.io/warp-drive/">
+<meta property="og:image" content="https://moissanite-labs.github.io/warp-drive/assets/og.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Warp Drive course line mark on a dark field.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Warp Drive · Verified model loading you can roll back">
+<meta name="twitter:description" content="Check an adapter before load. Test it in shadow. Record it. Roll it back.">
+<meta name="twitter:image" content="https://moissanite-labs.github.io/warp-drive/assets/og.png">
+<meta name="twitter:image:alt" content="Warp Drive course line mark on a dark field.">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080d14">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f1e8">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script>try{document.documentElement.classList.add("js");var q=new URLSearchParams(location.search),t=q.get("theme")||localStorage.getItem("warp-theme"),m=q.get("motion")||localStorage.getItem("warp-motion");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;if(m==="on"||m==="off")document.documentElement.dataset.motionPref=m;document.documentElement.dataset.motion=document.documentElement.dataset.motionPref||(matchMedia("(prefers-reduced-motion: reduce)").matches?"off":"on");var s=localStorage.getItem("warp-style");if(s)document.documentElement.dataset.styleWeights=s;}catch(e){}</script>
+<link rel="stylesheet" href="assets/warp.css">
+</head>
+<body data-page="home">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="warpmark" viewBox="0 0 64 64"><path d="M10 44 L26 18 L34 36 L42 18 L54 44" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="14" r="4" fill="currentColor"/></symbol></svg>
+<a class="skip" href="#main">Skip to content</a>
+<canvas id="warp-field" aria-hidden="true"></canvas>
+<header class="site-head">
+<a class="brand" href="./" aria-label="Warp Drive home"><svg aria-hidden="true"><use href="#warpmark"/></svg>Warp Drive</a>
+<nav class="nav" aria-label="Main">
+<a href="./" aria-current="page">Home</a><a href="architecture/">Architecture</a><a href="verifier/">Verifier</a><a href="expeditions/">Expeditions</a><a href="blueprints/">Blueprints</a>
+</nav>
+<div class="tools">
+<button class="tbtn" id="motion-toggle" aria-pressed="true">Motion</button>
+<button class="tbtn" id="theme-toggle" aria-pressed="false">Theme</button>
+</div>
+<details class="menu"><summary>Menu</summary><nav aria-label="Compact">
+<a href="./" aria-current="page">01 Home</a><a href="architecture/">02 Architecture</a><a href="verifier/">03 Verifier</a><a href="expeditions/">04 Expeditions</a><a href="blueprints/">05 Blueprints</a><a href="https://github.com/Moissanite-Labs/warp-drive">00 Source</a>
+</nav></details>
+</header>
+<nav class="hud-rail" data-hud aria-label="On this page"></nav>
+<main id="main">
+<section class="sec hero-glow" id="hero" data-index data-num="01" aria-labelledby="hero-h"><div class="wrap">
+<p class="kicker">Warp Drive · Layer 3 verifier</p>
+<h1 id="hero-h">Load model adapters only after they pass checks you can replay.</h1>
+<p class="dek">Warp Drive is an open-source verifier for people who run open-weight models on their own machines. It checks an adapter before load, tests it in shadow, records what happened, and can roll it back. The operating system layer around it adds sandboxed tools and recoverable Linux images.</p>
+<p><a class="btn primary" href="verifier/">Read the verifier</a> <a class="btn" href="https://github.com/Moissanite-Labs/warp-drive">Open the repo</a></p>
+<p class="meta">Exact, counted at main 063aaee: 14 modules · 15 test files · pytest 218 passed, 2 skipped · 9 canaries</p>
+</div></section>
+<section class="sec alt" id="problem" data-index data-num="02" aria-labelledby="problem-h"><div class="wrap read">
+<div class="sec-head"><span class="sec-label"><b>02</b> // The problem</span><span class="chip">Documented: README</span></div>
+<h2 id="problem-h">An adapter you did not verify can change behaviour silently.</h2>
+<p class="lede">A small adapter file can shift what a model says and does. If you load it first and check later, the change is already live.</p>
+<p>Warp checks before load and keeps a record after load. If a check fails, the adapter stays off. If behaviour goes wrong later, warp scales the adapter to zero, clears model state, and writes a signed receipt. You can replay every step offline.</p>
+</div></section>
+<section class="sec" id="stages" data-index data-num="03" aria-labelledby="stages-h"><div class="wrap">
+<div class="sec-head"><span class="sec-label"><b>03</b> // How verification works</span><span class="chip">Documented: README, ARCHITECTURE.md</span></div>
+<h2 id="stages-h">Four checks. Each one can stop the load.</h2>
+<div class="grid">
+<article class="card"><h3>1. Check the fingerprints</h3><p>Warp hashes the checkpoint, its layout and its settings, and compares them with pinned values. A mismatch stops the load before any model code runs.</p><p class="meta">fingerprint.py</p></article>
+<article class="card"><h3>2. Check the numbers</h3><p>Warp checks adapter size bounds with exact integer arithmetic. No floating point. No rounding gap to hide in.</p><p class="meta">certificate.py</p></article>
+<article class="card"><h3>3. Test in shadow</h3><p>Warp loads the adapter at scale zero and runs 9 verifier-owned canary prompts. The adapter must not change the answers it should leave alone.</p><p class="meta">canary.py · 9 canaries, exact count</p></article>
+<article class="card"><h3>4. Record and roll back</h3><p>Warp writes a signed, hash-chained receipt for every mount, reject and rollback. The kill switch scales the adapter to zero and clears state.</p><p class="meta">ledger.py · verifier.py</p></article>
+</div>
+<p><a href="verifier/">What each stage proves, and what it does not prove</a></p>
+</div></section>
+<section class="sec alt" id="layer" data-index data-num="04" aria-labelledby="layer-h"><div class="wrap read">
+<div class="sec-head"><span class="sec-label"><b>04</b> // The operating system layer</span><span class="chip">Planned: PLAN.md milestones 3 and 4</span></div>
+<h2 id="layer-h">Layer 3: the gatekeeper between agents and models.</h2>
+<p class="lede">The README places warp at Layer 3 of a five-layer stack. Above it sits the agent loop. Below it sits the model server. Warp trusts neither side without checks.</p>
+<p>The daemon is called warp-modeld. Around it, the repo carries blueprints for sandboxed tools and for Linux images that recover in one reboot. The image build, the boot test and the three-machine rollout are planned work. They have not run yet. <a href="architecture/">See the architecture</a> and <a href="blueprints/">the blueprint list</a>.</p>
+</div></section>
+<section class="sec" id="proof" data-index data-num="05" aria-labelledby="proof-h"><div class="wrap">
+<div class="sec-head"><span class="sec-label"><b>05</b> // Proof so far</span><span class="chip">Exact: counted at main 063aaee</span></div>
+<h2 id="proof-h">What is proven today, with the runner named.</h2>
+<div class="grid">
+<article class="card"><h3>Tests</h3><p>pytest: 218 passed, 2 skipped, 220 collected. unittest alone runs 128 and skips 2, and misses two pytest-only files. Always name the runner.</p></article>
+<article class="card"><h3>Demo digests</h3><p>Demo suites hold 112, 24, 80 and 9 cases. Their digests were re-verified against the manifest. Note the limit: 110 of 112 task cases reuse a seen pair, 20 distinct pairs.</p></article>
+<article class="card"><h3>Expeditions</h3><p>Five studies checked parts of the checker itself. Certificates pin older commits and do not certify current main. <a href="expeditions/">Read the records</a>.</p></article>
+</div>
+<div class="card">
+<h3>Steer the style</h3>
+<p class="fig-note">How to read: your position in the triangle is the blend. The corners are three named styles. Style changes corners, spacing and line strength only. It never changes speed or text size.</p>
+<div data-style-pad></div>
+<p data-style-readout>Chartroom 100%, Engine room 0%, Deep field 0%</p>
+<p><button class="tbtn" data-pole="0">Chartroom</button> <button class="tbtn" data-pole="1">Engine room</button> <button class="tbtn" data-pole="2">Deep field</button></p>
+<p class="fig-note">Source: Eido simplex pad and aesthetic mixer, vendored under Apache-2.0. See the credits in the footer.</p>
+</div>
+</div></section>
+<section class="sec alt" id="try" data-index data-num="06" aria-labelledby="try-h"><div class="wrap read">
+<div class="sec-head"><span class="sec-label"><b>06</b> // Try it</span><span class="chip">Exact: pyproject.toml</span></div>
+<h2 id="try-h">Run the checks offline.</h2>
+<p>Warp needs Python 3.11 or newer. Runtime dependencies: none. Building the package needs setuptools 68 or newer.</p>
+<pre><code>PYTHONPATH=src python3 -m pytest tests/ -q
+PYTHONPATH=src python3 -m unittest discover -s tests -v</code></pre>
+<p>The second command alone misses two pytest-only test files. Run both, or run pytest for the full count.</p>
+</div></section>
+<section class="sec" id="limits" data-index data-num="07" aria-labelledby="limits-h"><div class="wrap read">
+<div class="sec-head"><span class="sec-label"><b>07</b> // Limits</span><span class="chip">Stated plainly</span></div>
+<h2 id="limits-h">Limits, in full sentences.</h2>
+<p>Cerebras support is mocked and live use is unverified. The client targets a Kimi model id. Only mocked contract tests pass. A dedicated endpoint may be required.</p>
+<p>The lattice backend is simulated. No real lattice model file has run through warp.</p>
+<p>The live demo has not run. Its thresholds are preregistered and unverified live. Its tokenizer digest is unverified.</p>
+<p>Live timings in the README have no artifact in the repo, so this site does not repeat them as facts.</p>
+</div></section>
+</main>
+<div class="hud" data-hud-panel>
+<span>Speed <span data-hud-speed>Cruise · 6%</span></span>
+<span class="hud-bar-track" aria-hidden="true"><span class="hud-bar" data-hud-bar style="display:block"></span></span>
+<span>Dimension <span data-hud-dimension>Drift</span></span>
+<span class="sr-only" data-hud-live aria-live="polite"></span>
+<details><summary>Style</summary><p>Use the style pad in Proof so far. Scroll sets speed. The pad steers style only.</p></details>
+</div>
+<footer class="site-foot"><div class="wrap">
+<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 063aaee.</p>
+<div class="foot-cols">
+<div>Record<ul><li><a href="expeditions/">Expeditions</a></li><li><a href="verifier/">Verifier</a></li></ul></div>
+<div>Work<ul><li><a href="architecture/">Architecture</a></li><li><a href="blueprints/">Blueprints</a></li></ul></div>
+<div>Source<ul><li><a href="https://github.com/Moissanite-Labs/warp-drive">GitHub repo</a></li><li><a href="assets/vendor/NOTICE">Vendored code credits</a></li></ul></div>
+</div>
+<p class="stamp">Credits: Eido modules by Moissanite Labs, Apache-2.0, vendored at be27665. Human and digital contributors, see repo history. <span data-date>2026-11-22</span></p>
+</div></footer>
+<script type="module" src="assets/warp.js"></script>
+</body>
+</html>

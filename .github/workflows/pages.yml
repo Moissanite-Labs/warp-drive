@@ -1,0 +1,73 @@
+name: pages
+# Publish docs/ to GitHub Pages. Modelled on Foundation-0/f0 pages.yml,
+# simplified: warp has no forum, no discussions step and no deploy-time
+# prerender, so those steps are omitted.
+# Publishes only when Settings -> Pages -> Source is "GitHub Actions".
+# Set that once by hand. While Pages builds from the branch, the build job
+# says so in a notice and nothing is deployed.
+# The build job can read but not write. Only the deploy job can publish,
+# and it runs nothing but the deploy action.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      publish: ${{ steps.source.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Does Pages publish from this workflow?
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          type=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" | python3 -c "import json,sys; print(json.load(sys.stdin).get('build_type',''))" || true)
+          if [ "$type" = "workflow" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Pages source is not GitHub Actions (build_type=$type). Nothing deployed."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Site gate and data freshness
+        if: steps.source.outputs.publish == 'true'
+        run: |
+          python3 scripts/check_site.py
+          python3 scripts/build_expeditions.py --check
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.source.outputs.publish == 'true'
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
