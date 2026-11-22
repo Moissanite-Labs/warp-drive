@@ -1,0 +1,50 @@
+REVIEW WITNESSES (review of the frozen-plan code, run on the amended code)
+CAVE8-01 exit status and the production kill-switch
+  validate_series has a disabled= parameter: False
+  validate_series(['a','b'], 4096)                               -> raises GateError: GATE_NUMERIC: input is not integer or float valued
+CAVE8-02 ties and ranks
+  raw tied waveform: tied windows 3070, sigma_hat 0.0
+  map cubic  distinct values 3 -> 3, tied windows 3070, sigma_hat 0.0, counts equal: True
+  map exp    distinct values 3 -> 3, tied windows 3070, sigma_hat 0.0, counts equal: True
+  map rank   distinct values 3 -> 3, tied windows 3070, sigma_hat 0.0, counts equal: True
+  normal scores of the waveform and its negative are exact negatives: True
+  tau0 of a constant series                                      -> raises ValueError: tau0 is undefined for a constant segment (it is invalid, section 7)
+  tau0 of a series of length 1                                   -> raises ValueError: tau0 needs a 1-D segment of at least 2 samples
+  tau0 of the tied waveform: 2
+CAVE8-03 exact p-values
+  holm({'t1': 0.05}, m=1) (float)                                -> raises TypeError: p of t1 must be an int or a Fraction, got float
+  holm({'t1': Fraction(1,20)}, m=1)                              -> {'t1': (True, Fraction(1, 20))}
+  binom_tail(True, True)                                         -> raises TypeError: S must be an int, got bool
+  run_passes(True, True, level, [])                              -> raises TypeError: K must be an int, got bool
+  transfer_p([0.001], [])                                        -> raises TypeError: run p must be an int or a Fraction, got float
+CAVE8-04 dtypes
+  validate_series(bool array)                                    -> raises GateError: GATE_NUMERIC: input is not integer or float valued
+  validate_series(complex array)                                 -> raises GateError: GATE_NUMERIC: input is not integer or float valued
+  validate_series(string array)                                  -> raises GateError: GATE_NUMERIC: input is not integer or float valued
+  validate_series(integer counts)                                -> float64
+  validate_series(good series, N=True)                           -> raises TypeError: N must be an int of at least 1
+CAVE8-05 segment cutter
+  offset on the review's block under identity, x^3+x, 2^x: [0, 0, 0]
+  cut_segments with valid of the wrong length                    -> raises ValueError: validity flags: 1 given for 3 selected blocks
+  cut_segments with valid too long                               -> raises ValueError: validity flags: 5 given for 3 selected blocks
+  constant block yields a segment: True
+  tau0 of the constant segment cut from that stream              -> raises ValueError: tau0 is undefined for a constant segment (it is invalid, section 7)
+  amp_exp_standardised on the constant segment                   -> raises ValueError: cannot standardise a constant or non-finite series (standard deviation
+  q8 net on the constant segment (distinct values)               -> 1
+  segment_test on the constant segment: reject, all zero spread  -> (False, True)
+CAVE8-06 ties, degenerate lags and tolerances
+  no tie-share rule is applied (Amendment 1, A5); tied patterns are kept as patterns of their own
+  degenerate lags are left out of T and the segment is flagged; all-degenerate counts as not rejecting (plan, section 4.3)
+CAVE8-07 divisions and logarithms
+  unit_features on all-zero counts                               -> [0.0, 0.0, 0.0, 0.0, 0.0]
+  loo_standardise on identical rows                              -> 0.0
+  sigma_hat on all-zero counts                                   -> 0.0
+  loo_standardise with one row                                   -> raises ValueError: need a 2-D array with at least 2 rows (the real series and one surroga
+CAVE8-08 transfer tests
+  transfer_test R = 0                                            -> raises ValueError: R must be an int of at least 1
+  transfer_test g of the wrong length                            -> raises ValueError: template, target and population mask must be 1-D arrays of one length 
+  transfer_test non-finite template                              -> raises ValueError: template and target must be finite
+  transfer_test unknown kind                                     -> raises ValueError: unknown transfer kind nope
+  transfer_test no valid segments                                -> raises ValueError: template needs a 2-D array with at least one segment
+  scores are compared with a tolerance of 1e-12 relative, with an absolute floor of 1e-12, not by exact equality (the AUC of the frozen plan is gone)
+UNGUARDED: none

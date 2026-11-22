@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "<target>/known_answer/k5_scale_flow.py", line 161, in <module>
+    main()
+    ~~~~^^
+  File "<target>/known_answer/k5_scale_flow.py", line 147, in main
+    r = one_seed(s)
+  File "<target>/known_answer/k5_scale_flow.py", line 40, in one_seed
+    ser[("cascade_exp:amp_exp", "verdict")] = nets.amp_exp_standardised(b0)
+                                              ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^
+  File "<target>/known_answer/../src/nets.py", line 78, in amp_exp_standardised
+    return np.exp((x - x.mean()) / sd)
+           ~~~~~~^^^^^^^^^^^^^^^^^^^^^
+RuntimeWarning: overflow encountered in exp

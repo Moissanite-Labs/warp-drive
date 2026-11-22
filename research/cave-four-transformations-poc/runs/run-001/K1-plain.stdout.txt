@@ -1,0 +1,23 @@
+TEST K1 - exact checks
+SIZE SMOKE (one twentieth of the plan's seeds, at least 10; NOT a result)
+python 3.14.6 numpy 2.5.4
+master seed 20261121 | seed rule: first 16 hex digits of SHA-256 of 20261121|<instrument>|<split>|<net>|<segment>|<purpose>|<index>
+seeds per class version: 10; pipeline identity at n = 1024; scores at n = (4096, 2048); 27 class versions
+-- integer counts, complement, reversal, sigma_hat, lag doubling, second implementation (maps on y = x / max|x|)
+count-check cases recorded as 'map not representable': 0
+-- tied waveform (B6 a): exact symmetry and map identity
+-- representability guard
+-- offset identity
+-- normal scores of the exp and cube versions at the K2 lengths, all 9 classes
+score checks: 360, versions not representable: 0
+-- pipeline identity: pool, features, p-value (27 class versions, integer-valued classes, waveform)
+coverage: 132 (class version or input, map) combinations; each needs at least 9 of 10 representable seeds
+cases recorded as 'map not representable': 0 (never counted as passes)
+pipeline identity failures: 0 over 1293 representable cases
+K1 main checks: 7614 checks, 0 failed
+-- must-fail controls (each must produce failing checks)
+  counter that drops the last window                                                         failing checks     95: FLAGGED
+  counter that orders ties by position                                                       failing checks    106: FLAGGED
+  surrogate step that uses the raw values (identity under exp)                               failing checks   4762: FLAGGED
+  ranking that breaks ties in time order (Sigma_hat on the waveform must be non-zero)        failing checks     30: FLAGGED
+SUMMARY K1 SMOKE PASS | 7614 main checks, 0 failed; cases not representable 0; must-fail controls all flagged: yes

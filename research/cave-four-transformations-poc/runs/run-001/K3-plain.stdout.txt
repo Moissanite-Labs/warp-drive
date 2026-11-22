@@ -1,0 +1,14 @@
+TEST K3 - planted structure found
+SIZE SMOKE (one twentieth of the plan's seeds, at least 10; NOT a result)
+python 3.14.6 numpy 2.5.4
+master seed 20261121 | seed rule: first 16 hex digits of SHA-256 of 20261121|<instrument>|<split>|<net>|<segment>|<purpose>|<index>
+segments in this run: 330 of 330
+seeds per case 10; need at least 8 detections native at 4096 and at least 5 elsewhere; control must stay at most 1
+case              native4096 native2048 bm2        sub2       q12        q8         placement  wlen2048  
+shots              10/10       7/10       7/10       7/10      10/10      10/10       9/10       5/10    
+logistic           10/10      10/10      10/10       3/10*     10/10      10/10      10/10      10/10    
+sawtooth           10/10      10/10      10/10      10/10      10/10      10/10      10/10      10/10    
+sawtooth_noisy      2/10*      3/10*      6/10       1/10*      3/10*      2/10*      5/10       1/10*      (reported, does not gate)
+must-fail control (circular-shift surrogates, shots, native 4096): 1 of 10 detected, bound 1: FLAGGED (control behaves)
+cells below the criterion on gating cases (marked *): [('logistic', 'sub2', 3)]
+SUMMARY K3 SMOKE FAIL | 1 gating cells below criterion; control flagged: True
