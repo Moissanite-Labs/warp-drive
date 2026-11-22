@@ -130,3 +130,15 @@ Exact GitHub readback found one matching review body at the unchanged reviewed h
 - The contract pull request later received a separate teammate approval at its unchanged head. This iteration retains the earlier margin-rule wording anomaly rather than treating the later approval as new numerical evidence.
 - The next Aletheia research pass must independently check cross-organization claims before publication. Negative results and contradictions remain part of the record.
 - This iteration branch changes research evidence only. It adds no Actions workflow and does not modify shipped runtime code.
+
+## Post-collection review
+
+### Trust-boundary hardening
+
+- Source: pull request 15 at `e6ad0967c2386eb3e3bdc7d81ff3a47808d53a1e`.
+- Verdict: `CHANGES_REQUESTED`. The shipped singleton equality check and the four filed state-isolation checks hold. Two claims in the head do not.
+- `blueprints/sandbox/warp-sandbox-exec.sh` calls `realpath -e`. This host rejects that option, so both sandbox tests stop at `ERR_SANDBOX_WORKTREE` before the bubblewrap and seccomp checks. Full command: `PYTHONPATH=src python3 -B -W error -m unittest discover -s tests`. Result: 72 tests, 2 failures, 1 skip, 19.549 seconds.
+- The runtime report says pinned `repair_ledger` at `e3899d3e0ef7697052e74e7a4f99f510d2b63ad5` used exclusive creation and `fsync` before unlink. Lines 330-366 use `write_text`, `chmod`, and `unlink`, with neither `O_EXCL` nor `fsync`.
+- Shipped `verify_stack_division_free` rejects a composed singleton whose norm squares are 0 while both component values are 16.
+- Review publication: `6009464930`, submitted `2026-11-22T01:44:10Z`, body SHA-256 `0ca68f96d01e37e9f89ea05a574879ba94b38fd35a3837a355aaf3c17f4d9169`. Exact readback matched one body.
+- Witnesses: `pr15-review/`. Mutation counts, standalone study hashes, and live model behavior were not rerun.

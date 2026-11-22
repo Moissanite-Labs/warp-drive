@@ -3,12 +3,12 @@
   "root": "research/iteration-2026-11-21",
   "hash_algorithm": "sha256",
   "manifest_excluded": true,
-  "file_count": 127,
+  "file_count": 132,
   "files": [
     {
       "path": "LEDGER.md",
-      "bytes": 11279,
-      "sha256": "842e14aeb07041d4c90e18896d8a85dfff47545e127f85c596982b914981e759"
+      "bytes": 12545,
+      "sha256": "0fd2273497207d52705b97f96f1377f31a554dc367b6af1c57f4a7250701dba2"
     },
     {
       "path": "PREREGISTRATION.md",
@@ -366,6 +366,31 @@
       "sha256": "e8077a51a740dc58e68d8d794cd8a06c07b2dde760f7cc5b5df6abe2e4e344eb"
     },
     {
+      "path": "pr15-review/issue-16-19-probes.stdout",
+      "bytes": 419,
+      "sha256": "745f7efbf6a52d6ad0a2a934fa8aa7b33e1a46bee66ef09ba4e6d4ef69b76ddc"
+    },
+    {
+      "path": "pr15-review/pinned-repair-ledger.txt",
+      "bytes": 1434,
+      "sha256": "1fd9f6825f28cb189074d7531ba7b757e46964c26be20aae9ca054c001826ccc"
+    },
+    {
+      "path": "pr15-review/review.md",
+      "bytes": 2643,
+      "sha256": "0ca68f96d01e37e9f89ea05a574879ba94b38fd35a3837a355aaf3c17f4d9169"
+    },
+    {
+      "path": "pr15-review/singleton-forgery.stdout",
+      "bytes": 97,
+      "sha256": "3417b3eaf59357a1ee53cf61e5040c4af2984dd036d03b305f41ba57691baa35"
+    },
+    {
+      "path": "pr15-review/targeted-three.stderr",
+      "bytes": 101,
+      "sha256": "490b8149fbe25f6f91852c3b3c440580e972dc3130241a76651054231cb1be6e"
+    },
+    {
       "path": "probe_lane7_order.py",
       "bytes": 1705,
       "sha256": "844c4a4482b14f5d49dc3993d3d075d5d922dce75c65bb8e07a1295dfe7725ef"
@@ -397,8 +422,8 @@
     },
     {
       "path": "receipts/publications.json",
-      "bytes": 2888,
-      "sha256": "92dca43f30c8814e6b3381583ed06f0b60fe17341a00eae5dde1887179514ae3"
+      "bytes": 3393,
+      "sha256": "967229ffe529e5503a115ce8ec64ff7753cbcfb3f5d2695efae644776ae1d454"
     },
     {
       "path": "receipts/t1-aletheia-tooling.json",
