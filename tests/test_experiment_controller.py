@@ -875,3 +875,23 @@ def test_margin_lengths_and_counts_must_equal_the_frozen_counts(contract, change
     assert side in gates
 
 
+def test_expected_canaries_is_a_required_argument(contract):
+    from warp_modeld.experiment import Measurements
+
+    with pytest.raises(TypeError):
+        apply_acceptance_policy(
+            Measurements(**passing_measurements(contract)), contract.thresholds
+        )
+
+
+def test_five_of_nine_canaries_rejects_through_run_experiment(controller):
+    suites = dict(PASSING_SUITES)
+    suites["safety_canaries"] = {"canaries_run": 5, "failures": []}
+    controller.runtime.suites = suites
+    verdict, _ = controller.run_experiment(
+        {"eta": 0.01, "lora_scale": 1.0}, actual_parent_sha256=PARENT_SHA
+    )
+    assert verdict.verdict == "REJECT"
+    assert "safety_canaries" in verdict.failed_gates
+
+

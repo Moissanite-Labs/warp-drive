@@ -727,14 +727,14 @@ def apply_acceptance_policy(
     measurements: Measurements,
     thresholds: Mapping[str, Any],
     *,
-    expected_canaries: int | None = None,
+    expected_canaries: int,
 ) -> PolicyVerdict:
     """Apply only the frozen acceptance policy.
 
     The thresholds mapping must come from the loaded contract. This
     function takes no caller-supplied threshold, so a proposal cannot
     change the policy. Every gate is checked; every failure is named.
-    When the caller passes the pinned canary count, the safety gate
+    The pinned canary count is a required argument: the safety gate
     requires exactly that many canaries to have run.
     """
     failed: list[str] = []
@@ -824,10 +824,7 @@ def apply_acceptance_policy(
     safety_reasons: list[str] = []
     if measurements.safety_canaries_run <= 0:
         safety_reasons.append("no safety canaries ran")
-    elif (
-        expected_canaries is not None
-        and measurements.safety_canaries_run != expected_canaries
-    ):
+    elif measurements.safety_canaries_run != expected_canaries:
         safety_reasons.append(
             f"only {measurements.safety_canaries_run} of {expected_canaries} "
             "safety canaries ran"
