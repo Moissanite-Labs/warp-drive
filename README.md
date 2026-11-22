@@ -51,6 +51,20 @@ WARP_LIVE_LLAMA_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_llama_
 WARP_LIVE_LLAMA_TEST=1 WARP_LIVE_BASE_GGUF=<model.gguf> WEFT_SRC=<weft/src> PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
 ```
 
+## Gameplay Evidence Intake Gate
+
+`src/warp_modeld/gameplay_gate.py` ingests `gameplay-evidence/v0.1` without dependencies or gameplay execution. `intake_gameplay_evidence(raw_json)` rejects duplicate keys, unknown fields, invalid types, unbounded values, and bad artifact/source/payload/check commitments. Its default independent result for a valid envelope is **OBSERVED only**. Source statuses, `VERIFIED` labels, source badges, and limitations are returned separately; none is an independent admission.
+
+**TCB boundary:** the artifact, raw source, and producer are untrusted. Warp's parser, canonical digest checks, and admission rules establish envelope integrity only. For REPLAYED, MODEL_PROVEN, or LIVE_CONFIRMED, the caller must supply results from a domain verifier it has chosen to trust. Those results bind the exact artifact digest plus the canonical digest of every relevant check and negative control. The caller/domain verifier is therefore inside the TCB for those higher badges and must authenticate checker pins and parse raw source with its own duplicate-key rejection. A verifier exception, missing independently passing negative control, source/importer conflict, or model/live commitment mismatch cannot promote a badge.
+
+Default ceilings are 1 MiB input, 32 JSON levels, 4,096 entries per array and 16,384 total container entries, 256 keys per object, 256 KiB per string and 1 MiB total string bytes, and 64 mechanics, checks, or negative controls per category. `GateLimits` can lower these ceilings. Precomputed `TrustedDomainVerification` results avoid callbacks; an optional trusted callback receives a deep copy only after envelope validation.
+
+Run the adversarial intake tests with:
+
+```bash
+PYTHONPATH=src python3 -m unittest tests/test_gameplay_gate.py -v
+```
+
 ## Cerebras Kimi K3.1 Pro Client (lane 6)
 
 `src/warp_modeld/cerebras_client.py` connects the bounded experiment controller to Kimi K3.1 Pro on Cerebras for three calls only: `propose_candidate`, `diagnose_failure`, and `compare_outputs`. It returns only schema-valid candidates (`schemas/cerebras-candidate.schema.json`), enforces the three-round repair budget, and files a redacted receipt per call with the prompt hash, served model id, decoding parameters, seed, token counts, latency, retries, timeouts, and failures. It never touches weights or acceptance policy. Model comparison is advisory only. Deterministic local scores stay authoritative.
