@@ -1,0 +1,39 @@
+{
+  "schema": "warp-drive.ratchet-001.framework-pin.v1",
+  "aletheia": {
+    "repository": "Foundation-0/aletheia",
+    "pull_request": 1,
+    "head": "1513e0f3322cf0c9899b92732f656e14a87e9b41",
+    "version_label_in_tree": "2.0.0",
+    "ratchet_module_sha256": "233d8e4a6e57624407f991446c2d80876677905e558fe0815084c44deb6004b7",
+    "integrated_functions": [
+      "aletheia.ratchet.ast_canonical_digest",
+      "aletheia.ratchet.check_ring0_lock"
+    ],
+    "task_specific_extensions": [
+      "fixed Songe governance and clustered-gate corpus",
+      "integer case outcomes and operational failures",
+      "null-genesis SHA-256 receipt chain",
+      "900 second shared execution cap"
+    ],
+    "gates_added_from_v2": [
+      "R6 pinned checks",
+      "R7 measured values",
+      "Gate 9 mechanism-first prior art before novelty above N0",
+      "Gate 10 independent advocate for narrowing findings"
+    ]
+  },
+  "target": {
+    "repository": "Moissanite-Labs/warp-drive",
+    "pull_request": 21,
+    "head": "8031effa7ebcdbec5307dc2809212e1d55601639",
+    "base": "38a7072f8d23fe865b4d48d1da285a6db4fc14d1",
+    "main_at_preregistration": "10b54c8020aec294917ee7c118cc33da0c071691"
+  },
+  "oracle_classes": [
+    "exact",
+    "reference_replay"
+  ],
+  "novelty_class": "N0",
+  "live_or_paid_model_calls": false
+}
