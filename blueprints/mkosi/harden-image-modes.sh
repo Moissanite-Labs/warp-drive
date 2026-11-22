@@ -31,6 +31,7 @@ normalize_tree() {
 
 for ancestor in \
     /etc \
+    /etc/warp \
     /etc/profile.d \
     /var \
     /var/lib \

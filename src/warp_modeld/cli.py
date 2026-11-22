@@ -16,7 +16,7 @@ from .errors import WarpError
 from .fingerprint import CheckpointFingerprint, Plane1Lineage, RuntimeFlags
 from .ledger import HmacSha256Signer, LedgerVerifier, SignedLedger, repair_ledger
 from .llama_client import LlamaServerClient, probe_llama_server_binary
-from .server import WarpUnixRpcServer
+from .server import WarpUnixRpcServer, loads_strict_json
 from .verifier import WarpModeld
 
 
@@ -28,7 +28,9 @@ def _load_key_bytes(key_file: Path) -> bytes:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    cfg = loads_strict_json(Path(args.config).read_text(encoding="utf-8"))
+    if not isinstance(cfg, dict):
+        raise ValueError("daemon config must be a JSON object")
     checkpoint = CheckpointFingerprint.from_dict(cfg["checkpoint"])
     lineage = Plane1Lineage.from_dict(cfg["pinned_lineage"])
     runtime_flags = RuntimeFlags.from_dict(cfg["runtime_flags"])
@@ -50,7 +52,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     zone_manifest_obj = None
     if cfg.get("zone_manifest_path"):
-        zone_manifest_obj = json.loads(Path(cfg["zone_manifest_path"]).read_text(encoding="utf-8"))
+        zone_manifest_obj = loads_strict_json(Path(cfg["zone_manifest_path"]).read_text(encoding="utf-8"))
+
+    raw_req_files = cfg.get("require_loaded_adapter_files", True)
+    if type(raw_req_files) is not bool:
+        raise ValueError("require_loaded_adapter_files must be a boolean")
+    raw_legacy_kv = cfg.get("allow_legacy_implicit_kv_flush", False)
+    if type(raw_legacy_kv) is not bool:
+        raise ValueError("allow_legacy_implicit_kv_flush must be a boolean")
 
     modeld = WarpModeld(
         pinned_checkpoint=checkpoint,
@@ -64,6 +73,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         canary_slot_id=int(cfg.get("canary_slot_id", 0)),
         pinned_zone_manifest_id=cfg.get("pinned_zone_manifest_id"),
         pinned_zone_manifest=zone_manifest_obj,
+        require_loaded_adapter_files=raw_req_files,
+        allow_legacy_implicit_kv_flush=raw_legacy_kv,
     )
 
     server = WarpUnixRpcServer(
@@ -105,8 +116,8 @@ def _cmd_verify_ledger(args: argparse.Namespace) -> int:
 
 
 def _cmd_check_certificate(args: argparse.Namespace) -> int:
-    cert = FixedRadixCertificate.from_dict(json.loads(Path(args.cert).read_text(encoding="utf-8")))
-    bounds = CertificateBounds.from_dict(json.loads(Path(args.bounds).read_text(encoding="utf-8")))
+    cert = FixedRadixCertificate.from_dict(loads_strict_json(Path(args.cert).read_text(encoding="utf-8")))
+    bounds = CertificateBounds.from_dict(loads_strict_json(Path(args.bounds).read_text(encoding="utf-8")))
     res = verify_division_free(cert, bounds)
     print(
         json.dumps(
