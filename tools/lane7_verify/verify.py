@@ -386,8 +386,12 @@ def check_config_digests(log_path: Path) -> list[dict]:
     evaluated: set[str] = set()
     recorded: set[str] = set()
     checked = 0
-    for line in lines:
-        entry = json.loads(line)
+    for index, line in enumerate(lines, start=1):
+        try:
+            entry = json.loads(line, parse_constant=_reject_constant)
+        except ValueError as exc:
+            return [result("config_digests", "FALSIFIED",
+                           "line %d is not strict JSON: %s" % (index, exc))]
         event = entry.get("event")
         if event == "candidate_proposed":
             config = entry.get("config")
@@ -426,6 +430,13 @@ def check_config_digests(log_path: Path) -> list[dict]:
                                % entry.get("candidate_id"))]
             recorded.add(candidate_id)
             checked += 1
+    # Fail closed: every evaluated candidate needs a digest recorded earlier in
+    # the log. A digest recorded after evaluation was rejected above; this
+    # catches candidates that were never proposed or never had a digest recorded.
+    unbound = sorted(cid for cid in evaluated if cid not in recorded)
+    if unbound:
+        return [result("config_digests", "FALSIFIED",
+                       "evaluated with no recorded digest: %s" % ", ".join(unbound))]
     if not checked:
         return [result("config_digests", "UNVERIFIED",
                        "no candidate_proposed/digest entries in the log")]
@@ -494,7 +505,8 @@ def check_policy(measurements_path: Path, exp_dir: Path) -> list[dict]:
         raw = load_json(measurements_path, strict=True)
         thresholds = load_json(exp_dir / "thresholds.json")
         controls = load_json(exp_dir / "controls.json")
-    except (OSError, ValueError) as exc:
+        canary_ids = load_json(exp_dir / "suites" / "safety_canaries.json")["canary_ids"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         return [result("policy", "UNVERIFIED", "cannot load inputs: %s" % exc)]
     receipt = raw if "measurements" in raw else {"measurements": raw, "verdict": raw.get("verdict")}
     m = receipt["measurements"]
@@ -522,9 +534,11 @@ def check_policy(measurements_path: Path, exp_dir: Path) -> list[dict]:
     threshold = float(margin["threshold"])
     if mg["threshold"] != threshold:
         failed.append("margin_threshold")
-    if not all(v > threshold for v in mg["margins_adapter"]):
+    # Fail closed: all() over an empty list is True, so an empty measurement
+    # set must not pass the gate.
+    if not mg["margins_adapter"] or not all(v > threshold for v in mg["margins_adapter"]):
         failed.append("margin_adapter")
-    if not all(v <= threshold for v in mg["margins_baseline"]):
+    if not mg["margins_baseline"] or not all(v <= threshold for v in mg["margins_baseline"]):
         failed.append("margin_baseline")
     if m["retention_iid"]["mean_kl"] > float(retention["iid_kl_max_mean"]):
         failed.append("retention_iid_kl")
@@ -532,7 +546,8 @@ def check_policy(measurements_path: Path, exp_dir: Path) -> list[dict]:
         failed.append("retention_iid_agreement")
     if m["retention_shifted"]["mean_kl"] > float(retention["shifted_kl_max_mean"]):
         failed.append("retention_shifted_kl")
-    if m["safety"]["failures"]:
+    # Fail closed: no failures only counts when every frozen canary ran.
+    if m["safety"]["failures"] or m["safety"].get("canaries_run") != len(canary_ids):
         failed.append("safety_canaries")
     rb = m["rollback"]
     if rb["exact_matches"] != rb["sequences"]:

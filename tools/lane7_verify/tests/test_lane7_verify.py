@@ -16,6 +16,11 @@ from pathlib import Path
 
 import pytest
 
+# These tests use bare assert statements, which python -O removes. Under -O
+# every test would pass without checking anything, so refuse to collect.
+if not __debug__:
+    raise RuntimeError("test_lane7_verify.py needs assert statements: do not run it under python -O")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from verify import (  # noqa: E402
@@ -387,6 +392,75 @@ def test_config_digests_unverified_without_evaluated_event(tmp_path):
     assert "before-evaluation binding is not established" in out["evidence"]
 
 
+def _digest_log_entries(config, digest):
+    return [{"event": "candidate_proposed", "candidate_id": "A",
+             "config": config, "config_digest": digest},
+            {"event": "candidate_digest_recorded", "candidate_id": "A",
+             "config_digest": digest},
+            {"event": "evaluated", "candidate_id": "A"}]
+
+
+def test_config_digests_falsify_evaluated_candidate_with_no_recorded_digest(tmp_path):
+    # Valid chain: proposed(A), recorded(A), evaluated(A), proposed(B), evaluated(B).
+    # B is evaluated with no recorded digest and must not pass.
+    log = tmp_path / "log.jsonl"
+    config_a = {"rank": 8, "eta": 0.01}
+    config_b = {"rank": 8, "eta": 0.02}
+    entries = _digest_log_entries(config_a, sha256_canonical(config_a))
+    write_log(log, [dict(e) for e in entries])
+    assert check_config_digests(log)[0]["verdict"] == "VERIFIED"
+    write_log(log, [dict(e) for e in entries]
+              + [{"event": "candidate_proposed", "candidate_id": "B",
+                  "config": config_b, "config_digest": sha256_canonical(config_b)},
+                 {"event": "evaluated", "candidate_id": "B"}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "B" in out["evidence"] and "no recorded digest" in out["evidence"]
+
+
+def test_config_digests_falsify_evaluated_candidate_never_proposed(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    entries = _digest_log_entries(config, sha256_canonical(config))
+    write_log(log, [dict(e) for e in entries] + [{"event": "evaluated", "candidate_id": "ghost"}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "ghost" in out["evidence"]
+
+
+def test_config_digests_falsify_digest_that_differs_from_proposal(tmp_path):
+    # Rechained so only the digest comparison can reject it.
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": "A",
+                     "config": config, "config_digest": sha256_canonical(config)},
+                    {"event": "candidate_digest_recorded", "candidate_id": "A",
+                     "config_digest": sha256_canonical({"rank": 16})},
+                    {"event": "evaluated", "candidate_id": "A"}])
+    assert check_receipt_log(log)[0]["verdict"] == "VERIFIED"
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "differs from the proposed digest" in out["evidence"]
+
+
+def test_config_digests_reject_non_strict_json(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    digest = sha256_canonical(config)
+    lines = write_log(log, _digest_log_entries(config, digest))
+    assert check_config_digests(log)[0]["verdict"] == "VERIFIED"
+    # NaN placed in an unrelated field of the evaluated entry, then rechained.
+    entry = json.loads(lines[2])
+    entry["max_logit_diff"] = float("nan")
+    body = {k: v for k, v in entry.items() if k != "entry_sha256"}
+    entry["entry_sha256"] = sha256_canonical({k: (None if v != v else v)
+                                              for k, v in body.items()})
+    log.write_text("\n".join(lines[:2] + [json.dumps(entry, sort_keys=True)]) + "\n")
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "strict JSON" in out["evidence"]
+
+
 # --- cerebras bounds ----------------------------------------------------------
 
 
@@ -448,6 +522,205 @@ def test_policy_base_and_regressed_controls(tmp_path):
     assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
 
 
+def test_policy_fails_closed_on_empty_margin_lists(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    dump(m, passing_receipt(exp))
+    assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+    for key, gate in (("margins_adapter", "margin_adapter"),
+                      ("margins_baseline", "margin_baseline")):
+        bad = passing_receipt(exp)
+        bad["measurements"]["margin"][key] = []
+        bad["verdict"] = "ACCEPT"
+        dump(m, bad)
+        out = check_policy(m, exp)[0]
+        assert out["verdict"] == "FALSIFIED", key
+        assert gate in out["evidence"], key
+
+
+def test_policy_fails_closed_when_no_canaries_ran(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    bad = passing_receipt(exp)
+    bad["measurements"]["safety"] = {"canaries_run": 0, "failures": []}
+    bad["verdict"] = "ACCEPT"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "safety_canaries" in out["evidence"]
+
+
+def test_policy_fails_closed_when_canaries_run_misses_the_frozen_count(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    dump(exp / "suites" / "safety_canaries.json",
+         {"suite": "safety_canaries", "n_canaries": 3, "canary_ids": ["c1", "c2", "c3"]})
+    m = tmp_path / "m.json"
+    short = passing_receipt(exp)
+    short["measurements"]["safety"] = {"canaries_run": 2, "failures": []}
+    dump(m, short)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "safety_canaries" in out["evidence"]
+    full = passing_receipt(exp)
+    full["measurements"]["safety"] = {"canaries_run": 3, "failures": []}
+    dump(m, full)
+    assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+
+
+def test_policy_is_unverified_without_the_frozen_canary_list(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    (exp / "suites" / "safety_canaries.json").write_text('{"suite": "safety_canaries"}\n')
+    m = tmp_path / "m.json"
+    dump(m, passing_receipt(exp))
+    assert check_policy(m, exp)[0]["verdict"] == "UNVERIFIED"
+
+
+# --- single-rule must-fail tests ----------------------------------------------
+# Each test is built so that exactly one rejection rule can reject it. The
+# companion control in each test shows the same input passes without the fault.
+
+
+def unconstrained_exp_dir(tmp: Path, *, rank=8, layer=31) -> Path:
+    """Contract whose receipt schema leaves rank and target_layer open, so only
+    the manifest comparison in check_receipt can reject a wrong value."""
+    exp = make_exp_dir(tmp)
+    schema = json.loads((exp / "receipt.schema.json").read_text())
+    cfg = schema["properties"]["candidate"]["properties"]["config"]["properties"]
+    cfg["rank"] = {"type": "integer"}
+    cfg["target_layer"] = {"type": "integer"}
+    dump(exp / "receipt.schema.json", schema)
+    manifest = json.loads((exp / "manifest.json").read_text())
+    manifest["allowed_candidate_knobs"]["rank"] = rank
+    manifest["last_layer_target"]["layer"] = layer
+    dump(exp / "manifest.json", manifest)
+    return exp
+
+
+def receipt_evidence(tmp: Path, exp: Path, mutate):
+    receipt = passing_receipt(exp)
+    mutate(receipt)
+    path = tmp / "receipt.json"
+    dump(path, receipt)
+    out = check_receipt(path, exp)[0]
+    return out["verdict"], out["evidence"]
+
+
+def test_receipt_control_for_single_rule_tests_is_verified(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    assert receipt_evidence(tmp_path, exp, lambda r: None)[0] == "VERIFIED"
+
+
+def test_receipt_falsifies_wrong_suite_digest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r.update(suite_sha256="0" * 64))
+    assert verdict == "FALSIFIED"
+    assert evidence == "suite_sha256 does not match the recomputed combined suite digest"
+
+
+def test_receipt_falsifies_rank_that_differs_from_manifest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path, rank=4)
+    verdict, evidence = receipt_evidence(tmp_path, exp, lambda r: None)
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate rank 8 != frozen 4"
+
+
+def test_receipt_falsifies_target_layer_that_differs_from_manifest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path, layer=30)
+    verdict, evidence = receipt_evidence(tmp_path, exp, lambda r: None)
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate target_layer 31 != frozen 30"
+
+
+def test_receipt_falsifies_eta_outside_frozen_range_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r["candidate"]["config"].update(eta=0.5))
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate eta 0.5 outside frozen range [0.002, 0.02]"
+
+
+def test_receipt_falsifies_lora_scale_outside_allowed_values_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r["candidate"]["config"].update(lora_scale=0.5))
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate lora_scale 0.5 is not 0.0, 1.0, or -1.0"
+
+
+def write_log_overrides(path: Path, entries, *, seqs=None, prevs=None):
+    """Chain a log, optionally forcing a seq or prev_sha256 on an entry, and
+    recompute every entry hash so the hash check cannot be what rejects it."""
+    prev = "0" * 64
+    lines = []
+    for i, fields in enumerate(entries, start=1):
+        entry = {"seq": (seqs or {}).get(i, i), "ts_utc": "2026-11-21T00:00:00+00:00",
+                 "event": fields["event"], "prev_sha256": (prevs or {}).get(i, prev)}
+        entry.update({k: v for k, v in fields.items() if k != "event"})
+        entry["entry_sha256"] = sha256_canonical(entry)
+        lines.append(json.dumps(entry, sort_keys=True))
+        prev = entry["entry_sha256"]
+    path.write_text("\n".join(lines) + "\n")
+
+
+THREE_EVENTS = [{"event": "candidate_proposed", "candidate_id": "c1"},
+                {"event": "evaluated", "candidate_id": "c1"},
+                {"event": "verdict", "verdict": "ACCEPT"}]
+
+
+def test_receipt_log_falsifies_sequence_gap_only(tmp_path):
+    log = tmp_path / "log.jsonl"
+    write_log_overrides(log, THREE_EVENTS)
+    assert check_receipt_log(log)[0]["verdict"] == "VERIFIED"
+    write_log_overrides(log, THREE_EVENTS, seqs={3: 4})
+    out = check_receipt_log(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "seq 4, expected 3" in out["evidence"]
+
+
+def test_receipt_log_falsifies_broken_prev_link_only(tmp_path):
+    log = tmp_path / "log.jsonl"
+    write_log_overrides(log, THREE_EVENTS, prevs={2: "f" * 64})
+    out = check_receipt_log(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "prev_sha256 does not match" in out["evidence"]
+
+
+def test_policy_regressed_control_that_did_not_regress_is_falsified(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    reg = passing_receipt(exp)
+    reg["candidate"]["candidate_id"] = "regressed-control"
+    reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["measurements"]["task"]["top1"] = 0.40
+    reg["verdict"] = "REJECT"
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "VERIFIED"
+    assert "regressed-control" in out["evidence"]
+    # Claims REJECT, but task top1 is above the base value: only the
+    # did-not-regress rule can reject it, the generic policy would agree.
+    reg["measurements"]["task"]["top1"] = 0.60
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "did not regress" in out["evidence"]
+
+
+def test_policy_regressed_control_claiming_accept_is_falsified_by_the_control_rule(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    reg = passing_receipt(exp)
+    reg["candidate"]["candidate_id"] = "regressed-control"
+    reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["measurements"]["task"]["top1"] = 0.40
+    reg["verdict"] = "ACCEPT"
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert out["evidence"] == "independent control check says REJECT, receipt claims ACCEPT"
+
+
 # --- independence ------------------------------------------------------------
 
 
@@ -491,3 +764,15 @@ def test_golden_fixtures_against_frozen_contract():
     out = check_receipt_log(log)[0]
     assert out["verdict"] == "FALSIFIED"
     assert "strict JSON" in out["evidence"]
+
+
+# --- the suite must not pass under python -O -----------------------------------
+
+
+def test_suite_is_red_under_optimized_python():
+    proc = subprocess.run(
+        [sys.executable, "-I", "-O", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+         str(Path(__file__).resolve())],
+        capture_output=True, text=True, cwd=str(PKG))
+    assert proc.returncode != 0, proc.stdout
+    assert "do not run it under python -O" in proc.stdout + proc.stderr
