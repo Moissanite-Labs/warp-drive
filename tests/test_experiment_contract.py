@@ -122,7 +122,8 @@ def test_audit_arithmetic_is_consistent():
 
 def test_thresholds_frozen_and_gates_agree():
     thresholds = load(EXP / "thresholds.json")
-    assert thresholds["thresholds_version"] == "0.1.0"
+    assert thresholds["thresholds_version"] == "0.1.1"
+    assert thresholds["thresholds_version_reason"]
     assert thresholds["adapter_application_margin"]["threshold"] == -0.37
     assert thresholds["repair_budget_max_rounds"] == 3
     assert thresholds["safety"]["canary_fail_max"] == 0
@@ -135,15 +136,42 @@ def test_thresholds_frozen_and_gates_agree():
     )
 
 
-def margin_gate_passes(margins, threshold=-0.37):
-    return all(m > threshold for m in margins)
+def margin_gate_passes(adapter_margins, baseline_margins):
+    """Two-sided gate, with the threshold read from thresholds.json."""
+    threshold = load(EXP / "thresholds.json")["adapter_application_margin"][
+        "threshold"
+    ]
+    return (
+        bool(adapter_margins)
+        and bool(baseline_margins)
+        and all(m > threshold for m in adapter_margins)
+        and all(m <= threshold for m in baseline_margins)
+    )
 
 
 def test_margin_gate_on_synthetic_margins():
     # Pilot clusters: adapter -0.116 to +0.186, baseline -1.009 to -0.806.
-    assert margin_gate_passes([-0.116, 0.0, 0.186])
-    assert not margin_gate_passes([-0.116, -0.45, 0.186])
-    assert not margin_gate_passes([-1.009, -0.806])
+    adapter = [-0.116, 0.0, 0.186]
+    baseline = [-1.009, -0.806]
+    assert margin_gate_passes(adapter, baseline)
+    # Adapter side: one margin at or below the threshold fails.
+    assert not margin_gate_passes([-0.116, -0.45, 0.186], baseline)
+    # Baseline side: one margin above the threshold fails.
+    assert not margin_gate_passes(adapter, [-1.009, -0.2])
+    # The baseline cluster alone is not an adapter cluster.
+    assert not margin_gate_passes(baseline, baseline)
+    # Empty evidence does not pass.
+    assert not margin_gate_passes([], baseline)
+    assert not margin_gate_passes(adapter, [])
+
+
+def test_margin_rule_wording_is_two_sided():
+    rule = load(EXP / "thresholds.json")["adapter_application_margin"]["rule"]
+    assert "Every probe request margin must exceed the threshold" not in rule
+    assert "One W0-side margin fails the gate" not in rule
+    assert "two-sided" in rule
+    assert "adapter" in rule and "above" in rule
+    assert "baseline" in rule and "at or below" in rule
 
 
 def test_control_verdicts_on_synthetic_measurements():
