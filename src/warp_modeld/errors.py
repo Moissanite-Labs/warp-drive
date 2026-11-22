@@ -97,3 +97,23 @@ class ControllerError(WarpError):
 class ContractDriftError(WarpError):
     code = "ERR_CONTRACT_DRIFT"
     stage = "experiment_contract"
+
+
+class CerebrasClientError(WarpError):
+    code = "ERR_CEREBRAS_CLIENT"
+    stage = "lane6_cerebras"
+
+
+class CerebrasCredentialsMissingError(CerebrasClientError):
+    code = "ERR_CEREBRAS_NO_CREDENTIAL"
+    stage = "lane6_cerebras"
+
+
+class CerebrasSchemaError(CerebrasClientError):
+    code = "ERR_CEREBRAS_SCHEMA"
+    stage = "lane6_cerebras"
+
+
+class CerebrasTransportError(CerebrasClientError):
+    code = "ERR_CEREBRAS_TRANSPORT"
+    stage = "lane6_cerebras"
