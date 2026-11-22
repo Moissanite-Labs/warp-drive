@@ -14,6 +14,7 @@ Synthesizes:
 
 from __future__ import annotations
 
+import copy
 from fractions import Fraction
 import hashlib
 import hmac
@@ -115,6 +116,31 @@ FORBIDDEN_EGRESS_KEYS: frozenset[str] = frozenset(
         "raw_lora",
     }
 )
+
+ALLOWED_FAILURE_REPORT_KEYS: frozenset[str] = frozenset(
+    {
+        "candidate_id",
+        "failures",
+        "repair_round",
+        "verdict",
+        "failed_gate",
+        "unrelated_kl_after_milli",
+    }
+)
+ALLOWED_KNOBS_KEYS: frozenset[str] = frozenset(
+    {
+        "ranks",
+        "strength_den",
+        "strength_num_min",
+        "strength_num_max",
+        "quantizations",
+    }
+)
+FAILURE_REPORT_INT_KEYS: frozenset[str] = frozenset({"repair_round", "unrelated_kl_after_milli"})
+MAX_EGRESS_TOKEN_LEN = 64
+MAX_FAILURE_CODES = 16
+MAX_HISTORY_SUMMARY_ITEMS = 16
+MAX_KNOB_LIST_LEN = 16
 
 
 class ControllerError(ValueError):
@@ -442,11 +468,22 @@ class BoundedExperimentController:
 
     def __init__(self, frozen_manifest: Mapping[str, Any], ledger: SignedExperimentLedger) -> None:
         self.manifest = ec.validate_frozen_manifest(frozen_manifest)
+        self._pinned_manifest_sha256 = self.manifest["manifest_sha256"]
         self.ledger = ledger
         self._candidates: dict[str, dict[str, Any]] = {}
         self._used_candidate_rounds: set[int] = set()
         self._base_ckpt_digest = ec.sha256_canonical(self.manifest["base_checkpoint"])
         self._required_state_banks = required_state_banks_from_checkpoint(self.manifest["base_checkpoint"])
+
+    def _verify_manifest_integrity(self, snapshot: Mapping[str, Any] | None = None) -> None:
+        """Fail closed if internal manifest or a callback snapshot was tampered with."""
+        cur_sha = ec.compute_manifest_sha256(self.manifest)
+        if not hmac.compare_digest(cur_sha, self._pinned_manifest_sha256):
+            raise ControllerError("ERR_MANIFEST_TAMPERED", "frozen controller manifest was mutated")
+        if snapshot is not None:
+            snap_sha = ec.compute_manifest_sha256(snapshot)
+            if not hmac.compare_digest(snap_sha, self._pinned_manifest_sha256):
+                raise ControllerError("ERR_MANIFEST_TAMPERED", "callback attempted to mutate frozen manifest snapshot")
 
     @property
     def base_checkpoint_digest(self) -> str:
@@ -463,6 +500,7 @@ class BoundedExperimentController:
 
     # Operation 1: propose_candidate
     def propose_candidate(self, proposal: Mapping[str, Any]) -> dict[str, Any]:
+        self._verify_manifest_integrity()
         ec.verify_ring0_immutability(self.manifest, proposal)
         ec.verify_no_floats(proposal)
 
@@ -566,6 +604,7 @@ class BoundedExperimentController:
         live_checkpoint_digest: str,
         live_runtime_flags_sha256: str,
     ) -> dict[str, Any]:
+        self._verify_manifest_integrity()
         if candidate_id not in self._candidates:
             raise ControllerError("ERR_UNKNOWN_CANDIDATE", f"unknown candidate_id: {candidate_id!r}")
         rec = self._candidates[candidate_id]
@@ -577,7 +616,12 @@ class BoundedExperimentController:
         if not hmac.compare_digest(live_runtime_flags_sha256, self.manifest["runtime_flags_sha256"]):
             raise ControllerError("ERR_RUNTIME_FLAG_DRIFT", "live runtime_flags_sha256 drifted from frozen contract")
 
-        compiled = compiler.compile_candidate(manifest=self.manifest, proposal=rec["proposal"])
+        cb_manifest = copy.deepcopy(self.manifest)
+        cb_proposal = copy.deepcopy(rec["proposal"])
+        compiled = compiler.compile_candidate(manifest=cb_manifest, proposal=cb_proposal)
+        self._verify_manifest_integrity(cb_manifest)
+        if not isinstance(compiled, Mapping):
+            raise ControllerError("ERR_MALFORMED_COMPILER_OUTPUT", "compiler output must be a mapping")
         ec.verify_no_floats(compiled)
         adapter_sha = ec.require_sha256(compiled.get("candidate_adapter_sha256"), "candidate_adapter_sha256")
         compile_ms = ec.require_exact_int(compiled.get("compile_ms"), "compile_ms", min_value=0)
@@ -612,18 +656,32 @@ class BoundedExperimentController:
         live_adapter_sha256: str,
         live_checkpoint_digest: str,
     ) -> dict[str, Any]:
+        self._verify_manifest_integrity()
         if candidate_id not in self._candidates:
             raise ControllerError("ERR_UNKNOWN_CANDIDATE", f"unknown candidate_id: {candidate_id!r}")
         rec = self._candidates[candidate_id]
         if rec["phase"] != "Compiling" or rec["binding_receipt_seq"] is None or rec["candidate_adapter_sha256"] is None:
             raise ControllerError("ERR_HASH_ORDER_VIOLATION", "candidate hash must be compiled and recorded before evaluate")
 
+        bound_adapter_sha = rec["candidate_adapter_sha256"]
         if not hmac.compare_digest(live_checkpoint_digest, self._base_ckpt_digest):
             raise ControllerError("ERR_CHECKPOINT_DRIFT", "checkpoint drifted before evaluation")
-        if not hmac.compare_digest(live_adapter_sha256, rec["candidate_adapter_sha256"]):
+        if not hmac.compare_digest(live_adapter_sha256, bound_adapter_sha):
             raise ControllerError("ERR_ADAPTER_HASH_DRIFT", "live adapter hash differs from pre-recorded compile digest")
 
-        metrics = runtime.evaluate_candidate(manifest=self.manifest, candidate_record=rec)
+        cb_manifest = copy.deepcopy(self.manifest)
+        cb_record = copy.deepcopy(rec)
+        metrics = runtime.evaluate_candidate(manifest=cb_manifest, candidate_record=cb_record)
+        self._verify_manifest_integrity(cb_manifest)
+        cb_sha = cb_record.get("candidate_adapter_sha256")
+        if (
+            not isinstance(cb_sha, str)
+            or not hmac.compare_digest(cb_sha, bound_adapter_sha)
+            or not hmac.compare_digest(rec["candidate_adapter_sha256"], bound_adapter_sha)
+        ):
+            raise ControllerError("ERR_ADAPTER_HASH_DRIFT", "runtime callback tampered with candidate_adapter_sha256")
+        if not isinstance(metrics, Mapping):
+            raise ControllerError("ERR_MALFORMED_RUNTIME_OUTPUT", "runtime evaluation output must be a mapping")
         ec.verify_no_floats(metrics)
 
         # Both task_exact_gain and logprob_margin_delta accept signed exact rational pairs
@@ -655,7 +713,9 @@ class BoundedExperimentController:
         rec["contact"] = nxt_contact
 
         eval_record = {
-            "candidate_adapter_sha256": rec["candidate_adapter_sha256"],
+            "candidate_adapter_sha256": bound_adapter_sha,
+            "live_adapter_sha256": bound_adapter_sha,
+            "live_checkpoint_digest": live_checkpoint_digest,
             "binding_receipt_seq": rec["binding_receipt_seq"],
             "task_exact_gain": [task_gain.numerator, task_gain.denominator],
             "logprob_margin_delta": [lp_delta.numerator, lp_delta.denominator],
@@ -691,6 +751,7 @@ class BoundedExperimentController:
             ec.verify_no_floats(judge_comparison)
             ec.verify_ring0_immutability(self.manifest, judge_comparison)
 
+        self._verify_manifest_integrity()
         ev = rec["evaluation"]
         thresh = self.manifest["frozen_thresholds"]
         role = rec["proposal"]["control_role"]
@@ -718,6 +779,8 @@ class BoundedExperimentController:
             failures.append("goodhart_kl_latch_halted")
 
         if role == "unchanged_base":
+            if task_gain != Fraction(0, 1):
+                failures.append("unchanged_base_nonzero_task_gain")
             if lp_delta != Fraction(0, 1):
                 failures.append("unchanged_base_nonzero_logprob_shift")
             if failures:
@@ -768,6 +831,7 @@ class BoundedExperimentController:
         reason: str = "controller_rollback",
         expected_state_banks: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
+        self._verify_manifest_integrity()
         if candidate_id not in self._candidates:
             raise ControllerError("ERR_UNKNOWN_CANDIDATE", f"unknown candidate_id: {candidate_id!r}")
         req_banks = self._required_state_banks if expected_state_banks is None else tuple(expected_state_banks)
@@ -780,9 +844,15 @@ class BoundedExperimentController:
         ec.require_non_empty_str(reason, "reason")
 
         rb = runtime.rollback_and_flush(required_state_banks=req_banks, reason=reason)
+        self._verify_manifest_integrity()
+        if not isinstance(rb, Mapping):
+            raise ControllerError("ERR_MALFORMED_RUNTIME_OUTPUT", "runtime rollback output must be a mapping")
         ec.verify_no_floats(rb)
 
-        flushed = tuple(rb.get("banks_flushed", ()))
+        raw_flushed = rb.get("banks_flushed")
+        if not isinstance(raw_flushed, (list, tuple)):
+            raise ControllerError("ERR_STATE_FLUSH_INCOMPLETE", "banks_flushed must be a sequence")
+        flushed = tuple(raw_flushed)
         missing_banks = [b for b in req_banks if b not in flushed]
         if missing_banks:
             raise ControllerError("ERR_STATE_FLUSH_INCOMPLETE", f"unflushed required state banks: {missing_banks}")
@@ -811,6 +881,110 @@ class BoundedExperimentController:
 # ---------------------------------------------------------------------------
 # Part 5: Redacted Kimi-on-Cerebras 3-Call Advisory Client (Issue #6)
 # ---------------------------------------------------------------------------
+
+def _is_short_printable_ascii(value: Any, max_len: int = MAX_EGRESS_TOKEN_LEN) -> bool:
+    return (
+        type(value) is str
+        and 0 < len(value) <= max_len
+        and value == value.strip()
+        and all(32 <= ord(ch) <= 126 for ch in value)
+    )
+
+
+def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
+    """Strict allowlist validator for outbound diagnose() failure_report payloads.
+
+    Closes the egress alias bypass: only fixed structured diagnostic fields with exact
+    integers or short printable-ASCII enum/code strings may cross the provider boundary.
+    """
+    if not isinstance(failure_report, Mapping):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report must be a mapping")
+    cleaned: dict[str, Any] = {}
+    for k, v in failure_report.items():
+        if type(k) is not str or k not in ALLOWED_FAILURE_REPORT_KEYS:
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"unlisted failure_report key {k!r}")
+        if k in FAILURE_REPORT_INT_KEYS:
+            if type(v) is not int or v < 0:
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.{k} must be non-negative int")
+            cleaned[k] = v
+        elif k == "failures":
+            if not isinstance(v, (list, tuple)) or len(v) > MAX_FAILURE_CODES:
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report.failures must be short code list")
+            items: list[str] = []
+            for item in v:
+                if not _is_short_printable_ascii(item):
+                    raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report.failures entry invalid")
+                items.append(item)
+            cleaned[k] = items
+        else:
+            if not _is_short_printable_ascii(v):
+                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.{k} must be short ASCII token")
+            cleaned[k] = v
+    return cleaned
+
+
+def validate_history_summary_egress(history_summary: Any) -> list[dict[str, Any]]:
+    """Strict allowlist validator for outbound propose() history_summary lists."""
+    if not isinstance(history_summary, (list, tuple)) or len(history_summary) > MAX_HISTORY_SUMMARY_ITEMS:
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "history_summary must be bounded sequence of summary dicts")
+    return [validate_failure_report_egress(entry) for entry in history_summary]
+
+
+def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -> dict[str, Any]:
+    """Strict allowlist projection of frozen_manifest fields crossing the provider boundary."""
+    if not isinstance(frozen_manifest, Mapping):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "frozen_manifest must be a mapping")
+    try:
+        contract_sha = ec.require_sha256(frozen_manifest.get("manifest_sha256"), "manifest_sha256")
+    except ec.ExperimentContractError as exc:
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", str(exc)) from exc
+    projected: dict[str, Any] = {"contract_sha256": contract_sha}
+    if not include_knobs:
+        return projected
+    target_layer = frozen_manifest.get("target_layer")
+    if type(target_layer) is not str or not ec.LAYER_RE.match(target_layer):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "target_layer invalid for egress")
+    knobs = frozen_manifest.get("allowed_knobs")
+    if not isinstance(knobs, Mapping) or set(knobs.keys()) != ALLOWED_KNOBS_KEYS:
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs must match strict allowlisted keys")
+    raw_ranks = knobs["ranks"]
+    if not isinstance(raw_ranks, (list, tuple)) or not (1 <= len(raw_ranks) <= MAX_KNOB_LIST_LEN):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.ranks must be bounded non-empty list")
+    ranks: list[int] = []
+    for r in raw_ranks:
+        if type(r) is not int or r < 1:
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.ranks entry must be positive int")
+        ranks.append(r)
+    s_den = knobs["strength_den"]
+    s_min = knobs["strength_num_min"]
+    s_max = knobs["strength_num_max"]
+    if (
+        type(s_den) is not int
+        or s_den < 1
+        or type(s_min) is not int
+        or s_min < 1
+        or type(s_max) is not int
+        or s_max < s_min
+    ):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs strength bounds invalid")
+    raw_quants = knobs["quantizations"]
+    if not isinstance(raw_quants, (list, tuple)) or not (1 <= len(raw_quants) <= MAX_KNOB_LIST_LEN):
+        raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.quantizations must be bounded non-empty list")
+    quants: list[str] = []
+    for q in raw_quants:
+        if not _is_short_printable_ascii(q):
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.quantizations entry invalid")
+        quants.append(q)
+    projected["target_layer"] = target_layer
+    projected["allowed_knobs"] = {
+        "ranks": ranks,
+        "strength_den": s_den,
+        "strength_num_min": s_min,
+        "strength_num_max": s_max,
+        "quantizations": quants,
+    }
+    return projected
+
 
 def sanitize_outbound_payload(payload: Any, path: str = "$") -> None:
     """Fail-closed egress sanitizer guaranteeing Cerebras sees ONLY fixed text & metrics."""
@@ -921,11 +1095,16 @@ class CerebrasKimiAdvisoryClient:
         last_err_code: str | None = None
         while retries <= self.max_retries:
             resp = self.transport.call(req)
+            if not isinstance(resp, Mapping):
+                last_err_code = "ERR_TRANSPORT_FAILURE"
+                retries += 1
+                continue
             status = resp.get("status")
             if status == "ok":
-                raw_resp = resp
+                raw_resp = dict(resp)
                 break
-            last_err_code = str(resp.get("error_code", "ERR_TRANSPORT_FAILURE"))
+            raw_ec = resp.get("error_code")
+            last_err_code = raw_ec if _is_short_printable_ascii(raw_ec, max_len=MAX_EGRESS_TOKEN_LEN) else "ERR_TRANSPORT_FAILURE"
             retries += 1
 
         if raw_resp is None:
@@ -944,10 +1123,34 @@ class CerebrasKimiAdvisoryClient:
             )
             raise ControllerError(last_err_code or "ERR_TRANSPORT_FAILURE", f"Cerebras transport failed for {call_kind}")
 
-        served_model = ec.require_non_empty_str(raw_resp.get("served_model"), "served_model")
-        p_tok = ec.require_exact_int(raw_resp.get("prompt_tokens", 0), "prompt_tokens", min_value=0)
-        c_tok = ec.require_exact_int(raw_resp.get("completion_tokens", 0), "completion_tokens", min_value=0)
-        lat_ms = ec.require_exact_int(raw_resp.get("latency_ms", 0), "latency_ms", min_value=0)
+        try:
+            raw_sm = raw_resp.get("served_model")
+            if not _is_short_printable_ascii(raw_sm, max_len=128):
+                raise ec.ExperimentContractError(
+                    "ERR_MALFORMED_PROVIDER_METADATA",
+                    "served_model must be printable ASCII <= 128 chars",
+                )
+            served_model = raw_sm
+            p_tok = ec.require_exact_int(raw_resp.get("prompt_tokens", 0), "prompt_tokens", min_value=0)
+            c_tok = ec.require_exact_int(raw_resp.get("completion_tokens", 0), "completion_tokens", min_value=0)
+            lat_ms = ec.require_exact_int(raw_resp.get("latency_ms", 0), "latency_ms", min_value=0)
+        except ec.ExperimentContractError as exc:
+            raw_sm = raw_resp.get("served_model")
+            safe_sm = raw_sm if _is_short_printable_ascii(raw_sm, max_len=128) else None
+            self._record_receipt(
+                call_kind=call_kind,
+                served_model=safe_sm,
+                prompt_hash=prompt_hash,
+                decoding=decoding,
+                seed=seed_i,
+                prompt_tokens=0,
+                completion_tokens=0,
+                latency_ms=0,
+                retries=retries,
+                status="rejected",
+                error_code="ERR_MALFORMED_PROVIDER_METADATA",
+            )
+            raise ControllerError("ERR_MALFORMED_PROVIDER_METADATA", str(exc)) from exc
 
         if served_model != self.expected_model:
             self._record_receipt(
@@ -1033,12 +1236,8 @@ class CerebrasKimiAdvisoryClient:
         return {"parsed": parsed, "receipt": receipt}
 
     def propose(self, *, frozen_manifest: Mapping[str, Any], history_summary: Sequence[Mapping[str, Any]], seed: int = 101) -> dict[str, Any]:
-        payload = {
-            "contract_sha256": frozen_manifest["manifest_sha256"],
-            "target_layer": frozen_manifest["target_layer"],
-            "allowed_knobs": frozen_manifest["allowed_knobs"],
-            "history_summary": list(history_summary),
-        }
+        payload = _project_manifest_for_egress(frozen_manifest, include_knobs=True)
+        payload["history_summary"] = validate_history_summary_egress(history_summary)
 
         def _check_propose(parsed: dict[str, Any]) -> None:
             for req in ("candidate_id", "target_layer", "rank", "strength_num", "strength_den", "quantization", "seed"):
@@ -1056,10 +1255,12 @@ class CerebrasKimiAdvisoryClient:
         seed: int = 102,
     ) -> dict[str, Any]:
         rem = ec.require_exact_int(remaining_rounds, "remaining_rounds", min_value=1)
+        clean_manifest = _project_manifest_for_egress(frozen_manifest, include_knobs=False)
+        clean_report = validate_failure_report_egress(failure_report)
         payload = {
-            "contract_sha256": frozen_manifest["manifest_sha256"],
+            "contract_sha256": clean_manifest["contract_sha256"],
             "remaining_rounds": rem,
-            "failure_report": dict(failure_report),
+            "failure_report": clean_report,
         }
 
         def _check_diagnose(parsed: dict[str, Any]) -> None:

@@ -403,13 +403,182 @@ def test_group5_controller_5ops_and_boundaries() -> None:
         v = ctrl.promote_or_reject(cid)
         _require(v["verdict"] == "REJECTED" and expected_reason in v["failures"], f"{cid} -> {expected_reason}")
 
-    # Base control ok vs non-zero logprob shift reject
+    # Base control ok vs non-zero logprob shift reject vs non-zero task gain reject
+    rt_base_gain = vbc._DeterministicMockRuntime(
+        {
+            "c-base-gain": _base_metrics(task_exact_gain=[1, 20], logprob_margin_delta=[0, 1]),
+        }
+    )
     for cid, exp_v in (("c-base-ok", "CONTROL_BASE_PASS"), ("c-base-bad", "REJECTED")):
         ctrl.propose_candidate(_valid_proposal(m, cid, control_role="unchanged_base", repair_round=0, rank=0, strength_num=0))
         b = ctrl.compile_and_bind(cid, compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
-        ctrl.evaluate(cid, runtime=rt, live_adapter_sha256=b["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig)
+        ev = ctrl.evaluate(cid, runtime=rt, live_adapter_sha256=b["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig)
+        _require(ev["evaluation"]["live_checkpoint_digest"] == ckpt_dig, "eval receipt records live_checkpoint_digest")
+        _require(ev["evaluation"]["live_adapter_sha256"] == b["candidate_adapter_sha256"], "eval receipt records live_adapter_sha256")
         v = ctrl.promote_or_reject(cid)
         _require(v["verdict"] == exp_v, f"{cid} -> {exp_v}")
+
+    ctrl.propose_candidate(_valid_proposal(m, "c-base-gain", control_role="unchanged_base", repair_round=0, rank=0, strength_num=0))
+    b_bg = ctrl.compile_and_bind("c-base-gain", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
+    ctrl.evaluate("c-base-gain", runtime=rt_base_gain, live_adapter_sha256=b_bg["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig)
+    v_bg = ctrl.promote_or_reject("c-base-gain")
+    _require(v_bg["verdict"] == "REJECTED" and "unchanged_base_nonzero_task_gain" in v_bg["failures"], "base nonzero task gain rejected")
+
+    # Adversarial callback closures (PR #13 review #1 & #2):
+    # 1. validate_frozen_manifest returns isolated deep copy (external edit does not mutate controller manifest)
+    m_ext = _base_manifest()
+    ctrl_iso = bc.BoundedExperimentController(m_ext, bc.SignedExperimentLedger(b"k" * 32))
+    m_ext["frozen_thresholds"]["min_task_exact_gain"] = [-100, 1]
+    _require(ctrl_iso.manifest["frozen_thresholds"]["min_task_exact_gain"] == [1, 20], "manifest deep-copied on init")
+
+    # 2. Adversarial compiler mutating frozen_thresholds raises ERR_MANIFEST_TAMPERED
+    class _TamperCompiler:
+        is_mock = True
+
+        def compile_candidate(self, *, manifest, proposal):
+            manifest["frozen_thresholds"]["min_task_exact_gain"] = [-100, 1]
+            return {"candidate_adapter_sha256": _sha("tamper-comp"), "compile_ms": 1, "compiler_commit": m["compiler_commit"]}
+
+    ctrl_adv = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"a" * 32))
+    ctrl_adv.propose_candidate(_valid_proposal(m, "c-adv-comp", repair_round=1))
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_adv.compile_and_bind(
+            "c-adv-comp", compiler=_TamperCompiler(), live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig
+        ),
+        "compiler threshold tamper rejected",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+    _require(ctrl_adv.manifest["frozen_thresholds"]["min_task_exact_gain"] == [1, 20], "internal manifest uncorrupted")
+
+    # 3. Adversarial runtime overwriting candidate_adapter_sha256 raises ERR_ADAPTER_HASH_DRIFT & never promotes
+    class _SwapHashRuntime:
+        is_mock = True
+
+        def evaluate_candidate(self, *, manifest, candidate_record):
+            candidate_record["candidate_adapter_sha256"] = _sha("forged-sha")
+            return _base_metrics()
+
+    ctrl_rt = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"r" * 32))
+    ctrl_rt.propose_candidate(_valid_proposal(m, "c-adv-rt", repair_round=1))
+    b_rt = ctrl_rt.compile_and_bind("c-adv-rt", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_rt.evaluate(
+            "c-adv-rt", runtime=_SwapHashRuntime(), live_adapter_sha256=b_rt["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig
+        ),
+        "runtime hash overwrite rejected",
+        code="ERR_ADAPTER_HASH_DRIFT",
+    )
+    _require(ctrl_rt.candidate_state("c-adv-rt")["verdict"] is None, "no promoted verdict after runtime hash tamper")
+
+    # 4. Direct internal manifest tamper caught before promote_or_reject
+    ctrl_int = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"i" * 32))
+    ctrl_int.propose_candidate(_valid_proposal(m, "c-adv-int", repair_round=1))
+    b_int = ctrl_int.compile_and_bind("c-adv-int", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
+    ctrl_int.evaluate(
+        "c-adv-int",
+        runtime=vbc._DeterministicMockRuntime({"c-adv-int": _base_metrics()}),
+        live_adapter_sha256=b_int["candidate_adapter_sha256"],
+        live_checkpoint_digest=ckpt_dig,
+    )
+    ctrl_int.manifest["frozen_thresholds"]["min_task_exact_gain"] = [-100, 1]
+    _expect_err(bc.ControllerError, lambda: ctrl_int.promote_or_reject("c-adv-int"), "direct manifest tamper rejected", code="ERR_MANIFEST_TAMPERED")
+
+    # PR13-BUG-03 closures: manifest integrity on propose_candidate / compile_and_bind / evaluate / rollback + non-mapping callbacks
+    ctrl_prop_tamper = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"p" * 32))
+    ctrl_prop_tamper.manifest["max_repair_rounds"] = 99
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_prop_tamper.propose_candidate(_valid_proposal(m, "c-r50", repair_round=50)),
+        "propose_candidate catches tampered max_repair_rounds",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+
+    ctrl_comp_tamper = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"c" * 32))
+    ctrl_comp_tamper.propose_candidate(_valid_proposal(m, "c-ct", repair_round=1))
+    ctrl_comp_tamper.manifest["runtime_flags_sha256"] = _sha("tampered-flags")
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_comp_tamper.compile_and_bind("c-ct", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=_sha("tampered-flags")),
+        "compile_and_bind catches tampered manifest",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+
+    ctrl_eval_tamper = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"e" * 32))
+    ctrl_eval_tamper.propose_candidate(_valid_proposal(m, "c-et", repair_round=1))
+    b_et = ctrl_eval_tamper.compile_and_bind("c-et", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
+    ctrl_eval_tamper.manifest["frozen_thresholds"]["max_unrelated_kl_milli"] = 9999
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_eval_tamper.evaluate("c-et", runtime=rt, live_adapter_sha256=b_et["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig),
+        "evaluate catches tampered manifest",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+
+    ctrl_rb_tamper = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"b" * 32))
+    ctrl_rb_tamper.propose_candidate(_valid_proposal(m, "c-rb", repair_round=1))
+    ctrl_rb_tamper.manifest["frozen_thresholds"]["max_rollback_logit_diff_milli"] = 999999
+    rt_drift = vbc._DeterministicMockRuntime({})
+    rt_drift.inject_logit_drift_milli = 500
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_rb_tamper.rollback("c-rb", runtime=rt_drift),
+        "rollback catches tampered max_rollback_logit_diff_milli",
+        code="ERR_MANIFEST_TAMPERED",
+    )
+
+    class _NoneCompiler:
+        is_mock = True
+        def compile_candidate(self, *, manifest, proposal):
+            return None
+
+    class _BadRuntime:
+        is_mock = True
+        def __init__(self, eval_out=None, rb_out=None, tamper_ctrl=None):
+            self._eval_out = eval_out
+            self._rb_out = rb_out
+            self._tamper_ctrl = tamper_ctrl
+        def evaluate_candidate(self, *, manifest, candidate_record):
+            return self._eval_out
+        def rollback_and_flush(self, *, required_state_banks, reason):
+            if self._tamper_ctrl is not None:
+                self._tamper_ctrl.manifest["frozen_thresholds"]["max_rollback_logit_diff_milli"] = 999
+            return self._rb_out
+
+    ctrl_cb = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"n" * 32))
+    ctrl_cb.propose_candidate(_valid_proposal(m, "c-none", repair_round=1))
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.compile_and_bind("c-none", compiler=_NoneCompiler(), live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig),
+        "non-mapping compiler output rejected",
+        code="ERR_MALFORMED_COMPILER_OUTPUT",
+    )
+    b_none = ctrl_cb.compile_and_bind("c-none", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.evaluate("c-none", runtime=_BadRuntime(eval_out=None), live_adapter_sha256=b_none["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig),
+        "non-mapping runtime eval rejected",
+        code="ERR_MALFORMED_RUNTIME_OUTPUT",
+    )
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=_BadRuntime(rb_out=None)),
+        "non-mapping runtime rollback rejected",
+        code="ERR_MALFORMED_RUNTIME_OUTPUT",
+    )
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=_BadRuntime(rb_out={"banks_flushed": None})),
+        "non-sequence banks_flushed rejected",
+        code="ERR_STATE_FLUSH_INCOMPLETE",
+    )
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=_BadRuntime(rb_out={"banks_flushed": list(ctrl_cb.required_state_banks), "baseline_logit_diff_milli": 0, "deploy_rollback_ms": 1}, tamper_ctrl=ctrl_cb)),
+        "post-rollback manifest tamper rejected",
+        code="ERR_MANIFEST_TAMPERED",
+    )
 
     # Malformed logprob_margin_delta format rejected
     ctrl.propose_candidate(_valid_proposal(m, "c-bad-lp-fmt", repair_round=2))
@@ -439,10 +608,112 @@ def test_group6_cerebras_advisory_boundary() -> None:
 
     p = cli.propose(frozen_manifest=m, history_summary=[])
     _require(p["parsed"]["candidate_id"] == "cand-r1-underfit", "propose ok")
-    d = cli.diagnose(frozen_manifest=m, failure_report={"f": 1}, remaining_rounds=1)
+    d = cli.diagnose(
+        frozen_manifest=m,
+        failure_report={
+            "candidate_id": "cand-r1-underfit",
+            "failures": ["task_exact_gain_below_threshold"],
+            "repair_round": 1,
+            "unrelated_kl_after_milli": 40,
+        },
+        remaining_rounds=1,
+    )
     _require("repair_proposal" in d["parsed"], "diagnose ok")
     c = cli.compare(case_id="c1", baseline_text="a", adapted_text="b")
     _require(c["parsed"]["advisory_vote"] == "BETTER", "compare ok")
+
+    # PR #13 review #3: strict failure_report allowlist rejects alias keys & raw byte lists BEFORE transport
+    for bad_report in (
+        "not-a-dict",
+        {"adapter": [0, 1, 2, 255]},
+        {"Adapter_Bytes": "AAEC/w=="},
+        {"repair_round": True},
+        {"repair_round": -1},
+        {"failures": "not-a-list"},
+        {"failures": ["x"] * 17},
+        {"failures": [0, 1, 2, 255]},
+        {"candidate_id": ""},
+        {"candidate_id": "a" * 65},
+        {"candidate_id": "bad\x1b[31m"},
+    ):
+        _expect_err(
+            bc.ControllerError,
+            lambda br=bad_report: cli.diagnose(frozen_manifest=m, failure_report=br, remaining_rounds=1),  # type: ignore[arg-type]
+            f"bad failure_report {bad_report!r}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+
+    # Boundary-length token (64 chars) & 16 failure codes pass allowlist cleanly
+    ok_rep = bc.validate_failure_report_egress(
+        {"candidate_id": "a" * 64, "failures": ["f"] * 16, "repair_round": 0}
+    )
+    _require(len(ok_rep["candidate_id"]) == 64 and len(ok_rep["failures"]) == 16, "allowlist boundary passes")
+
+    # PR13-BUG-01 closures: propose() history_summary & frozen_manifest strict allowlist egress
+    p_hist = cli.propose(
+        frozen_manifest=m,
+        history_summary=[{"candidate_id": f"c-{i}", "repair_round": i, "verdict": "REJECTED", "failures": ["low_gain"]} for i in range(16)],
+    )
+    _require(p_hist["parsed"]["candidate_id"] == "cand-r1-underfit", "16-item valid history_summary passes")
+    for bad_hist in (
+        "not-a-list",
+        [{"candidate_id": "c"} for _ in range(17)],
+        [{"adapter": [0, 1, 2, 255], "Adapter_Bytes": "AAEC/w=="}],
+        [{"Adapter_Bytes": "AAEC/w=="}],
+    ):
+        _expect_err(
+            bc.ControllerError,
+            lambda bh=bad_hist: cli.propose(frozen_manifest=m, history_summary=bh),  # type: ignore[arg-type]
+            f"bad history_summary {bad_hist!r}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+
+    import copy as _copy
+    def _mut_manifest(fn):
+        mm = _copy.deepcopy(m)
+        fn(mm)
+        return mm
+
+    for bad_m in (
+        "not-a-mapping",
+        _mut_manifest(lambda d: d.__setitem__("manifest_sha256", "bad-sha")),
+        _mut_manifest(lambda d: d.__setitem__("target_layer", "bad-layer")),
+        _mut_manifest(lambda d: d.__setitem__("allowed_knobs", "not-a-map")),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("Adapter_Bytes", "AAEC/w==")),
+        _mut_manifest(lambda d: d["allowed_knobs"].pop("ranks")),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [1] * 17)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [0])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [True])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_min", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_max", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", True)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", [])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["q"] * 17)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["bad\x1b"])),
+    ):
+        _expect_err(
+            bc.ControllerError,
+            lambda bm=bad_m: cli.propose(frozen_manifest=bm, history_summary=[]),  # type: ignore[arg-type]
+            "propose rejects tampered/smuggled manifest egress",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+    # Exact max boundary (16 ranks & 16 quantizations, strength_num_min == strength_num_max == 1, strength_den == 1) passes!
+    m_bound = _mut_manifest(lambda d: d["allowed_knobs"].update({
+        "ranks": list(range(1, 17)),
+        "strength_den": 1,
+        "strength_num_min": 1,
+        "strength_num_max": 1,
+        "quantizations": [f"q{i}" for i in range(16)],
+    }))
+    cli.propose(frozen_manifest=m_bound, history_summary=[])
+    _expect_err(
+        bc.ControllerError,
+        lambda: cli.diagnose(frozen_manifest="not-a-map", failure_report={}, remaining_rounds=1),  # type: ignore[arg-type]
+        "diagnose rejects non-mapping manifest",
+        code="ERR_EGRESS_POLICY_VIOLATION",
+    )
 
     # Custom transport for schema & non-dict refusal tests
     class _RawRespTransport:
@@ -485,6 +756,75 @@ def test_group6_cerebras_advisory_boundary() -> None:
     tr.mode = "timeout"
     _expect_err(bc.ControllerError, lambda: cli.compare(case_id="x", baseline_text="a", adapted_text="b"), "transport error")
     _require(cli.receipts[-1]["status"] == "error" and cli.receipts[-1]["error_code"] == "ERR_TIMEOUT", "timeout receipt recorded")
+
+    # PR #13 review #4: malformed provider metadata MUST record a rejected receipt before raising ControllerError
+    class _MetaRespTransport:
+        transport_mode = "mock_contract"
+        live_credentials_used = False
+
+        def __init__(self, resp: object) -> None:
+            self._resp = resp
+
+        def call(self, request):
+            return self._resp
+
+    for bad_meta in (
+        {"status": "ok", "served_model": "kimi-k3.1-pro", "prompt_tokens": "not-an-integer", "completion_tokens": 1, "latency_ms": 1, "content_json": '{"advisory_vote":"BETTER"}'},
+        {"status": "ok", "served_model": "kimi-k3.1-pro", "prompt_tokens": 1, "completion_tokens": "bad", "latency_ms": 1, "content_json": '{"advisory_vote":"BETTER"}'},
+        {"status": "ok", "served_model": "kimi-k3.1-pro", "prompt_tokens": 1, "completion_tokens": 1, "latency_ms": -5, "content_json": '{"advisory_vote":"BETTER"}'},
+        {"status": "ok", "served_model": "", "prompt_tokens": 1, "completion_tokens": 1, "latency_ms": 1, "content_json": '{"advisory_vote":"BETTER"}'},
+    ):
+        c_meta = bc.CerebrasKimiAdvisoryClient(_MetaRespTransport(bad_meta), max_retries=0)
+        _expect_err(
+            bc.ControllerError,
+            lambda cm=c_meta: cm.compare(case_id="x", baseline_text="a", adapted_text="b"),
+            "malformed provider metadata",
+            code="ERR_MALFORMED_PROVIDER_METADATA",
+        )
+        _require(
+            len(c_meta.receipts) == 1
+            and c_meta.receipts[0]["status"] == "rejected"
+            and c_meta.receipts[0]["error_code"] == "ERR_MALFORMED_PROVIDER_METADATA",
+            "rejected receipt recorded on bad provider metadata",
+        )
+
+    # Non-mapping transport response raises ControllerError (not raw AttributeError) with error receipt
+    c_nonmap = bc.CerebrasKimiAdvisoryClient(_MetaRespTransport("not-a-dict"), max_retries=0)
+    _expect_err(bc.ControllerError, lambda: c_nonmap.compare(case_id="x", baseline_text="a", adapted_text="b"), "non-mapping transport", code="ERR_TRANSPORT_FAILURE")
+    _require(len(c_nonmap.receipts) == 1 and c_nonmap.receipts[0]["status"] == "error", "non-mapping transport error receipt")
+
+    # PR13-BUG-02 closures: ANSI/NUL/oversized served_model and transport error_code sanitized before receipt logging
+    for bad_sm in ("evil\x1b[31m\x00" + "A" * 300, "A" * 129, "bad\nmodel", "bad\x00model"):
+        c_sm = bc.CerebrasKimiAdvisoryClient(
+            _MetaRespTransport({"status": "ok", "served_model": bad_sm, "prompt_tokens": 1, "completion_tokens": 1, "latency_ms": 1, "content_json": '{"advisory_vote":"BETTER"}'}),
+            max_retries=0,
+        )
+        _expect_err(
+            bc.ControllerError,
+            lambda cs=c_sm: cs.compare(case_id="x", baseline_text="a", adapted_text="b"),
+            "malformed ANSI/NUL/oversized served_model rejected",
+            code="ERR_MALFORMED_PROVIDER_METADATA",
+        )
+        _require(c_sm.receipts[0]["served_model"] is None and c_sm.receipts[0]["status"] == "rejected", "unsanitized served_model never written to receipt")
+
+    # Exact 128-char printable ASCII served_model passes metadata gate -> hits ERR_MODEL_SUBSTITUTION cleanly
+    sm_128 = "M" * 128
+    c_sm128 = bc.CerebrasKimiAdvisoryClient(
+        _MetaRespTransport({"status": "ok", "served_model": sm_128, "prompt_tokens": 1, "completion_tokens": 1, "latency_ms": 1, "content_json": '{"advisory_vote":"BETTER"}'}),
+        max_retries=0,
+    )
+    _expect_err(bc.ControllerError, lambda: c_sm128.compare(case_id="x", baseline_text="a", adapted_text="b"), "128-char substitution", code="ERR_MODEL_SUBSTITUTION")
+    _require(c_sm128.receipts[0]["served_model"] == sm_128, "128-char clean ASCII served_model preserved")
+
+    for bad_ec in ("ERR\x1b[31m\x00INJ", "E" * 65, "", 123):
+        c_ec = bc.CerebrasKimiAdvisoryClient(_MetaRespTransport({"status": "error", "error_code": bad_ec}), max_retries=0)
+        _expect_err(bc.ControllerError, lambda ce=c_ec: ce.compare(case_id="x", baseline_text="a", adapted_text="b"), "sanitized transport error_code", code="ERR_TRANSPORT_FAILURE")
+        _require(c_ec.receipts[0]["error_code"] == "ERR_TRANSPORT_FAILURE", "raw ANSI/NUL error_code never leaked into receipt")
+
+    ec_64 = "E" * 64
+    c_ec64 = bc.CerebrasKimiAdvisoryClient(_MetaRespTransport({"status": "error", "error_code": ec_64}), max_retries=0)
+    _expect_err(bc.ControllerError, lambda: c_ec64.compare(case_id="x", baseline_text="a", adapted_text="b"), "64-char clean error_code", code=ec_64)
+    _require(c_ec64.receipts[0]["error_code"] == ec_64, "64-char clean ASCII error_code preserved")
 
 
 def run_all_tests() -> int:

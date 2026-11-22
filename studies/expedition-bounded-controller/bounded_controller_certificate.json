@@ -1,7 +1,7 @@
 {
   "arm": "R6-3",
   "audit_id": "AUDIT-063",
-  "canonical_sha256": "a130ee9ce5407ec9ef71284d1cde8ca5add3e02e15ad2c98f1f9b6f9aed3a9e2",
+  "canonical_sha256": "5200107049fd9abd05d885b90db2a486c4758dc9206a06c762a32419f2a21cde",
   "evidence_boundary_disclosure": {
     "cerebras_transport_mode": "mock_contract",
     "controller_runtime_mode": "logic_check_fake_runtime",
@@ -71,7 +71,7 @@
   "part3_issue5_controller_lifecycle": {
     "ledger_independent_verification": {
       "count": 23,
-      "head_sha256": "0adf65498365d674bfd85bd23f32d3541c737b3ff302245780b65d32b660d0d3",
+      "head_sha256": "77a347dc9fd7fac0e990c65aefc7f12f36e27eb373f98f995dcfe9cdb1ec3036",
       "valid": true
     },
     "regressed_plausible_failures": [

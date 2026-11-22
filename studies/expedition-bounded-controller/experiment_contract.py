@@ -10,6 +10,7 @@ Synthesizes:
 
 from __future__ import annotations
 
+import copy
 from fractions import Fraction
 import hashlib
 import hmac
@@ -373,7 +374,8 @@ def validate_frozen_manifest(raw: Mapping[str, Any], *, reader_version: int = MI
         raise ExperimentContractError("ERR_MANIFEST_TAMPERED", f"stored {stored_sha} != computed {computed_sha}")
 
     # Preserve unknown extension fields faithfully (OpenResearch FROZEN.md forward compatibility)
-    return dict(raw)
+    # Return an isolated deep copy so external callers/callbacks cannot mutate nested thresholds.
+    return copy.deepcopy(dict(raw))
 
 
 def build_frozen_manifest(
