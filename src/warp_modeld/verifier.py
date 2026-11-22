@@ -356,6 +356,19 @@ class WarpModeld:
                         f"(tainted={slot.recurrent_state_tainted}, active={slot.active_lora_ids}, "
                         f"n_decoded={slot.n_decoded}, n_prompt_tokens_cache={slot.n_prompt_tokens_cache})"
                     )
+                for req_bank in required_banks:
+                    bank_status = slot.state_banks.get(req_bank)
+                    if bank_status is None or not bank_status.is_clean:
+                        err_cls = (
+                            LatticeFlushError
+                            if req_bank == STATE_BANK_LATTICE
+                            else StateFlushError
+                        )
+                        raise err_cls(
+                            f"slot {slot.id} retained or failed to confirm clean "
+                            f"{req_bank} state after erase "
+                            f"(bank={bank_status.to_dict() if bank_status else None})"
+                        )
                 receipts.append(
                     BankFlushReceipt(
                         slot_id=slot.id,
