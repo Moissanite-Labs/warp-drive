@@ -628,6 +628,13 @@ def test_group5_controller_5ops_and_boundaries() -> None:
 
     ctrl_cb = bc.BoundedExperimentController(_base_manifest(), bc.SignedExperimentLedger(b"n" * 32))
     ctrl_cb.propose_candidate(_valid_proposal(m, "c-none", repair_round=1))
+    # PR #30 review #2: rollback from non-Promoted phases (Proposing, Compiling, Evaluating, Rejected) fails closed
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=rt),
+        "rollback from Proposing rejected",
+        code="ERR_INVALID_PHASE",
+    )
     _expect_err(
         bc.ControllerError,
         lambda: ctrl_cb.compile_and_bind("c-none", compiler=_NoneCompiler(), live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig),
@@ -637,10 +644,25 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     b_none = ctrl_cb.compile_and_bind("c-none", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
     _expect_err(
         bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=rt),
+        "rollback from Compiling rejected",
+        code="ERR_INVALID_PHASE",
+    )
+    _expect_err(
+        bc.ControllerError,
         lambda: ctrl_cb.evaluate("c-none", runtime=_BadRuntime(eval_out=None), live_adapter_sha256=b_none["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig),
         "non-mapping runtime eval rejected",
         code="ERR_MALFORMED_RUNTIME_OUTPUT",
     )
+    ctrl_cb.evaluate("c-none", runtime=vbc._DeterministicMockRuntime({"c-none": _base_metrics()}), live_adapter_sha256=b_none["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig)
+    _expect_err(
+        bc.ControllerError,
+        lambda: ctrl_cb.rollback("c-none", runtime=rt),
+        "rollback from Evaluating rejected",
+        code="ERR_INVALID_PHASE",
+    )
+    v_none = ctrl_cb.promote_or_reject("c-none")
+    _require(v_none["verdict"] == "PROMOTED", "c-none promoted before rollback callback checks")
     _expect_err(
         bc.ControllerError,
         lambda: ctrl_cb.rollback("c-none", runtime=_BadRuntime(rb_out=None)),
@@ -665,8 +687,9 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     b_lp = ctrl.compile_and_bind("c-bad-lp-fmt", compiler=comp, live_checkpoint_digest=ckpt_dig, live_runtime_flags_sha256=flags_dig)
     _expect_err(bc.ControllerError, lambda: ctrl.evaluate("c-bad-lp-fmt", runtime=rt, live_adapter_sha256=b_lp["candidate_adapter_sha256"], live_checkpoint_digest=ckpt_dig), "bad lp pair")
 
-    # Rollback refusals (including CTRL-BYPASS-2 kv-only omission on hybrid+lattice checkpoint!) & exact 0-diff pass
+    # Rollback refusals (including CTRL-BYPASS-2 kv-only omission, Rejected phase, & double rollback) + exact 0-diff pass
     _expect_err(bc.ControllerError, lambda: ctrl.rollback("missing", runtime=rt), "rb missing")
+    _expect_err(bc.ControllerError, lambda: ctrl.rollback("c-fail-safety", runtime=rt), "rb from Rejected phase rejected", code="ERR_INVALID_PHASE")
     _expect_err(bc.ControllerError, lambda: ctrl.rollback("c-min", runtime=rt, expected_state_banks=("kv_cache",)), "rb missing checkpoint banks", code="ERR_INVALID_STATE_BANKS")
     rt.fail_lattice_flush = True
     _expect_err(bc.ControllerError, lambda: ctrl.rollback("c-min", runtime=rt), "rb incomplete bank flush")
@@ -676,10 +699,13 @@ def test_group5_controller_5ops_and_boundaries() -> None:
     rt.inject_logit_drift_milli = 0
     rb_ok = ctrl.rollback("c-min", runtime=rt)
     _require(rb_ok["baseline_logits_restored"] is True, "rb exact 0 diff passes")
-    # Issue #29 item 3c: rollback MUST transition candidate phase from Promoted -> RolledBack
+    # Issue #29 item 3c + PR #30 review #2: rollback transitions Promoted -> RolledBack, pins prior_phase, blocks 2nd rollback
     _require(rb_ok["phase"] == "RolledBack", "rollback return reports RolledBack phase")
+    _require(rb_ok["receipt"]["payload"]["prior_phase"] == "Promoted", "rollback receipt pins prior_phase == Promoted")
+    _require(rb_ok["receipt"]["payload"]["phase"] == "RolledBack", "rollback receipt pins phase == RolledBack")
     _require(ctrl.candidate_state("c-min")["phase"] == "RolledBack", "candidate_state phase moved to RolledBack")
     _require(ctrl.candidate_state("c-min")["rolled_back"] is True, "candidate_state rolled_back flag True")
+    _expect_err(bc.ControllerError, lambda: ctrl.rollback("c-min", runtime=rt), "second rollback from RolledBack rejected", code="ERR_INVALID_PHASE")
 
     # Issue #29 item 3a & 3b: explicit hmac_key resolution, env override, and ledger-derived timings
     k_param, src_param = vbc.resolve_study_hmac_key(manifest_sha256=m["manifest_sha256"], hmac_key=b"z" * 32)
@@ -725,7 +751,22 @@ def test_group6_cerebras_advisory_boundary() -> None:
     class _SubStr(str):
         pass
 
-    for bad_report in (
+    # PR #30 Review 6011915046 Item 1: exact witness int.from_bytes(b"SECRET-LORA-BYTES\x00\xff", "big") & >4300-digit int
+    # MUST be rejected with ERR_EGRESS_POLICY_VIOLATION BEFORE reaching transport!
+    secret_int = int.from_bytes(b"SECRET-LORA-BYTES\x00\xff", "big")
+    huge_int = 10 ** 5000
+    seen_calls: list[Any] = []
+
+    class _SpyTransport:
+        transport_mode = "mock_contract"
+        live_credentials_used = False
+
+        def call(self, request):
+            seen_calls.append(request)
+            return tr.call(request)
+
+    spy_cli = bc.CerebrasKimiAdvisoryClient(_SpyTransport(), expected_model="kimi-k3.1-pro", max_retries=0)
+    for idx, bad_report in enumerate((
         "not-a-dict",
         {"adapter": [0, 1, 2, 255]},
         {"Adapter_Bytes": "AAEC/w=="},
@@ -734,6 +775,14 @@ def test_group6_cerebras_advisory_boundary() -> None:
         {_SubStr("verdict"): "REJECTED"},
         {"repair_round": True},
         {"repair_round": -1},
+        {"repair_round": m["max_repair_rounds"] + 1},
+        {"repair_round": secret_int},
+        {"repair_round": huge_int},
+        {"unrelated_kl_after_milli": True},
+        {"unrelated_kl_after_milli": -1},
+        {"unrelated_kl_after_milli": bc.MAX_UNRELATED_KL_MILLI_EGRESS + 1},
+        {"unrelated_kl_after_milli": secret_int},
+        {"unrelated_kl_after_milli": huge_int},
         {"failures": "not-a-list"},
         {"failures": {"safety_canary_failed"}},
         {"failures": ["task_exact_gain_below_threshold"] * (bc.MAX_FAILURE_CODES + 1)},
@@ -753,15 +802,38 @@ def test_group6_cerebras_advisory_boundary() -> None:
         {"failed_gate": b64_48},
         {"failed_gate": _SubStr("safety_canary_failed")},
         {"failed_gate": "unlisted_gate"},
-    ):
+    )):
         _expect_err(
             bc.ControllerError,
-            lambda br=bad_report: cli.diagnose(frozen_manifest=m, failure_report=br, remaining_rounds=1),  # type: ignore[arg-type]
-            f"bad failure_report {bad_report!r}",
+            lambda br=bad_report: spy_cli.diagnose(frozen_manifest=m, failure_report=br, remaining_rounds=1),  # type: ignore[arg-type]
+            f"bad failure_report case #{idx}",
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
+    # Also reject unbounded remaining_rounds, out-of-range max_repair_rounds, and oversized seed before transport!
+    for idx, bad_rem in enumerate((True, 0, m["max_repair_rounds"] + 1, secret_int, huge_int)):
+        _expect_err(
+            bc.ControllerError,
+            lambda br=bad_rem: spy_cli.diagnose(frozen_manifest=m, failure_report={}, remaining_rounds=br),  # type: ignore[arg-type]
+            f"bad remaining_rounds case #{idx}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+    for bad_mr in (True, 0, ec.MAX_REPAIR_ROUNDS_CEILING + 1):
+        _expect_err(
+            bc.ControllerError,
+            lambda bmr=bad_mr: bc.validate_failure_report_egress({}, max_repair_rounds=bmr),  # type: ignore[arg-type]
+            f"bad max_repair_rounds arg {bad_mr!r}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+    for idx, bad_seed in enumerate((True, -1, bc.MAX_EGRESS_SEED + 1, secret_int, huge_int)):
+        _expect_err(
+            bc.ControllerError,
+            lambda bs=bad_seed: spy_cli.diagnose(frozen_manifest=m, failure_report={}, remaining_rounds=1, seed=bs),  # type: ignore[arg-type]
+            f"bad seed case #{idx}",
+            code="ERR_EGRESS_POLICY_VIOLATION",
+        )
+    _require(len(seen_calls) == 0, "rejected egress payloads MUST NEVER reach transport")
 
-    # Exact boundary token (32 chars) & all allowed enum codes pass allowlist cleanly
+    # Exact boundary token (32 chars), max repair_round (3), max unrelated_kl_after_milli (1_000_000), max remaining_rounds (3), max seed pass cleanly!
     all_codes = sorted(bc.ALLOWED_FAILURE_CODES)
     ok_rep = bc.validate_failure_report_egress(
         {
@@ -769,10 +841,26 @@ def test_group6_cerebras_advisory_boundary() -> None:
             "verdict": "REJECTED",
             "failed_gate": all_codes[0],
             "failures": all_codes,
-            "repair_round": 0,
-        }
+            "repair_round": m["max_repair_rounds"],
+            "unrelated_kl_after_milli": bc.MAX_UNRELATED_KL_MILLI_EGRESS,
+        },
+        max_repair_rounds=m["max_repair_rounds"],
     )
     _require(len(ok_rep["candidate_id"]) == 32 and len(ok_rep["failures"]) == bc.MAX_FAILURE_CODES, "allowlist boundary passes")
+    _require(ok_rep["repair_round"] == m["max_repair_rounds"] and ok_rep["unrelated_kl_after_milli"] == bc.MAX_UNRELATED_KL_MILLI_EGRESS, "int upper boundaries pass")
+    d_max = cli.diagnose(frozen_manifest=m, failure_report=ok_rep, remaining_rounds=m["max_repair_rounds"], seed=bc.MAX_EGRESS_SEED)
+    _require("repair_proposal" in d_max["parsed"], "diagnose exact int upper boundaries pass")
+    # Also verify manifest-specific max_repair_rounds=2 is enforced (repair_round=3 rejected when manifest caps at 2!)
+    m_r2 = json.loads(json.dumps(m))
+    m_r2["max_repair_rounds"] = 2
+    m_r2["manifest_sha256"] = ec.compute_manifest_sha256(m_r2)
+    _expect_err(
+        bc.ControllerError,
+        lambda: spy_cli.diagnose(frozen_manifest=m_r2, failure_report={"repair_round": 3}, remaining_rounds=1),
+        "manifest max_repair_rounds=2 blocks repair_round=3",
+        code="ERR_EGRESS_POLICY_VIOLATION",
+    )
+    _require(len(seen_calls) == 0, "manifest-capped repair_round rejected before transport")
 
     # compare() rejects bad case_id, str-subclass, oversized text, blank text, and NUL bytes
     for bad_cmp_kw in (
@@ -790,11 +878,11 @@ def test_group6_cerebras_advisory_boundary() -> None:
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
 
-    # PR13-BUG-01 closures: propose() history_summary & frozen_manifest strict allowlist egress
+    # PR13-BUG-01 + PR #30 closures: propose() history_summary & frozen_manifest strict allowlist egress
     p_hist = cli.propose(
         frozen_manifest=m,
         history_summary=[
-            {"candidate_id": f"c-{i}", "repair_round": i, "verdict": "REJECTED", "failures": ["task_exact_gain_below_threshold"]}
+            {"candidate_id": f"c-{i}", "repair_round": i % (m["max_repair_rounds"] + 1), "verdict": "REJECTED", "failures": ["task_exact_gain_below_threshold"]}
             for i in range(16)
         ],
     )
@@ -804,13 +892,16 @@ def test_group6_cerebras_advisory_boundary() -> None:
         [{"candidate_id": "c"} for _ in range(17)],
         [{"adapter": [0, 1, 2, 255], "Adapter_Bytes": "AAEC/w=="}],
         [{"Adapter_Bytes": "AAEC/w=="}],
+        [{"candidate_id": "c-big", "repair_round": secret_int}],
+        [{"candidate_id": "c-bigkl", "unrelated_kl_after_milli": secret_int}],
     ):
         _expect_err(
             bc.ControllerError,
-            lambda bh=bad_hist: cli.propose(frozen_manifest=m, history_summary=bh),  # type: ignore[arg-type]
+            lambda bh=bad_hist: spy_cli.propose(frozen_manifest=m, history_summary=bh),  # type: ignore[arg-type]
             f"bad history_summary {bad_hist!r}",
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
+    _require(len(seen_calls) == 0, "bad history_summary never reaches transport")
 
     import copy as _copy
     def _mut_manifest(fn):
@@ -821,20 +912,31 @@ def test_group6_cerebras_advisory_boundary() -> None:
     for bad_m in (
         "not-a-mapping",
         _mut_manifest(lambda d: d.__setitem__("manifest_sha256", "bad-sha")),
+        _mut_manifest(lambda d: d.__setitem__("max_repair_rounds", True)),
+        _mut_manifest(lambda d: d.__setitem__("max_repair_rounds", 0)),
+        _mut_manifest(lambda d: d.__setitem__("max_repair_rounds", ec.MAX_REPAIR_ROUNDS_CEILING + 1)),
         _mut_manifest(lambda d: d.__setitem__("target_layer", "bad-layer")),
+        _mut_manifest(lambda d: d.__setitem__("target_layer", 123)),
+        _mut_manifest(lambda d: d.__setitem__("target_layer", "blk." + "9" * 20)),
         _mut_manifest(lambda d: d.__setitem__("allowed_knobs", "not-a-map")),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("Adapter_Bytes", "AAEC/w==")),
         _mut_manifest(lambda d: d["allowed_knobs"].pop("ranks")),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [1] * 17)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [0])),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [bc.MAX_EGRESS_KNOB_INT + 1])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("ranks", [True])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", bc.MAX_EGRESS_KNOB_INT + 1)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_min", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_min", True)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_max", 0)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_max", True)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_num_max", bc.MAX_EGRESS_KNOB_INT + 1)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("strength_den", True)),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", [])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["f16"] * 17)),
+        _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", [123])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["bad\x1b"])),
         _mut_manifest(lambda d: d["allowed_knobs"].__setitem__("quantizations", ["int2"])),
     ):
@@ -844,15 +946,26 @@ def test_group6_cerebras_advisory_boundary() -> None:
             "propose rejects tampered/smuggled manifest egress",
             code="ERR_EGRESS_POLICY_VIOLATION",
         )
-    # Exact max boundary (16 ranks & 16 allowed quantizations, strength_num_min == strength_num_max == 1, strength_den == 1) passes!
-    m_bound = _mut_manifest(lambda d: d["allowed_knobs"].update({
-        "ranks": list(range(1, 17)),
+    # Exact max boundary (16 ranks & 16 allowed quantizations, max knob ints == MAX_EGRESS_KNOB_INT, len(target_layer)==16) passes!
+    m_bound = _mut_manifest(lambda d: (
+        d.__setitem__("target_layer", "blk." + "9" * 12),
+        d["allowed_knobs"].update({
+            "ranks": list(range(1, 16)) + [bc.MAX_EGRESS_KNOB_INT],
+            "strength_den": bc.MAX_EGRESS_KNOB_INT,
+            "strength_num_min": 1,
+            "strength_num_max": bc.MAX_EGRESS_KNOB_INT,
+            "quantizations": ["f16", "q8_0"] * 8,
+        }),
+    ))
+    cli.propose(frozen_manifest=m_bound, history_summary=[])
+    m_bound_min = _mut_manifest(lambda d: d["allowed_knobs"].update({
+        "ranks": [1],
         "strength_den": 1,
         "strength_num_min": 1,
         "strength_num_max": 1,
-        "quantizations": ["f16", "q8_0"] * 8,
+        "quantizations": ["f16"],
     }))
-    cli.propose(frozen_manifest=m_bound, history_summary=[])
+    cli.propose(frozen_manifest=m_bound_min, history_summary=[])
     _expect_err(
         bc.ControllerError,
         lambda: cli.diagnose(frozen_manifest="not-a-map", failure_report={}, remaining_rounds=1),  # type: ignore[arg-type]

@@ -1,7 +1,7 @@
 {
   "arm": "R6-3",
   "audit_id": "AUDIT-063",
-  "canonical_sha256": "db22ca9521b4525aee7bd76c50a40b56bca8f294c678f1effd71ff7de5404fed",
+  "canonical_sha256": "c418da2c433bedc4d26e91f1b5e1953a91127a2ebf8f3c65bd4364febb1c7b52",
   "evidence_boundary_disclosure": {
     "cerebras_transport_mode": "mock_contract",
     "controller_runtime_mode": "logic_check_fake_runtime",
@@ -127,6 +127,7 @@
     "cerebras_weight_egress_blocked": "ERR_EGRESS_POLICY_VIOLATION",
     "checkpoint_drift_rejected_before_compile": "ERR_CHECKPOINT_DRIFT",
     "duplicate_repair_round1_replay_rejected": "ERR_REPAIR_BUDGET_EXCEEDED",
+    "egress_unbounded_int_smuggling_rejected": "ERR_EGRESS_POLICY_VIOLATION",
     "eval_before_hash_recorded_rejected": "ERR_HASH_ORDER_VIOLATION",
     "incomplete_multibank_lattice_flush_rejected": "ERR_STATE_FLUSH_INCOMPLETE",
     "kv_only_rollback_omitting_checkpoint_banks_rejected": "ERR_INVALID_STATE_BANKS",
@@ -136,6 +137,8 @@
     "regressed_control_passing_metrics_blocked_from_promote": "control_role_cannot_promote",
     "repair_round_4_budget_exceeded": "ERR_REPAIR_BUDGET_EXCEEDED",
     "ring0_threshold_mutation_rejected": "ERR_RING0_TAMPER",
+    "rollback_from_rejected_phase_rejected": "ERR_INVALID_PHASE",
+    "second_rollback_from_rolledback_rejected": "ERR_INVALID_PHASE",
     "trailing_newline_digest_and_layer_rejected": "ERR_INVALID_SHA256",
     "unhashed_extra_receipt_key_rejected": "ERR_LEDGER_TAMPER",
     "unsupported_layer_blk12_rejected": "ERR_UNSUPPORTED_LAYER"

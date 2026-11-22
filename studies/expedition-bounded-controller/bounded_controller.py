@@ -158,6 +158,9 @@ MAX_FAILURE_CODES = len(ALLOWED_FAILURE_CODES)
 MAX_HISTORY_SUMMARY_ITEMS = 16
 MAX_KNOB_LIST_LEN = 16
 MAX_COMPARE_TEXT_LEN = 4096
+MAX_UNRELATED_KL_MILLI_EGRESS = 1_000_000
+MAX_EGRESS_KNOB_INT = 1_000_000
+MAX_EGRESS_SEED = (1 << 63) - 1
 
 
 class ControllerError(ValueError):
@@ -851,6 +854,12 @@ class BoundedExperimentController:
         self._verify_manifest_integrity()
         if candidate_id not in self._candidates:
             raise ControllerError("ERR_UNKNOWN_CANDIDATE", f"unknown candidate_id: {candidate_id!r}")
+        rec = self._candidates[candidate_id]
+        if rec["phase"] != "Promoted":
+            raise ControllerError(
+                "ERR_INVALID_PHASE",
+                f"rollback requires Promoted phase, got {rec['phase']!r}",
+            )
         req_banks = self._required_state_banks if expected_state_banks is None else tuple(expected_state_banks)
         missing_req = [b for b in self._required_state_banks if b not in req_banks]
         if missing_req:
@@ -879,7 +888,6 @@ class BoundedExperimentController:
             raise ControllerError("ERR_ROLLBACK_LOGIT_DRIFT", f"baseline_logit_diff_milli={logit_diff_milli} != 0")
 
         rb_ms = ec.require_exact_int(rb.get("deploy_rollback_ms"), "deploy_rollback_ms", min_value=0)
-        rec = self._candidates[candidate_id]
         prior_phase = rec["phase"]
         rec["phase"] = "RolledBack"
         rec["contact"] = "Live"
@@ -936,12 +944,26 @@ def _require_compare_text(value: Any, label: str) -> str:
     return value
 
 
-def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
+def validate_failure_report_egress(
+    failure_report: Any,
+    *,
+    max_repair_rounds: int = ec.MAX_REPAIR_ROUNDS_CEILING,
+) -> dict[str, Any]:
     """Strict allowlist validator for outbound diagnose()/propose() structured diagnostic payloads.
 
-    Constrains candidate_id to ^[a-z0-9][a-z0-9_-]{0,31}$ and verdict, failed_gate, and failures
-    entries to closed enum sets, blocking arbitrary free-text / base64 smuggling on diagnose/propose.
+    Enforces:
+      - allowlisted keys only;
+      - candidate_id matching ^[a-z0-9][a-z0-9_-]{0,31}$ (~20 bytes capacity per call);
+      - closed enums for verdict, failed_gate, and failures;
+      - bounded integers: 0 <= repair_round <= max_repair_rounds and
+        0 <= unrelated_kl_after_milli <= MAX_UNRELATED_KL_MILLI_EGRESS (1,000,000).
+    Note: compare() carries bounded free text (<= 4096 chars, NUL-free) by design.
     """
+    if type(max_repair_rounds) is not int or max_repair_rounds < 1 or max_repair_rounds > ec.MAX_REPAIR_ROUNDS_CEILING:
+        raise ControllerError(
+            "ERR_EGRESS_POLICY_VIOLATION",
+            f"max_repair_rounds must be int in [1, {ec.MAX_REPAIR_ROUNDS_CEILING}]",
+        )
     if not isinstance(failure_report, Mapping):
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "failure_report must be a mapping")
     cleaned: dict[str, Any] = {}
@@ -949,8 +971,12 @@ def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
         if type(k) is not str or k not in ALLOWED_FAILURE_REPORT_KEYS:
             raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"unlisted failure_report key {k!r}")
         if k in FAILURE_REPORT_INT_KEYS:
-            if type(v) is not int or v < 0:
-                raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"failure_report.{k} must be non-negative int")
+            upper = max_repair_rounds if k == "repair_round" else MAX_UNRELATED_KL_MILLI_EGRESS
+            if type(v) is not int or v < 0 or v > upper:
+                raise ControllerError(
+                    "ERR_EGRESS_POLICY_VIOLATION",
+                    f"failure_report.{k} must be int in [0, {upper}]",
+                )
             cleaned[k] = v
         elif k == "candidate_id":
             cleaned[k] = _require_egress_id(v, "failure_report.candidate_id")
@@ -974,11 +1000,25 @@ def validate_failure_report_egress(failure_report: Any) -> dict[str, Any]:
     return cleaned
 
 
-def validate_history_summary_egress(history_summary: Any) -> list[dict[str, Any]]:
+def validate_history_summary_egress(
+    history_summary: Any,
+    *,
+    max_repair_rounds: int = ec.MAX_REPAIR_ROUNDS_CEILING,
+) -> list[dict[str, Any]]:
     """Strict allowlist validator for outbound propose() history_summary lists."""
     if not isinstance(history_summary, (list, tuple)) or len(history_summary) > MAX_HISTORY_SUMMARY_ITEMS:
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "history_summary must be bounded sequence of summary dicts")
-    return [validate_failure_report_egress(entry) for entry in history_summary]
+    return [validate_failure_report_egress(entry, max_repair_rounds=max_repair_rounds) for entry in history_summary]
+
+
+def _extract_egress_max_repair_rounds(frozen_manifest: Mapping[str, Any]) -> int:
+    raw_max = frozen_manifest.get("max_repair_rounds")
+    if type(raw_max) is not int or raw_max < 1 or raw_max > ec.MAX_REPAIR_ROUNDS_CEILING:
+        raise ControllerError(
+            "ERR_EGRESS_POLICY_VIOLATION",
+            f"frozen_manifest.max_repair_rounds must be int in [1, {ec.MAX_REPAIR_ROUNDS_CEILING}]",
+        )
+    return raw_max
 
 
 def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -> dict[str, Any]:
@@ -993,7 +1033,7 @@ def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -
     if not include_knobs:
         return projected
     target_layer = frozen_manifest.get("target_layer")
-    if type(target_layer) is not str or not ec.LAYER_RE.match(target_layer):
+    if type(target_layer) is not str or len(target_layer) > 16 or not ec.LAYER_RE.match(target_layer):
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "target_layer invalid for egress")
     knobs = frozen_manifest.get("allowed_knobs")
     if not isinstance(knobs, Mapping) or set(knobs.keys()) != ALLOWED_KNOBS_KEYS:
@@ -1003,8 +1043,8 @@ def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.ranks must be bounded non-empty list")
     ranks: list[int] = []
     for r in raw_ranks:
-        if type(r) is not int or r < 1:
-            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.ranks entry must be positive int")
+        if type(r) is not int or r < 1 or r > MAX_EGRESS_KNOB_INT:
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs.ranks entry must be bounded positive int")
         ranks.append(r)
     s_den = knobs["strength_den"]
     s_min = knobs["strength_num_min"]
@@ -1012,10 +1052,12 @@ def _project_manifest_for_egress(frozen_manifest: Any, *, include_knobs: bool) -
     if (
         type(s_den) is not int
         or s_den < 1
+        or s_den > MAX_EGRESS_KNOB_INT
         or type(s_min) is not int
         or s_min < 1
         or type(s_max) is not int
         or s_max < s_min
+        or s_max > MAX_EGRESS_KNOB_INT
     ):
         raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", "allowed_knobs strength bounds invalid")
     raw_quants = knobs["quantizations"]
@@ -1126,7 +1168,9 @@ class CerebrasKimiAdvisoryClient:
     ) -> dict[str, Any]:
         ec.verify_no_floats(prompt_payload)
         sanitize_outbound_payload(prompt_payload)
-        seed_i = ec.require_exact_int(seed, "seed", min_value=0)
+        if type(seed) is not int or seed < 0 or seed > MAX_EGRESS_SEED:
+            raise ControllerError("ERR_EGRESS_POLICY_VIOLATION", f"seed must be int in [0, {MAX_EGRESS_SEED}]")
+        seed_i = seed
         max_tok = ec.require_exact_int(max_tokens, "max_tokens", min_value=1)
 
         prompt_hash = ec.sha256_canonical(prompt_payload)
@@ -1288,7 +1332,8 @@ class CerebrasKimiAdvisoryClient:
 
     def propose(self, *, frozen_manifest: Mapping[str, Any], history_summary: Sequence[Mapping[str, Any]], seed: int = 101) -> dict[str, Any]:
         payload = _project_manifest_for_egress(frozen_manifest, include_knobs=True)
-        payload["history_summary"] = validate_history_summary_egress(history_summary)
+        max_rounds = _extract_egress_max_repair_rounds(frozen_manifest)
+        payload["history_summary"] = validate_history_summary_egress(history_summary, max_repair_rounds=max_rounds)
 
         def _check_propose(parsed: dict[str, Any]) -> None:
             for req in ("candidate_id", "target_layer", "rank", "strength_num", "strength_den", "quantization", "seed"):
@@ -1305,12 +1350,17 @@ class CerebrasKimiAdvisoryClient:
         remaining_rounds: int,
         seed: int = 102,
     ) -> dict[str, Any]:
-        rem = ec.require_exact_int(remaining_rounds, "remaining_rounds", min_value=1)
         clean_manifest = _project_manifest_for_egress(frozen_manifest, include_knobs=False)
-        clean_report = validate_failure_report_egress(failure_report)
+        max_rounds = _extract_egress_max_repair_rounds(frozen_manifest)
+        if type(remaining_rounds) is not int or remaining_rounds < 1 or remaining_rounds > max_rounds:
+            raise ControllerError(
+                "ERR_EGRESS_POLICY_VIOLATION",
+                f"remaining_rounds must be int in [1, {max_rounds}]",
+            )
+        clean_report = validate_failure_report_egress(failure_report, max_repair_rounds=max_rounds)
         payload = {
             "contract_sha256": clean_manifest["contract_sha256"],
-            "remaining_rounds": rem,
+            "remaining_rounds": remaining_rounds,
             "failure_report": clean_report,
         }
 

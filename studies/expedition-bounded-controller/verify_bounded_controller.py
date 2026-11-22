@@ -664,6 +664,37 @@ def run_all(*, standalone: bool = False, hmac_key: bytes | None = None) -> dict[
     )
     v_r2 = ctrl.promote_or_reject("cand-r2-repaired", judge_comparison=cmp_r2["parsed"])
     _require(v_r2["verdict"] == "PROMOTED", f"expected R2 PROMOTED, got {v_r2}")
+    # 5. Adversarial Trust-Boundary Matrix (Issue #7)
+    adversarial: dict[str, str] = {}
+
+    def _capture_err(label: str, fn) -> None:
+        try:
+            fn()
+        except (ec.ExperimentContractError, bc.ControllerError) as exc:
+            adversarial[label] = exc.code
+            return
+        raise RuntimeError(f"adversarial control failed to reject: {label}")
+
+    # Test incomplete/kv-only rollback refusals while cand-r2-repaired is Promoted (before valid rollback transitions it to RolledBack)
+    _capture_err(
+        "kv_only_rollback_omitting_checkpoint_banks_rejected",
+        lambda: ctrl.rollback(
+            "cand-r2-repaired",
+            runtime=runtime,
+            expected_state_banks=("kv_cache",),
+        ),
+    )
+    runtime.fail_lattice_flush = True
+    _capture_err(
+        "incomplete_multibank_lattice_flush_rejected",
+        lambda: ctrl.rollback(
+            "cand-r2-repaired",
+            runtime=runtime,
+            expected_state_banks=("kv_cache", "ssm_recurrent", "lattice_horizontal_streams"),
+        ),
+    )
+    runtime.fail_lattice_flush = False
+
     rb_r2 = ctrl.rollback(
         "cand-r2-repaired",
         runtime=runtime,
@@ -675,17 +706,26 @@ def run_all(*, standalone: bool = False, hmac_key: bytes | None = None) -> dict[
         ctrl.candidate_state("cand-r2-repaired")["phase"] == "RolledBack",
         "rollback must transition candidate phase to RolledBack",
     )
-
-    # 5. Adversarial Trust-Boundary Matrix (Issue #7)
-    adversarial: dict[str, str] = {}
-
-    def _capture_err(label: str, fn) -> None:
-        try:
-            fn()
-        except (ec.ExperimentContractError, bc.ControllerError) as exc:
-            adversarial[label] = exc.code
-            return
-        raise RuntimeError(f"adversarial control failed to reject: {label}")
+    _require(
+        rb_r2["receipt"]["payload"]["prior_phase"] == "Promoted",
+        "rollback receipt must record prior_phase == Promoted",
+    )
+    _capture_err(
+        "second_rollback_from_rolledback_rejected",
+        lambda: ctrl.rollback("cand-r2-repaired", runtime=runtime),
+    )
+    _capture_err(
+        "rollback_from_rejected_phase_rejected",
+        lambda: ctrl.rollback("cand-r1-underfit", runtime=runtime),
+    )
+    _capture_err(
+        "egress_unbounded_int_smuggling_rejected",
+        lambda: kimi.diagnose(
+            frozen_manifest=manifest,
+            failure_report={"repair_round": int.from_bytes(b"SECRET-LORA-BYTES\x00\xff", "big")},
+            remaining_rounds=1,
+        ),
+    )
 
     _capture_err(
         "missing_contract_sha256_rejected",
@@ -839,25 +879,6 @@ def run_all(*, standalone: bool = False, hmac_key: bytes | None = None) -> dict[
         ),
     )
     _ = b_adv
-
-    _capture_err(
-        "kv_only_rollback_omitting_checkpoint_banks_rejected",
-        lambda: ctrl.rollback(
-            "cand-r2-repaired",
-            runtime=runtime,
-            expected_state_banks=("kv_cache",),
-        ),
-    )
-    runtime.fail_lattice_flush = True
-    _capture_err(
-        "incomplete_multibank_lattice_flush_rejected",
-        lambda: ctrl.rollback(
-            "cand-r2-repaired",
-            runtime=runtime,
-            expected_state_banks=("kv_cache", "ssm_recurrent", "lattice_horizontal_streams"),
-        ),
-    )
-    runtime.fail_lattice_flush = False
 
     _capture_err(
         "unhashed_extra_receipt_key_rejected",
