@@ -517,6 +517,59 @@ def test_policy_base_and_regressed_controls(tmp_path):
     assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
 
 
+def test_policy_fails_closed_on_empty_margin_lists(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    dump(m, passing_receipt(exp))
+    assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+    for key, gate in (("margins_adapter", "margin_adapter"),
+                      ("margins_baseline", "margin_baseline")):
+        bad = passing_receipt(exp)
+        bad["measurements"]["margin"][key] = []
+        bad["verdict"] = "ACCEPT"
+        dump(m, bad)
+        out = check_policy(m, exp)[0]
+        assert out["verdict"] == "FALSIFIED", key
+        assert gate in out["evidence"], key
+
+
+def test_policy_fails_closed_when_no_canaries_ran(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    bad = passing_receipt(exp)
+    bad["measurements"]["safety"] = {"canaries_run": 0, "failures": []}
+    bad["verdict"] = "ACCEPT"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "safety_canaries" in out["evidence"]
+
+
+def test_policy_fails_closed_when_canaries_run_misses_the_frozen_count(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    dump(exp / "suites" / "safety_canaries.json",
+         {"suite": "safety_canaries", "n_canaries": 3, "canary_ids": ["c1", "c2", "c3"]})
+    m = tmp_path / "m.json"
+    short = passing_receipt(exp)
+    short["measurements"]["safety"] = {"canaries_run": 2, "failures": []}
+    dump(m, short)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "safety_canaries" in out["evidence"]
+    full = passing_receipt(exp)
+    full["measurements"]["safety"] = {"canaries_run": 3, "failures": []}
+    dump(m, full)
+    assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+
+
+def test_policy_is_unverified_without_the_frozen_canary_list(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    (exp / "suites" / "safety_canaries.json").write_text('{"suite": "safety_canaries"}\n')
+    m = tmp_path / "m.json"
+    dump(m, passing_receipt(exp))
+    assert check_policy(m, exp)[0]["verdict"] == "UNVERIFIED"
+
+
 # --- independence ------------------------------------------------------------
 
 
