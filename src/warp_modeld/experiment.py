@@ -139,6 +139,13 @@ BASE_TOP1_TOLERANCE = 0.02
 # contract file, so the count is pinned here with its source named.
 FROZEN_ROLLBACK_SEQUENCES = 14
 
+# Frozen margin rule in thresholds.json: the pilot probe sent 84 adapter
+# requests and 36 baseline requests, and every margin is checked. The
+# counts live in prose in the contract file, so they are pinned here with
+# their source named.
+FROZEN_MARGIN_ADAPTER_REQUESTS = 84
+FROZEN_MARGIN_BASELINE_REQUESTS = 36
+
 
 def hmac_compare(left: str, right: str) -> bool:
     """Constant-time digest comparison; non-string input never matches."""
@@ -720,14 +727,14 @@ def apply_acceptance_policy(
     measurements: Measurements,
     thresholds: Mapping[str, Any],
     *,
-    expected_canaries: int | None = None,
+    expected_canaries: int,
 ) -> PolicyVerdict:
     """Apply only the frozen acceptance policy.
 
     The thresholds mapping must come from the loaded contract. This
     function takes no caller-supplied threshold, so a proposal cannot
     change the policy. Every gate is checked; every failure is named.
-    When the caller passes the pinned canary count, the safety gate
+    The pinned canary count is a required argument: the safety gate
     requires exactly that many canaries to have run.
     """
     failed: list[str] = []
@@ -760,6 +767,17 @@ def apply_acceptance_policy(
     if not measurements.margins_adapter or measurements.margin_adapter_requests <= 0:
         failed.append("margin_adapter")
         reasons.append("no adapter probe margins were measured")
+    elif not (
+        len(measurements.margins_adapter)
+        == measurements.margin_adapter_requests
+        == FROZEN_MARGIN_ADAPTER_REQUESTS
+    ):
+        failed.append("margin_adapter")
+        reasons.append(
+            f"{len(measurements.margins_adapter)} adapter margins for "
+            f"{measurements.margin_adapter_requests} requests, the frozen "
+            f"rule requires {FROZEN_MARGIN_ADAPTER_REQUESTS} of each"
+        )
     elif not all(m > threshold for m in measurements.margins_adapter):
         failed.append("margin_adapter")
         reasons.append("an adapter probe margin is at or below the frozen threshold")
@@ -769,6 +787,17 @@ def apply_acceptance_policy(
     if not measurements.margins_baseline or measurements.margin_baseline_requests <= 0:
         failed.append("margin_baseline")
         reasons.append("no baseline probe margins were measured")
+    elif not (
+        len(measurements.margins_baseline)
+        == measurements.margin_baseline_requests
+        == FROZEN_MARGIN_BASELINE_REQUESTS
+    ):
+        failed.append("margin_baseline")
+        reasons.append(
+            f"{len(measurements.margins_baseline)} baseline margins for "
+            f"{measurements.margin_baseline_requests} requests, the frozen "
+            f"rule requires {FROZEN_MARGIN_BASELINE_REQUESTS} of each"
+        )
     elif not all(m <= threshold for m in measurements.margins_baseline):
         failed.append("margin_baseline")
         reasons.append("a baseline probe margin is above the frozen threshold")
@@ -795,10 +824,7 @@ def apply_acceptance_policy(
     safety_reasons: list[str] = []
     if measurements.safety_canaries_run <= 0:
         safety_reasons.append("no safety canaries ran")
-    elif (
-        expected_canaries is not None
-        and measurements.safety_canaries_run != expected_canaries
-    ):
+    elif measurements.safety_canaries_run != expected_canaries:
         safety_reasons.append(
             f"only {measurements.safety_canaries_run} of {expected_canaries} "
             "safety canaries ran"
@@ -1238,7 +1264,19 @@ class ExperimentController:
         baseline is then verified by comparing restored logits with the
         pinned baseline: any nonzero difference fails verification.
         """
-        rolled = self.lifecycle.rollback(reason)
+        try:
+            rolled = self.lifecycle.rollback(reason)
+        except Exception as exc:
+            # The adapter may still be mounted. Record that before the
+            # error propagates, so the log never ends without a trace.
+            self.receipts.append(
+                "rollback_failed",
+                reason=(
+                    f"lifecycle rollback raised {type(exc).__name__}: {exc}"
+                ),
+                requested_reason=reason,
+            )
+            raise
         missing = [bank for bank in ALL_STATE_BANKS if bank not in rolled.banks_flushed]
         if missing:
             self.receipts.append(

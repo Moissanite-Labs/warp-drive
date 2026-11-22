@@ -25,8 +25,8 @@ It is built for operators running local open-weight models and coding agents who
 
 | Path | Contents |
 | --- | --- |
-| `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `state_banks.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) |
-| `schemas/` | Adapter bundle JSON schema (`adapter-bundle.schema.json`), verifier-owned canary suite (`verifier-canaries.json`), and daemon config template (`modeld-config.example.json`) |
+| `src/warp_modeld/` | Four-stage fail-closed verifier (`fingerprint.py`, `certificate.py`, `canary.py`, `llama_client.py`, `state_banks.py`, `ledger.py`, `verifier.py`, `server.py`, `cli.py`) plus the Cerebras Kimi client (`cerebras_client.py`, `cerebras_prompts.py`) |
+| `schemas/` | Adapter bundle JSON schema (`adapter-bundle.schema.json`), verifier-owned canary suite (`verifier-canaries.json`), Cerebras candidate schema (`cerebras-candidate.schema.json`), and daemon config template (`modeld-config.example.json`) |
 | `blueprints/mkosi/` | Base Arch `btrfs` + UKI config (zero `sudo`), post-install and ancestor mode-hardening scripts, and `vmtest`, `compute-rtx3080`, and `client-omarchy` profiles |
 | `blueprints/systemd/` | Hardened service units for `llama-server` (`--lora-init-without-apply`), `warp-modeld`, and pre-upgrade checkpoints |
 | `blueprints/sandbox/` | `Landlock` rules, default-deny `seccomp` filter, and fail-closed `bubblewrap` tool executor (`WARP_TOOL_EXECUTOR_REQUIRED=1`) |
@@ -50,6 +50,19 @@ PYTHONPATH=src python3 -m warp_modeld.cli check-certificate --cert <cert.json> -
 WARP_LIVE_LLAMA_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
 WARP_LIVE_LLAMA_TEST=1 WARP_LIVE_BASE_GGUF=<model.gguf> WEFT_SRC=<weft/src> PYTHONPATH=src python3 -m unittest tests/test_live_llama_smoke.py -v
 ```
+
+## Cerebras Kimi K3.1 Pro Client (lane 6)
+
+`src/warp_modeld/cerebras_client.py` connects the bounded experiment controller to Kimi K3.1 Pro on Cerebras for three calls only: `propose_candidate`, `diagnose_failure`, and `compare_outputs`. It returns only schema-valid candidates (`schemas/cerebras-candidate.schema.json`), enforces the three-round repair budget, and files a redacted receipt per call with the prompt hash, served model id, decoding parameters, seed, token counts, latency, retries, timeouts, and failures. It never touches weights or acceptance policy. Model comparison is advisory only. Deterministic local scores stay authoritative.
+
+The key comes from the environment only (`CEREBRAS_API_KEY`). No credential is created here. `CEREBRAS_MODEL_ID` overrides the requested model id, for example with a dedicated endpoint id. Without a key the client refuses and the mocked contract applies.
+
+```bash
+PYTHONPATH=src python3 -m unittest tests/test_cerebras_client.py tests/test_live_cerebras_smoke.py -v
+WARP_LIVE_CEREBRAS_TEST=1 PYTHONPATH=src python3 -m unittest tests/test_live_cerebras_smoke.py -v
+```
+
+Live status: UNVERIFIED. No credential exists on this machine, and the Cerebras shared-inference catalog checked 2026-11-18 lists only `gpt-oss-120b` and `qwen-3.8-27b`. Kimi K3.1 Pro sits in the Dedicated model catalog, so a live call needs a dedicated endpoint id. Candidate bounds are provisional until lane 4 freezes the experiment contract.
 
 ## Three-Machine Deployment Model
 
