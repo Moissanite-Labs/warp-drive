@@ -150,8 +150,9 @@ def make_exp_dir(tmp: Path) -> Path:
 
 def passing_measurements():
     return {"task": {"top1": 0.58, "contested_fix_fraction": 0.15, "break_fraction": 0.03},
-            "margin": {"threshold": -0.37, "adapter_requests": 2, "baseline_requests": 2,
-                       "margins_adapter": [-0.1, 0.0], "margins_baseline": [-1.0, -0.9]},
+            "margin": {"threshold": -0.37, "adapter_requests": 84, "baseline_requests": 36,
+                       "margins_adapter": [-0.1, 0.0, 0.18] * 28,
+                       "margins_baseline": [-1.0, -0.9, -0.81] * 12},
             "retention_iid": {"mean_kl": 0.10, "top1_agreement": 0.97},
             "retention_shifted": {"mean_kl": 0.20},
             "safety": {"canaries_run": 1, "failures": []},
@@ -565,6 +566,84 @@ def test_policy_fails_closed_when_canaries_run_misses_the_frozen_count(tmp_path)
     full["measurements"]["safety"] = {"canaries_run": 3, "failures": []}
     dump(m, full)
     assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+
+
+def policy_outcome(tmp_path, mutate):
+    exp = make_exp_dir(tmp_path)
+    receipt = passing_receipt(exp)
+    mutate(receipt["measurements"])
+    receipt["verdict"] = "ACCEPT"
+    m = tmp_path / "m.json"
+    dump(m, receipt)
+    out = check_policy(m, exp)[0]
+    return out["verdict"], out["evidence"]
+
+
+def test_policy_control_for_frozen_count_tests_is_verified(tmp_path):
+    assert policy_outcome(tmp_path, lambda m: None)[0] == "VERIFIED"
+
+
+def test_policy_falsifies_adapter_margin_list_shorter_than_its_request_count(tmp_path):
+    # Request count stays 84, so only the length rule can reject this.
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["margin"].update(margins_adapter=m["margin"]["margins_adapter"][:-1]))
+    assert verdict == "FALSIFIED"
+    assert "margin_adapter_length" in evidence
+    assert "margin_adapter_requests" not in evidence
+
+
+def test_policy_falsifies_baseline_margin_list_shorter_than_its_request_count(tmp_path):
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["margin"].update(margins_baseline=m["margin"]["margins_baseline"][:-1]))
+    assert verdict == "FALSIFIED"
+    assert "margin_baseline_length" in evidence
+    assert "margin_baseline_requests" not in evidence
+
+
+def test_policy_falsifies_adapter_request_count_that_is_not_the_frozen_84(tmp_path):
+    # List and count agree at 83, so only the frozen-count rule can reject this.
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["margin"].update(
+            margins_adapter=m["margin"]["margins_adapter"][:-1], adapter_requests=83))
+    assert verdict == "FALSIFIED"
+    assert "margin_adapter_requests" in evidence
+    assert "margin_adapter_length" not in evidence
+
+
+def test_policy_falsifies_baseline_request_count_that_is_not_the_frozen_36(tmp_path):
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["margin"].update(
+            margins_baseline=m["margin"]["margins_baseline"][:-1], baseline_requests=35))
+    assert verdict == "FALSIFIED"
+    assert "margin_baseline_requests" in evidence
+    assert "margin_baseline_length" not in evidence
+
+
+def test_policy_falsifies_one_request_per_side(tmp_path):
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["margin"].update(
+            margins_adapter=[0.18], margins_baseline=[-1.0],
+            adapter_requests=1, baseline_requests=1))
+    assert verdict == "FALSIFIED"
+    assert "margin_adapter_requests" in evidence
+    assert "margin_baseline_requests" in evidence
+
+
+def test_policy_falsifies_rollback_probe_that_is_not_the_frozen_14_sequences(tmp_path):
+    # 13 of 13 matches exactly, so only the frozen-sequence rule can reject this.
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["rollback"].update(exact_matches=13, sequences=13))
+    assert verdict == "FALSIFIED"
+    assert "rollback_sequences" in evidence
+    assert "rollback_exact" not in evidence
+
+
+def test_policy_falsifies_rollback_probe_with_a_mismatched_sequence(tmp_path):
+    verdict, evidence = policy_outcome(
+        tmp_path, lambda m: m["rollback"].update(exact_matches=13, sequences=14))
+    assert verdict == "FALSIFIED"
+    assert "rollback_exact" in evidence
+    assert "rollback_sequences" not in evidence
 
 
 def test_policy_is_unverified_without_the_frozen_canary_list(tmp_path):
