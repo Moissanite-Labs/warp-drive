@@ -33,6 +33,7 @@ them without a lane 4 change.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hmac
 import json
 import math
 import os
@@ -78,6 +79,7 @@ FAILED_GATES = ("task", "retention_iid", "retention_shifted", "safety", "logprob
 MAX_MEASUREMENTS = 32
 MAX_TEXT_CHARS = 4000
 MAX_TASK_ID_CHARS = 128
+MAX_MODEL_NAME_CHARS = 128
 MAX_TASK_SUMMARY_CHARS = 500
 MAX_REASON_CHARS = 280
 RETRYABLE_HTTP_CODES = (408, 429, 500, 502, 503, 504)
@@ -187,6 +189,20 @@ def _is_timeout(exc: BaseException) -> bool:
     if isinstance(exc, TimeoutError):
         return True
     return isinstance(getattr(exc, "reason", None), TimeoutError)
+
+
+def _is_valid_model_name(value: Any) -> bool:
+    """True for a non-empty, trimmed, printable ASCII string of at most 128 chars.
+
+    The same rule applies to the configured model id and to the served name.
+    """
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value == value.strip()
+        and len(value) <= MAX_MODEL_NAME_CHARS
+        and all(32 <= ord(ch) <= 126 for ch in value)
+    )
 
 
 def _is_int(value: Any) -> bool:
@@ -359,6 +375,13 @@ class CerebrasKimiClient:
                 "Cerebras base URL host must be api.cerebras.ai, "
                 f"got {parsed.hostname!r}"
             )
+        if not _is_valid_model_name(model_id):
+            # Never echo the value: it may come from the environment.
+            raise CerebrasClientError(
+                "Cerebras model_id must be a non-empty trimmed printable ASCII string "
+                f"(<= {MAX_MODEL_NAME_CHARS} chars)",
+                code="ERR_CEREBRAS_MODEL_ID_CONFIG",
+            )
         if timeout_seconds <= 0:
             raise CerebrasClientError("timeout_seconds must be positive")
         if max_retries < 0:
@@ -440,13 +463,17 @@ class CerebrasKimiClient:
                 return self._parse_response(call_kind, raw, prompt_hash, latency_ms, retries, timeouts, failures)
             except CerebrasSchemaError as exc:
                 # A malformed provider response is not retryable. File a
-                # failure receipt inside the raised error.
+                # failure receipt inside the raised error, preserving typed
+                # error codes (e.g. ERR_CEREBRAS_MODEL_SUBSTITUTION) and the
+                # validated printable-ASCII served_model when present.
                 latency_ms = (time.monotonic() - started) * 1000.0
+                err_code = exc.code or "ERR_CEREBRAS_SCHEMA"
+                observed_model = getattr(exc, "served_model", None)
                 receipt = ProviderReceipt(
                     call_kind=call_kind,
                     provider=PROVIDER_NAME,
                     requested_model=self.model_id,
-                    served_model=None,
+                    served_model=observed_model,
                     prompt_sha256=prompt_hash,
                     prompt_set_version=PROMPT_SET_VERSION,
                     temperature=self.temperature,
@@ -461,11 +488,14 @@ class CerebrasKimiClient:
                     timeouts=timeouts,
                     failures=(str(exc),),
                     status="error",
-                    error_code="ERR_CEREBRAS_SCHEMA",
+                    error_code=err_code,
                 )
-                raise CerebrasSchemaError(
-                    f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})"
-                ) from exc
+                err = CerebrasSchemaError(
+                    f"{exc} (receipt: {json.dumps(receipt.to_dict(), sort_keys=True)})",
+                    code=err_code,
+                )
+                err.served_model = observed_model  # type: ignore[attr-defined]
+                raise err from exc
             except urllib.error.HTTPError as exc:
                 # The error body is provider-controlled text: never copy
                 # it into a receipt or an exception. Record only the code.
@@ -544,8 +574,24 @@ class CerebrasKimiClient:
         if not isinstance(content, str) or not content.strip():
             raise CerebrasSchemaError(f"Cerebras message content must be non-empty text on {call_kind}")
         served_model = parsed.get("model")
-        if served_model is not None and not isinstance(served_model, str):
-            raise CerebrasSchemaError(f"Cerebras response model must be a string on {call_kind}")
+        if served_model is None:
+            raise CerebrasSchemaError(
+                f"Cerebras response omitted required model field on {call_kind} (requested {self.model_id!r})",
+                code="ERR_CEREBRAS_MODEL_MISSING",
+            )
+        if not _is_valid_model_name(served_model):
+            raise CerebrasSchemaError(
+                f"Cerebras response model must be a non-empty trimmed printable ASCII string (<= 128 chars) on {call_kind}",
+                code="ERR_CEREBRAS_MODEL_INVALID",
+            )
+        if not hmac.compare_digest(served_model, self.model_id):
+            err = CerebrasSchemaError(
+                f"Cerebras served model {_describe_value(served_model)} does not match requested "
+                f"model {self.model_id!r} on {call_kind}",
+                code="ERR_CEREBRAS_MODEL_SUBSTITUTION",
+            )
+            err.served_model = served_model  # type: ignore[attr-defined]
+            raise err
         usage = parsed.get("usage")
         prompt_tokens = completion_tokens = total_tokens = None
         if isinstance(usage, dict):

@@ -73,6 +73,44 @@ def make_client(server: MockCerebrasServer, **kwargs: object) -> CerebrasKimiCli
     return CerebrasKimiClient(API_KEY, base_url=server.base_url, **kwargs)  # type: ignore[arg-type]
 
 
+def propose_with_served_model(served_model: object, **client_kwargs: object) -> CerebrasKimiClient:
+    """Run one propose call against a patched HTTP layer that serves ``served_model``.
+
+    Raises whatever the client raises. No socket is opened.
+    """
+    raw = json.dumps(
+        {
+            "id": "chatcmpl-patched",
+            "model": served_model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"target_layer":"last","strength":0.5,"rank":8,"quantization":"q8_0"}',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    ).encode("utf-8")
+
+    class _FakeResp:
+        def __enter__(self) -> "_FakeResp":
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return raw
+
+    client = CerebrasKimiClient(API_KEY, base_url="http://127.0.0.1:1/v1", **client_kwargs)  # type: ignore[arg-type]
+    with mock.patch("warp_modeld.cerebras_client.urllib.request.urlopen", return_value=_FakeResp()):
+        client.propose_candidate(valid_context())
+    return client
+
+
 class TestCandidateSchema(unittest.TestCase):
     def test_valid_candidate(self) -> None:
         cfg = validate_candidate(valid_candidate())
@@ -346,12 +384,123 @@ class TestTransportFailures(unittest.TestCase):
 
 
 class TestReceiptHonesty(unittest.TestCase):
-    def test_wrong_served_model_is_recorded_not_substituted(self) -> None:
+    def test_wrong_served_model_is_rejected_with_substitution_code_and_receipt(self) -> None:
         with MockCerebrasServer("wrong_model") as server:
             client = make_client(server)
-            _, receipt = client.propose_candidate(valid_context())
-        self.assertEqual(receipt.requested_model, "kimi-k3.1-pro")
-        self.assertEqual(receipt.served_model, "qwen-3.8-27b")
+            with self.assertRaises(CerebrasSchemaError) as ctx:
+                client.propose_candidate(valid_context())
+        self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_SUBSTITUTION")
+        msg = str(ctx.exception)
+        self.assertIn("ERR_CEREBRAS_MODEL_SUBSTITUTION", msg)
+        self.assertIn('"requested_model": "kimi-k3.1-pro"', msg)
+        self.assertIn('"served_model": "qwen-3.8-27b"', msg)
+        self.assertIn('"status": "error"', msg)
+
+    def test_missing_served_model_is_rejected_fail_closed(self) -> None:
+        with MockCerebrasServer("missing_model") as server:
+            client = make_client(server)
+            with self.assertRaises(CerebrasSchemaError) as ctx:
+                client.propose_candidate(valid_context())
+        self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_MISSING")
+        self.assertIn("ERR_CEREBRAS_MODEL_MISSING", str(ctx.exception))
+
+    def test_invalid_ansi_oversized_or_untrimmed_served_model_is_rejected_without_leak(self) -> None:
+        for bad_model in ("", "   ", " kimi-k3.1-pro ", 123, "a" * 129, "qwen\x1b[31mevil\x00"):
+            raw = json.dumps(
+                {
+                    "id": "chatcmpl-bad",
+                    "model": bad_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"target_layer":"last","strength":0.5,"rank":8,"quantization":"q8_0"}',
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+            class _FakeResp:
+                def __enter__(self) -> "_FakeResp":
+                    return self
+
+                def __exit__(self, *args: object) -> bool:
+                    return False
+
+                def read(self) -> bytes:
+                    return raw
+
+            client = CerebrasKimiClient(API_KEY, base_url="http://127.0.0.1:1/v1")
+            with mock.patch("warp_modeld.cerebras_client.urllib.request.urlopen", return_value=_FakeResp()):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    client.propose_candidate(valid_context())
+            self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_INVALID")
+            msg = str(ctx.exception)
+            self.assertIn('"served_model": null', msg)
+            self.assertNotIn("\x1b", msg)
+            self.assertNotIn("\x00", msg)
+
+    def test_served_model_outside_printable_ascii_is_rejected(self) -> None:
+        # DEL (0x7f) is the first byte above the printable range; the others
+        # are non-ASCII. The embedded form must fail too, not only a bare one.
+        for bad_model in ("\x7f", "kimi-k3.1-pro\x7f", "kimi-k3.1-pro\u00e9", "kimi-k3.1-pro\u2603", "\u00ff"):
+            with self.subTest(bad_model=bad_model):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    propose_with_served_model(bad_model)
+                self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_INVALID")
+
+    def test_served_model_boundary_characters_are_accepted_by_the_range_check(self) -> None:
+        # Space (32) and tilde (126) are inside the printable range, so a
+        # served name that differs from the configured one only by them is a
+        # substitution, not an invalid name.
+        for served in ("kimi k3.1-pro", "kimi~k3.1-pro"):
+            with self.subTest(served=served):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    propose_with_served_model(served)
+                self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_SUBSTITUTION")
+
+    def test_served_model_comparison_is_case_sensitive(self) -> None:
+        for served in ("KIMI-K3.1-PRO", "Kimi-K3.1-Pro"):
+            with self.subTest(served=served):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    propose_with_served_model(served)
+                self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_SUBSTITUTION")
+        # A configured id with capitals matches only itself, not its lowercase form.
+        with self.assertRaises(CerebrasSchemaError) as ctx:
+            propose_with_served_model("endpoint-abc", model_id="Endpoint-ABC")
+        self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_SUBSTITUTION")
+        propose_with_served_model("Endpoint-ABC", model_id="Endpoint-ABC")
+
+    def test_invalid_served_model_value_appears_nowhere_in_the_error(self) -> None:
+        marker = "ZZLEAKMARKERZZ"
+        # Each value is invalid (control byte, DEL, non-ASCII, trailing space)
+        # and carries the marker, so a leaked copy is found by plain text
+        # whether it is raw or escaped by repr.
+        for bad_model in (marker + "\x1b[31m", marker + "\x7f", marker + "\u00e9", marker + " "):
+            with self.subTest(bad_model=bad_model):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    propose_with_served_model(bad_model)
+                exc = ctx.exception
+                self.assertEqual(exc.code, "ERR_CEREBRAS_MODEL_INVALID")
+                receipt = receipt_from_exception(exc)
+                self.assertIsNone(receipt["served_model"])
+                self.assertEqual(receipt["error_code"], "ERR_CEREBRAS_MODEL_INVALID")
+                surfaces = [
+                    str(exc),
+                    repr(exc),
+                    repr(exc.args),
+                    repr(vars(exc)),
+                    json.dumps(receipt, sort_keys=True),
+                    repr(receipt),
+                ]
+                cause = exc.__cause__
+                if cause is not None:
+                    surfaces += [str(cause), repr(cause), repr(vars(cause))]
+                for surface in surfaces:
+                    self.assertNotIn(marker, surface)
 
     def test_missing_usage_leaves_token_counts_none(self) -> None:
         with MockCerebrasServer("missing_usage") as server:
@@ -391,6 +540,48 @@ class TestCredentials(unittest.TestCase):
             {"CEREBRAS_API_KEY": "env-key", "CEREBRAS_MODEL_ID": "dedicated-endpoint-123"}
         )
         self.assertEqual(client.model_id, "dedicated-endpoint-123")
+
+    def test_model_id_config_is_validated_at_construction(self) -> None:
+        bad_ids = (
+            "kimi-k3.1-pr\u00f6",  # non-ASCII text
+            "\u2603",
+            "kimi\x7f",  # DEL
+            "kimi\x00pro",  # control byte
+            123,  # not a string
+            None,
+            b"kimi-k3.1-pro",
+            "",  # blank
+            "   ",
+            " kimi-k3.1-pro",  # untrimmed
+            "kimi-k3.1-pro\n",
+            "a" * 129,  # over length
+        )
+        for bad in bad_ids:
+            with self.subTest(bad=bad):
+                with self.assertRaises(CerebrasClientError) as ctx:
+                    CerebrasKimiClient(API_KEY, model_id=bad)  # type: ignore[arg-type]
+                self.assertEqual(type(ctx.exception), CerebrasClientError)
+                self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_ID_CONFIG")
+                self.assertNotIn("\u00f6", str(ctx.exception))
+        # The client never reaches the network with a bad id.
+        with mock.patch("warp_modeld.cerebras_client.urllib.request.urlopen") as urlopen:
+            with self.assertRaises(CerebrasClientError):
+                CerebrasKimiClient(API_KEY, model_id="\u00e9")
+            urlopen.assert_not_called()
+
+    def test_valid_model_ids_are_accepted(self) -> None:
+        for good in (DEFAULT_MODEL_ID, "dedicated-endpoint-123", "a" * 128, "Name With Space~", "x"):
+            with self.subTest(good=good):
+                self.assertEqual(CerebrasKimiClient(API_KEY, model_id=good).model_id, good)
+
+    def test_from_env_validates_model_id(self) -> None:
+        for bad in ("", "  ", "mod\u00e9l", " padded", "a" * 129):
+            with self.subTest(bad=bad):
+                with self.assertRaises(CerebrasClientError) as ctx:
+                    CerebrasKimiClient.from_env({"CEREBRAS_API_KEY": "env-key", "CEREBRAS_MODEL_ID": bad})
+                self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_ID_CONFIG")
+        client = CerebrasKimiClient.from_env({"CEREBRAS_API_KEY": "env-key"})
+        self.assertEqual(client.model_id, DEFAULT_MODEL_ID)
 
     def test_from_env_rejects_non_cerebras_https_host(self) -> None:
         with self.assertRaises(CerebrasClientError):

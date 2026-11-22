@@ -9,16 +9,98 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Protocol, Sequence
 
 from .errors import LedgerTamperError
 
 GENESIS_HASH = "0" * 64
 VALID_EVENTS = frozenset({"mount", "reject", "rollback", "kill_switch"})
+REDACTED_PLACEHOLDER = "[REDACTED]"
+
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"
+        ),
+        REDACTED_PLACEHOLDER,
+    ),
+    (
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
+        REDACTED_PLACEHOLDER,
+    ),
+    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), REDACTED_PLACEHOLDER),
+    (re.compile(r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{16,}\b"), REDACTED_PLACEHOLDER),
+    (re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}"), r"\1" + REDACTED_PLACEHOLDER),
+    (
+        re.compile(
+            r'(?i)(\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|private[_-]?key|password)\s*[:=]\s*)'
+            r'(?!sha256:)(?!\[REDACTED\])["\']?([^\s"\',;}{]{8,})["\']?'
+        ),
+        r"\1" + REDACTED_PLACEHOLDER,
+    ),
+)
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ValueError(f"duplicate JSON key rejected: {key!r}")
+        out[key] = value
+    return out
+
+
+def _reject_nonfinite_json(token: str) -> Any:
+    raise ValueError(f"non-finite JSON constant rejected: {token!r}")
+
+
+def _loads_strict_json(raw_text: str) -> Any:
+    return json.loads(
+        raw_text,
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonfinite_json,
+    )
+
+
+def _redact_secrets(value: Any) -> Any:
+    """Recursively redact credential-like patterns before JSON serialization."""
+    if isinstance(value, str):
+        out = value
+        for pat, repl in _SECRET_PATTERNS:
+            out = pat.sub(repl, out)
+        return out
+    if isinstance(value, dict):
+        return {
+            (_redact_secrets(k) if isinstance(k, str) else k): _redact_secrets(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secrets(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_secrets(item) for item in value]
+    return value
+
+
+def _write_all_and_fsync(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    written = 0
+    while written < len(view):
+        n = os.write(fd, view[written:])
+        if n <= 0:
+            raise OSError("short write returned 0 bytes")
+        written += n
+    os.fsync(fd)
 
 
 def _canonical_bytes(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 class ReceiptSigner(Protocol):
@@ -115,15 +197,17 @@ class LedgerVerifier:
         expected_seq = 1
 
         raw_text = file_path.read_text(encoding="utf-8")
-        if not raw_text.strip():
+        if raw_text == "":
             return []
+        if not raw_text.strip():
+            raise LedgerTamperError("ledger file contains only whitespace (tampered or wiped)")
 
         for line_no, raw_line in enumerate(raw_text.splitlines(), start=1):
             if not raw_line.strip():
                 raise LedgerTamperError(f"ledger line {line_no}: unexpected blank line")
             try:
-                record = json.loads(raw_line)
-            except json.JSONDecodeError as exc:
+                record = _loads_strict_json(raw_line)
+            except (json.JSONDecodeError, ValueError) as exc:
                 raise LedgerTamperError(f"ledger line {line_no}: invalid JSON: {exc}") from exc
 
             if not isinstance(record, dict):
@@ -157,17 +241,23 @@ class LedgerVerifier:
             if extra_keys:
                 raise LedgerTamperError(f"ledger line {line_no}: unexpected extra field(s) {extra_keys}")
 
-            if isinstance(record["seq"], bool) or not isinstance(record["seq"], int) or record["seq"] != expected_seq:
+            if type(record["seq"]) is not int or record["seq"] != expected_seq:
                 raise LedgerTamperError(
                     f"ledger line {line_no}: expected integer seq {expected_seq}, got {record['seq']!r}"
                 )
             if not isinstance(record["slots_flushed"], list) or any(
-                isinstance(s, bool) or not isinstance(s, int) for s in record["slots_flushed"]
+                type(s) is not int for s in record["slots_flushed"]
             ):
                 raise LedgerTamperError(f"ledger line {line_no}: slots_flushed must be a list of integers")
-            if record["event"] not in VALID_EVENTS:
+            if not isinstance(record["adapters"], list) or not isinstance(record["details"], dict):
+                raise LedgerTamperError(f"ledger line {line_no}: adapters must be a list and details must be an object")
+            if not isinstance(record["timestamp_utc"], str) or not isinstance(record["reason"], str):
+                raise LedgerTamperError(f"ledger line {line_no}: timestamp_utc and reason must be strings")
+            if not isinstance(record["event"], str) or record["event"] not in VALID_EVENTS:
                 raise LedgerTamperError(f"ledger line {line_no}: invalid event '{record['event']}'")
-            if not hmac.compare_digest(str(record["prev_receipt_sha256"]), expected_prev):
+            if not isinstance(record["prev_receipt_sha256"], str) or not hmac.compare_digest(
+                record["prev_receipt_sha256"], expected_prev
+            ):
                 raise LedgerTamperError(
                     f"ledger line {line_no}: prev_receipt_sha256 mismatch "
                     f"(expected {expected_prev}, got {record['prev_receipt_sha256']})"
@@ -190,7 +280,9 @@ class LedgerVerifier:
             }
             body_bytes = _canonical_bytes(body)
             recomputed_sha = hashlib.sha256(body_bytes).hexdigest()
-            if not hmac.compare_digest(str(record["receipt_sha256"]), recomputed_sha):
+            if not isinstance(record["receipt_sha256"], str) or not hmac.compare_digest(
+                record["receipt_sha256"], recomputed_sha
+            ):
                 raise LedgerTamperError(f"ledger line {line_no}: receipt_sha256 mismatch (body tampered)")
 
             if record["sig_alg"] != signer.algorithm or record["key_id"] != signer.key_id:
@@ -199,7 +291,7 @@ class LedgerVerifier:
                 )
 
             sig_input = f"{record['receipt_sha256']}:{record['sig_alg']}:{record['key_id']}".encode("ascii")
-            if not signer.verify(sig_input, str(record["signature"])):
+            if not isinstance(record["signature"], str) or not signer.verify(sig_input, record["signature"]):
                 raise LedgerTamperError(f"ledger line {line_no}: invalid cryptographic signature")
 
             receipt = LedgerReceipt(
@@ -270,9 +362,10 @@ class SignedLedger:
             raise ValueError(f"unsupported ledger event: {event}")
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        adapters_list = [dict(a) for a in adapters]
+        adapters_list = [_redact_secrets(dict(a)) for a in adapters]
         flushed_list = [int(s) for s in slots_flushed]
-        details_dict = dict(details or {})
+        safe_reason = str(_redact_secrets(reason))
+        details_dict = _redact_secrets(dict(details or {}))
 
         body = {
             "seq": self._next_seq,
@@ -285,7 +378,7 @@ class SignedLedger:
             "adapters": adapters_list,
             "stage_failed": stage_failed,
             "error_code": error_code,
-            "reason": reason,
+            "reason": safe_reason,
             "slots_flushed": flushed_list,
             "details": details_dict,
         }
@@ -304,7 +397,7 @@ class SignedLedger:
             adapters=tuple(adapters_list),
             stage_failed=stage_failed,
             error_code=error_code,
-            reason=reason,
+            reason=safe_reason,
             slots_flushed=tuple(flushed_list),
             details=details_dict,
             receipt_sha256=receipt_sha256,
@@ -313,12 +406,20 @@ class SignedLedger:
             signature=signature,
         )
 
-        line = json.dumps(receipt.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
+        line = (
+            json.dumps(
+                receipt.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            + "\n"
+        )
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
         fd = os.open(self.path, flags, 0o600)
         try:
-            os.write(fd, line.encode("utf-8"))
-            os.fsync(fd)
+            _write_all_and_fsync(fd, line.encode("utf-8"))
         finally:
             os.close(fd)
 
@@ -354,10 +455,20 @@ def repair_ledger(
         archived_sha256 = hashlib.sha256(raw).hexdigest()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         dest = arch_root / f"{src.stem}.{stamp}.archived.jsonl"
-        dest.write_bytes(raw)
+        excl_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        dest_fd = os.open(dest, excl_flags, 0o400)
+        try:
+            _write_all_and_fsync(dest_fd, raw)
+        finally:
+            os.close(dest_fd)
         os.chmod(dest, 0o400)
         digest_file = arch_root / f"{src.stem}.{stamp}.archived.sha256"
-        digest_file.write_text(f"{archived_sha256}  {dest.name}\n", encoding="utf-8")
+        digest_bytes = f"{archived_sha256}  {dest.name}\n".encode("utf-8")
+        dig_fd = os.open(digest_file, excl_flags, 0o400)
+        try:
+            _write_all_and_fsync(dig_fd, digest_bytes)
+        finally:
+            os.close(dig_fd)
         os.chmod(digest_file, 0o400)
         src.unlink()
         archived_path = str(dest)

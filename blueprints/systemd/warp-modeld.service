@@ -8,6 +8,7 @@ Requires=warp-llama-server.service
 Type=simple
 User=warp-modeld
 Group=warp-rpc
+SupplementaryGroups=warp-modeld
 RuntimeDirectory=warp-modeld
 RuntimeDirectoryMode=0750
 StateDirectory=warp-ledger
