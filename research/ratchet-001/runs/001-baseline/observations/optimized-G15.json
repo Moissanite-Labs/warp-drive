@@ -1,0 +1,1 @@
+{"case":"G15","error_type":null,"mode":"optimized","outcome":"kill","output":{"admitted":false,"reasons":["UNPINNED_RUNTIME_PIP_INSTALL"]},"returncode":0,"schema":"warp-drive.ratchet-001.observation.v1","timed_out":false}

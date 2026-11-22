@@ -1,0 +1,1 @@
+{"case":"G17","error_type":null,"mode":"normal","outcome":"kill","output":{"admitted":false,"reasons":["EVAL_SAMPLING_NONDETERMINISTIC"]},"returncode":0,"schema":"warp-drive.ratchet-001.observation.v1","timed_out":false}

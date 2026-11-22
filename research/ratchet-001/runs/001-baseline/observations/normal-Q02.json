@@ -1,0 +1,1 @@
+{"case":"Q02","error_type":null,"mode":"normal","outcome":"pass","output":{"bregman_dL_dz0":{"den":147,"num":-11},"songe_dL_dz0":{"den":21,"num":1}},"returncode":0,"schema":"warp-drive.ratchet-001.observation.v1","timed_out":false}
