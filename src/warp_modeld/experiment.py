@@ -737,6 +737,34 @@ def apply_acceptance_policy(
     The pinned canary count is a required argument: the safety gate
     requires exactly that many canaries to have run.
     """
+    _require_number(measurements.task_top1, "task top1")
+    _require_number(
+        measurements.task_contested_fix_fraction, "task contested fix fraction"
+    )
+    _require_number(measurements.task_break_fraction, "task break fraction")
+    _require_number(measurements.margin_threshold, "margin threshold")
+    for name, margins in (
+        ("adapter margin", measurements.margins_adapter),
+        ("baseline margin", measurements.margins_baseline),
+    ):
+        for index, margin in enumerate(margins):
+            _require_number(margin, f"{name}[{index}]")
+    _require_number(measurements.iid_mean_kl, "IID mean KL")
+    _require_number(measurements.iid_top1_agreement, "IID top-1 agreement")
+    _require_number(measurements.shifted_mean_kl, "shifted mean KL")
+    if measurements.rollback_max_logit_diff is not None:
+        _require_number(
+            measurements.rollback_max_logit_diff, "rollback max logit difference"
+        )
+    for name, value in (
+        ("adapter requests", measurements.margin_adapter_requests),
+        ("baseline requests", measurements.margin_baseline_requests),
+        ("safety canaries run", measurements.safety_canaries_run),
+        ("rollback exact matches", measurements.rollback_exact_matches),
+        ("rollback sequences", measurements.rollback_sequences),
+    ):
+        _require_int(value, name)
+
     failed: list[str] = []
     reasons: list[str] = []
     task = thresholds["task"]
@@ -954,6 +982,8 @@ class ReceiptLog:
 
     def append(self, event: str, **fields: Any) -> dict[str, Any]:
         entries = self.read_all() if self.path.is_file() else []
+        if entries and not self.verify_chain():
+            raise ControllerError("receipt log chain is invalid; refusing append")
         if entries and entries[-1].get("event") == "sealed":
             raise ControllerError("receipt log is sealed; no further entries")
         prev_sha = entries[-1]["entry_sha256"] if entries else "0" * 64
