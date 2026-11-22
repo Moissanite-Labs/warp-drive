@@ -74,6 +74,8 @@ class FakeCompiler:
         )
 
 
+CANARIES = 9
+
 PASSING_SUITES = {
     "task": {
         "top1": 0.58,
@@ -85,12 +87,16 @@ PASSING_SUITES = {
     "safety_canaries": {"canaries_run": 9, "failures": []},
 }
 
+# The frozen margin rule: 84 adapter and 36 baseline probe requests.
+ADAPTER_MARGINS = (-0.10, 0.0, 0.18) * 28
+BASELINE_MARGINS = (-1.0, -0.9, -0.81) * 12
+
 PASSING_MARGINS = {
     "threshold": -0.37,
     "adapter_requests": 84,
     "baseline_requests": 36,
-    "margins_adapter": [-0.10, 0.0, 0.18],
-    "margins_baseline": [-1.0, -0.9, -0.81],
+    "margins_adapter": list(ADAPTER_MARGINS),
+    "margins_baseline": list(BASELINE_MARGINS),
 }
 
 
@@ -159,8 +165,8 @@ def passing_measurements(contract):
         "task_contested_fix_fraction": 0.15,
         "task_break_fraction": 0.03,
         "margin_threshold": -0.37,
-        "margins_adapter": (-0.10, 0.0, 0.18),
-        "margins_baseline": (-1.0, -0.9, -0.81),
+        "margins_adapter": ADAPTER_MARGINS,
+        "margins_baseline": BASELINE_MARGINS,
         "margin_adapter_requests": 84,
         "margin_baseline_requests": 36,
         "iid_mean_kl": 0.10,
@@ -357,7 +363,9 @@ def test_policy_accepts_passing_measurements(contract):
     from warp_modeld.experiment import Measurements
 
     verdict = apply_acceptance_policy(
-        Measurements(**passing_measurements(contract)), contract.thresholds
+        Measurements(**passing_measurements(contract)),
+        contract.thresholds,
+        expected_canaries=CANARIES,
     )
     assert verdict.verdict == "ACCEPT"
     assert verdict.failed_gates == ()
@@ -369,8 +377,8 @@ def test_policy_accepts_passing_measurements(contract):
         {"task_top1": 0.55},
         {"task_contested_fix_fraction": 0.09},
         {"task_break_fraction": 0.09},
-        {"margins_adapter": (-0.10, -0.40, 0.18)},
-        {"margins_baseline": (-1.0, -0.30, -0.81)},
+        {"margins_adapter": ADAPTER_MARGINS[:-1] + (-0.40,)},
+        {"margins_baseline": BASELINE_MARGINS[:-1] + (-0.30,)},
         {"iid_mean_kl": 0.26},
         {"iid_top1_agreement": 0.94},
         {"shifted_mean_kl": 0.41},
@@ -384,7 +392,9 @@ def test_policy_rejects_each_failing_gate(contract, change):
 
     fields = passing_measurements(contract)
     fields.update(change)
-    verdict = apply_acceptance_policy(Measurements(**fields), contract.thresholds)
+    verdict = apply_acceptance_policy(
+        Measurements(**fields), contract.thresholds, expected_canaries=CANARIES
+    )
     assert verdict.verdict == "REJECT"
     assert verdict.failed_gates
     assert verdict.reasons
@@ -399,12 +409,15 @@ def test_policy_cannot_be_changed_by_a_proposal(contract):
     tampered = json.loads(json.dumps(contract.thresholds))
     tampered["task"]["top1_min"] = 0.10
     verdict = apply_acceptance_policy(
-        Measurements(**passing_measurements(contract)), tampered
+        Measurements(**passing_measurements(contract)),
+        tampered,
+        expected_canaries=CANARIES,
     )
     assert verdict.verdict == "ACCEPT"
     frozen = apply_acceptance_policy(
         Measurements(**{**passing_measurements(contract), "task_top1": 0.55}),
         contract.thresholds,
+        expected_canaries=CANARIES,
     )
     assert frozen.verdict == "REJECT"
 
@@ -795,7 +808,70 @@ def test_rollback_requires_frozen_14_sequence_probe(controller):
         }
     )
     verdict = apply_acceptance_policy(
-        Measurements(**fields), controller.contract.thresholds
+        Measurements(**fields),
+        controller.contract.thresholds,
+        expected_canaries=CANARIES,
     )
     assert verdict.verdict == "REJECT"
     assert "rollback_sequences" in verdict.failed_gates
+
+
+# --- regression tests for the orda and abu re-reviews (2026-11-22) ----------
+
+
+def test_margin_counts_are_pinned_to_the_frozen_rule():
+    from warp_modeld import experiment
+
+    assert experiment.FROZEN_MARGIN_ADAPTER_REQUESTS == 84
+    assert experiment.FROZEN_MARGIN_BASELINE_REQUESTS == 36
+
+
+def test_one_request_per_side_cannot_pass_through_run_experiment(controller):
+    controller.runtime.margins = {
+        "threshold": -0.37,
+        "adapter_requests": 1,
+        "baseline_requests": 1,
+        "margins_adapter": [0.18],
+        "margins_baseline": [-1.0],
+    }
+    verdict, _ = controller.run_experiment(
+        {"eta": 0.01, "lora_scale": 1.0}, actual_parent_sha256=PARENT_SHA
+    )
+    assert verdict.verdict == "REJECT"
+    assert "margin_adapter" in verdict.failed_gates
+    assert "margin_baseline" in verdict.failed_gates
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        # Reported request count matches the frozen count, margins are short.
+        {"margins_adapter": ADAPTER_MARGINS[:-1]},
+        {"margins_baseline": BASELINE_MARGINS[:-1]},
+        # Margins are the right length, reported request count is not.
+        {"margin_adapter_requests": 83},
+        {"margin_baseline_requests": 35},
+        # Count and margins agree with each other but not with the rule.
+        {"margins_adapter": ADAPTER_MARGINS[:-1], "margin_adapter_requests": 83},
+        {
+            "margins_baseline": BASELINE_MARGINS + (-1.0,),
+            "margin_baseline_requests": 37,
+        },
+    ],
+)
+def test_margin_lengths_and_counts_must_equal_the_frozen_counts(contract, change):
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(contract)
+    fields.update(change)
+    verdict = apply_acceptance_policy(
+        Measurements(**fields), contract.thresholds, expected_canaries=CANARIES
+    )
+    assert verdict.verdict == "REJECT"
+    gates = set(verdict.failed_gates)
+    side = "margin_adapter" if "margins_adapter" in change or (
+        "margin_adapter_requests" in change
+    ) else "margin_baseline"
+    assert side in gates
+
+
