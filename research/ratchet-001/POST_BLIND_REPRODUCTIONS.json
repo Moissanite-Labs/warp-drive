@@ -1,0 +1,85 @@
+{
+  "records": [
+    {
+      "case": "C08",
+      "command": [
+        "python3",
+        "-I",
+        "-B",
+        "evaluation/songe_adapter.py",
+        "--target",
+        "runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py",
+        "--case",
+        "runs/001-baseline/requests/C08.json"
+      ],
+      "returncode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 98, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 85, in main\n    result = _invoke(_load_module(args.target), request)\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 63, in _invoke\n    return module.hardened_clustered_ville_gate(\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        converted,\n        ^^^^^^^^^^\n    ...<5 lines>...\n        data[\"drift_limit\"],\n        ^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"<workspace>/research/ratchet-001/runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py\", line 384, in hardened_clustered_ville_gate\n    raise ValueError(\"each outcome must be (nonempty conversation id, -1 | 0 | 1)\")\nValueError: each outcome must be (nonempty conversation id, -1 | 0 | 1)\n",
+      "stdout": ""
+    },
+    {
+      "case": "C09",
+      "command": [
+        "python3",
+        "-I",
+        "-B",
+        "evaluation/songe_adapter.py",
+        "--target",
+        "runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py",
+        "--case",
+        "runs/001-baseline/requests/C09.json"
+      ],
+      "returncode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 98, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 85, in main\n    result = _invoke(_load_module(args.target), request)\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 63, in _invoke\n    return module.hardened_clustered_ville_gate(\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        converted,\n        ^^^^^^^^^^\n    ...<5 lines>...\n        data[\"drift_limit\"],\n        ^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"<workspace>/research/ratchet-001/runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py\", line 374, in hardened_clustered_ville_gate\n    raise ValueError(\"invalid hardened clustered Ville gate inputs\")\nValueError: invalid hardened clustered Ville gate inputs\n",
+      "stdout": ""
+    },
+    {
+      "case": "G22",
+      "command": [
+        "python3",
+        "-I",
+        "-B",
+        "evaluation/songe_adapter.py",
+        "--target",
+        "runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py",
+        "--case",
+        "runs/001-baseline/requests/G22.json"
+      ],
+      "returncode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 98, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 85, in main\n    result = _invoke(_load_module(args.target), request)\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 53, in _invoke\n    return module.evaluate_songe_governance_boundary(data)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"<workspace>/research/ratchet-001/runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py\", line 443, in evaluate_songe_governance_boundary\n    or not isinstance(config[\"fused_outputs_rejudged\"], bool)\n                      ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nKeyError: 'fused_outputs_rejudged'\n",
+      "stdout": ""
+    },
+    {
+      "case": "G23",
+      "command": [
+        "python3",
+        "-I",
+        "-B",
+        "evaluation/songe_adapter.py",
+        "--target",
+        "runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py",
+        "--case",
+        "runs/001-baseline/requests/G23.json"
+      ],
+      "returncode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 98, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 85, in main\n    result = _invoke(_load_module(args.target), request)\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 53, in _invoke\n    return module.evaluate_songe_governance_boundary(data)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"<workspace>/research/ratchet-001/runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py\", line 462, in evaluate_songe_governance_boundary\n    config[\"control_requires_bearer_token\"] is not True\n    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nKeyError: 'control_requires_bearer_token'\n",
+      "stdout": ""
+    },
+    {
+      "case": "G24",
+      "command": [
+        "python3",
+        "-I",
+        "-B",
+        "evaluation/songe_adapter.py",
+        "--target",
+        "runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py",
+        "--case",
+        "runs/001-baseline/requests/G24.json"
+      ],
+      "returncode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 98, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 85, in main\n    result = _invoke(_load_module(args.target), request)\n  File \"<workspace>/research/ratchet-001/evaluation/songe_adapter.py\", line 53, in _invoke\n    return module.evaluate_songe_governance_boundary(data)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"<workspace>/research/ratchet-001/runs/001-baseline/candidate/studies/expedition-songe-distill-governance/songe_distill_governance_audit.py\", line 451, in evaluate_songe_governance_boundary\n    or config[\"hindsight_fence_escaped\"] is not True\n       ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\nKeyError: 'hindsight_fence_escaped'\n",
+      "stdout": ""
+    }
+  ],
+  "schema": "warp-drive.ratchet-001.post-blind-reproductions.v1"
+}
