@@ -16,6 +16,11 @@ from pathlib import Path
 
 import pytest
 
+# These tests use bare assert statements, which python -O removes. Under -O
+# every test would pass without checking anything, so refuse to collect.
+if not __debug__:
+    raise RuntimeError("test_lane7_verify.py needs assert statements: do not run it under python -O")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from verify import (  # noqa: E402
@@ -759,3 +764,15 @@ def test_golden_fixtures_against_frozen_contract():
     out = check_receipt_log(log)[0]
     assert out["verdict"] == "FALSIFIED"
     assert "strict JSON" in out["evidence"]
+
+
+# --- the suite must not pass under python -O -----------------------------------
+
+
+def test_suite_is_red_under_optimized_python():
+    proc = subprocess.run(
+        [sys.executable, "-I", "-O", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+         str(Path(__file__).resolve())],
+        capture_output=True, text=True, cwd=str(PKG))
+    assert proc.returncode != 0, proc.stdout
+    assert "do not run it under python -O" in proc.stdout + proc.stderr
