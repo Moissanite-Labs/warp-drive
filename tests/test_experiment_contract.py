@@ -25,7 +25,7 @@ def sha256_file(path):
 
 def test_manifest_pins_present():
     manifest = load(EXP / "manifest.json")
-    assert manifest["manifest_version"] == "0.1.1"
+    assert manifest["manifest_version"] == "0.1.2"
     assert manifest["base_checkpoint"]["file"] == "Qwen3.5-4B-Q8_0.gguf"
     assert manifest["base_checkpoint"]["sha256"] == (
         "10cc391b403021dd11c614679d2fd92f611c3681d29e29651b717316965d61e1"
@@ -122,7 +122,7 @@ def test_audit_arithmetic_is_consistent():
 
 def test_thresholds_frozen_and_gates_agree():
     thresholds = load(EXP / "thresholds.json")
-    assert thresholds["thresholds_version"] == "0.1.1"
+    assert thresholds["thresholds_version"] == "0.1.2"
     assert thresholds["thresholds_version_reason"]
     assert thresholds["adapter_application_margin"]["threshold"] == -0.37
     assert thresholds["repair_budget_max_rounds"] == 3
