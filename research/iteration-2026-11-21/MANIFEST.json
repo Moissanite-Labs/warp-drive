@@ -7,8 +7,8 @@
   "files": [
     {
       "path": "LEDGER.md",
-      "bytes": 12545,
-      "sha256": "0fd2273497207d52705b97f96f1377f31a554dc367b6af1c57f4a7250701dba2"
+      "bytes": 13356,
+      "sha256": "bae00e1fedbf9cd0338d74677f0a0b724164ea40e6165e9a2b6218c7644c9750"
     },
     {
       "path": "PREREGISTRATION.md",
@@ -407,8 +407,8 @@
     },
     {
       "path": "receipts/iteration-summary.json",
-      "bytes": 2401,
-      "sha256": "4b3fdb7fbad5d4cd802b9c4bc7c2494f3cb41b8882eed0bb5b71183109d88074"
+      "bytes": 2732,
+      "sha256": "a2b08863017ee628454cd733f4d21e89ed9d2f12cf2ece1ac904835d7f98d2e4"
     },
     {
       "path": "receipts/lane7-order-verdict.json",

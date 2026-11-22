@@ -61,7 +61,7 @@ Verdict labels apply only to the stated source and test scope. `N1` identifies a
 ### T4: tokenpage empirical harness trial
 
 - Source: Moissanite-Labs/tokenpage pull request 13 research commit `a694232ecd2dca2b568e7c6dda8d38e3515dcf78`. Underlying pull request 5 commit: `4d28be29a306aa3332c79c90294f7402f0ed23f9`.
-- Verdict: `FALSIFIED` no-argument certification coverage, `N1` local. The numerical research was not falsified.
+- Verdict: no-argument discovery checked zero studies, `N1` local for that gap only. The numerical research was not falsified. This packet does not show that a study the checker actually discovers would hide the same one-field mutation.
 - Clean and one-field-mutated no-argument harness runs both exited 0 with `checked 0 studies`. Changing the tracked rounded delta from `1.767` to `9999.0` was accepted. Explicitly naming the study exited 1.
 - Two research replays matched SHA-256 `b0cba027918e623b6f1169499eb49693aa47bede08c0c58411542bd91c9408f8` with zero diff.
 - The independent audit computed the rounded delta as `1.767`. Three isolated audit outputs matched SHA-256 `26e668c23c56761546c25343656e53d7e0c7fff7a86b530f204552878310bb1e`.
@@ -72,14 +72,14 @@ Verdict labels apply only to the stated source and test scope. `N1` identifies a
 
 The original prose `t4-tokenpage/AUDIT_LOG.md` reports unrounded no-legend empirical KL as `-6.651419738969508`. The independent machine receipt `t4-tokenpage/independent_audit.json` and the parent recomputation report `-6.651510759217704`. Both sources report with-legend empirical KL as `-4.8844556181300325` and the rounded delta as `1.767`.
 
-The prose log is preserved unchanged. Its unrounded no-legend sentence is not an authoritative numerical witness. The contradiction does not change the reproduced harness-coverage verdict or the rounded-delta control. Any future numerical claim must resolve this difference against the raw QA input rather than silently selecting one prose value.
+The prose log is preserved unchanged. A replay of the pinned raw QA file, SHA-256 `8cc8f1ce33be37a2d2ece4b5dab0722db5772460478551bb2007d319b0508334`, recomputed the no-legend value as `-6.651510759217704`. That matches the machine receipt. The prose figure `-6.651419738969508` is an unreproduced transcription. `AUDIT_LOG.md` stays byte-identical. The rounded delta remains `1.767`.
 
 ### T5: exact spectral cross-oracle trial
 
 - Source: Foundation-0/spectral-inertia main `8394da989912bbc3a0e8702124aeec1d05b4801f`. Inspected PR #2 head: `ef1a77db5924aa958b45c8affbb2424dcb1d9e2b`.
 - Verdict: completed negative evidence, `N0`. No counterexample or soundness repair survived.
 - Baseline passed 16 of 16 tests and killed 41 of 41 mutants in normal and optimized modes.
-- Four probes checked 860 exact matrices. Coverage included 624 nonsingular and 230 singular cases. Zero oracle disagreements occurred.
+- Four probes checked 860 exact matrices: 854 integer matrices, split as 624 nonsingular and 230 singular, plus 6 rational-cleared matrices recorded in `probe-normal.json`. Zero oracle disagreements occurred.
 - Four JSON outputs matched SHA-256 `ffd4ca1c745912a33e4f4dd123d4fbedfe9e5821ea6ef0299493c9ac966850ef`.
 - The negative control was killed in every mode.
 - Bareiss oracle SHA-256: `5794996c272b5cfca38d7599895303d90ea43e2372524290122425a5ec615772`.
@@ -89,9 +89,9 @@ The prose log is preserved unchanged. Its unrounded no-legend sentence is not an
 
 - Source: merged Bareiss study at `38a7072f8d23fe865b4d48d1da285a6db4fc14d1`.
 - Verdict: completed negative result, `N0`.
-- The suspected singular-PSD naive-LDL crash did not reproduce on three valid singular matrices in four isolated modes.
+- Three singular PSD fixtures, one 1x1 and two 2x2, returned without error in four isolated modes. No separate known-crashing input was available to replay.
 - Four outputs matched SHA-256 `72516964b96d3b2f91304b997e6e3b280c97c4862bf913bccb2c858a10a18937`.
-- The indefinite control remained rejected by the primary gate.
+- The naive helper returned `naive_ldl_bits` 1 on all three fixtures and on the indefinite control `[[0,1],[1,0]]`. The primary gate rejected that control. The helper does not separate those cases.
 - The naive helper remains diagnostic. It is not a PSD oracle.
 
 ### Follow-up: composed Gram certificate
@@ -127,7 +127,7 @@ Exact GitHub readback found one matching review body at the unchanged reviewed h
 
 - Live GGUF, CUDA, physical GPU checkpoints, paid provider calls, and real model quality remain unverified.
 - Review findings are pinned to the listed heads. Later fixes need new non-author execution and review.
-- The contract pull request later received a separate teammate approval at its unchanged head. This iteration retains the earlier margin-rule wording anomaly rather than treating the later approval as new numerical evidence.
+- Pull request 8 head is now `e7ea391c055b4f44aae93cc8f2e706d2ea488dbb`. Review `6009069465` by `orda-aska` approved `f9c9acce18434262bded9dd6263f46b80f6b89b1` and is now `DISMISSED`. It was not a separate approval from another account, and this ledger does not treat it as new numerical evidence. The earlier margin-rule note remains tied to `f9c9acc`.
 - The next Aletheia research pass must independently check cross-organization claims before publication. Negative results and contradictions remain part of the record.
 - This iteration branch changes research evidence only. It adds no Actions workflow and does not modify shipped runtime code.
 
@@ -142,3 +142,8 @@ Exact GitHub readback found one matching review body at the unchanged reviewed h
 - Shipped `verify_stack_division_free` rejects a composed singleton whose norm squares are 0 while both component values are 16.
 - Review publication: `6009464930`, submitted `2026-11-22T01:44:10Z`, body SHA-256 `0ca68f96d01e37e9f89ea05a574879ba94b38fd35a3837a355aaf3c17f4d9169`. Exact readback matched one body.
 - Witnesses: `pr15-review/`. Mutation counts, standalone study hashes, and live model behavior were not rerun.
+
+### Wording errata for review `6009446626`
+
+- Reviewed head: `778d0062a538f7520a0644d08d9bfe554383087b`. Reviewer: `zero-aska`. State: `CHANGES_REQUESTED`.
+- The five wording limits above are the response. No trial output was rewritten. `AUDIT_LOG.md` remains byte-identical.
