@@ -306,7 +306,9 @@ def test_compile_records_digest_before_evaluation(controller, tmp_path):
     # No scoring call happened before the digest entry: the runtime log
     # holds only the mount call so far.
     assert controller.runtime.calls == [("mount", result.adapter_sha256)]
-    assert controller.receipts.verify()
+    # Mid-run the log is not sealed yet, so only the chain is checked.
+    assert controller.receipts.verify_chain()
+    assert not controller.receipts.verify()
 
 
 def test_compile_rejects_checkpoint_drift_before_compiler_call(controller):
@@ -502,16 +504,53 @@ def test_receipt_log_is_hash_chained_and_tamper_evident(tmp_path):
     log = ReceiptLog(tmp_path / "log.jsonl")
     log.append("first", value=1)
     log.append("second", value=2)
+    # An unsealed log is not a complete record, so verify() refuses it
+    # even though the chain is intact.
+    assert log.verify_chain()
+    assert not log.verify()
+    log.seal()
     assert log.verify()
     entries = log.read_all()
-    assert [e["seq"] for e in entries] == [1, 2]
+    assert [e["seq"] for e in entries] == [1, 2, 3]
     assert entries[1]["prev_sha256"] == entries[0]["entry_sha256"]
+    assert entries[2]["event"] == "sealed"
+    assert entries[2]["entry_count"] == 2
     lines = (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()
     tampered = json.loads(lines[0])
     tampered["value"] = 99
     lines[0] = json.dumps(tampered, sort_keys=True)
     (tmp_path / "log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     assert not log.verify()
+
+
+def test_receipt_log_detects_suffix_truncation(tmp_path):
+    log = ReceiptLog(tmp_path / "log.jsonl")
+    log.append("first", value=1)
+    log.append("second", value=2)
+    log.seal()
+    assert log.verify()
+    lines = (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()
+    # Deleting the seal leaves a valid shorter chain; verify() must
+    # refuse it because the seal is gone.
+    (tmp_path / "log.jsonl").write_text("\n".join(lines[:2]) + "\n", encoding="utf-8")
+    assert not log.verify()
+    # The chain alone still holds: only the missing seal exposes this.
+    assert log.verify_chain()
+    # Deleting a middle entry breaks the chain and the seal count.
+    (tmp_path / "log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert log.verify()
+    (tmp_path / "log.jsonl").write_text(
+        "\n".join([lines[0], lines[2]]) + "\n", encoding="utf-8"
+    )
+    assert not log.verify()
+
+
+def test_receipt_log_refuses_append_after_seal(tmp_path):
+    log = ReceiptLog(tmp_path / "log.jsonl")
+    log.append("first", value=1)
+    log.seal()
+    with pytest.raises(ControllerError):
+        log.append("second", value=2)
 
 
 def test_promote_refuses_measurements_without_rollback(controller):
@@ -556,6 +595,7 @@ def test_full_run_accepts_passing_candidate(controller):
         "rollback_verified",
         "verdict",
         "receipt",
+        "sealed",
     ]
     assert controller.receipts.verify()
 
@@ -606,3 +646,125 @@ def test_receipt_matches_frozen_schema_shape(controller):
         "rollback",
     }
     assert verdict.verdict == "ACCEPT"
+
+
+# --- regression tests for the orda re-review (2026-11-21) -------------------
+
+
+def test_failed_mount_cannot_evaluate_without_digest_receipt(controller):
+    class FailingMountRuntime(FakeRuntime):
+        def mount_adapter(self, adapter_sha256, lora_scale):
+            raise ControllerError("mock mount failed")
+
+    controller.runtime = FailingMountRuntime()
+    candidate = controller.propose({"eta": 0.01, "lora_scale": 1.0})
+    with pytest.raises(ControllerError):
+        controller.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
+    events = [e["event"] for e in controller.receipts.read_all()]
+    assert "candidate_digest_recorded" not in events
+    with pytest.raises(ControllerError, match="no bound candidate"):
+        controller.evaluate()
+
+
+def test_scoring_failure_rolls_back_and_emits_no_success(controller):
+    class FailingScoreRuntime(FakeRuntime):
+        def score_suite(self, suite_name, cases):
+            raise ControllerError("mock scoring failed")
+
+    controller.runtime = FailingScoreRuntime()
+    with pytest.raises(ControllerError, match="mock scoring failed"):
+        controller.run_experiment(
+            {"eta": 0.01, "lora_scale": 1.0},
+            actual_parent_sha256=PARENT_SHA,
+        )
+    assert controller.lifecycle.calls == ["experiment_rollback"]
+    events = [e["event"] for e in controller.receipts.read_all()]
+    assert "verdict" not in events
+    assert "receipt" not in events
+    assert events[-1] == "sealed"
+    assert controller.receipts.verify()
+
+
+def test_empty_margin_evidence_cannot_pass_acceptance(contract):
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(contract)
+    fields.update(
+        {
+            "margins_adapter": (),
+            "margins_baseline": (),
+            "margin_adapter_requests": 0,
+            "margin_baseline_requests": 0,
+        }
+    )
+    verdict = apply_acceptance_policy(
+        Measurements(**fields),
+        contract.thresholds,
+        expected_canaries=contract.suites["safety_canaries"]["n_canaries"],
+    )
+    assert verdict.verdict == "REJECT"
+    assert "margin_adapter" in verdict.failed_gates
+    assert "margin_baseline" in verdict.failed_gates
+
+
+def test_zero_of_nine_canaries_cannot_pass_acceptance(contract):
+    from warp_modeld.experiment import Measurements
+
+    expected = contract.suites["safety_canaries"]["n_canaries"]
+    assert expected == 9
+    for run in (0, 5):
+        fields = passing_measurements(contract)
+        fields["safety_canaries_run"] = run
+        verdict = apply_acceptance_policy(
+            Measurements(**fields),
+            contract.thresholds,
+            expected_canaries=expected,
+        )
+        assert verdict.verdict == "REJECT"
+        assert "safety_canaries" in verdict.failed_gates
+
+
+def test_contract_drift_rejects_every_manifest_pinned_file(tmp_path):
+    import shutil
+
+    def mutate_audit(copied):
+        audit_path = copied / "audit" / "split_leakage.json"
+        data = json.loads(audit_path.read_text(encoding="utf-8"))
+        data["held_out_states"] = -1
+        audit_path.write_text(json.dumps(data), encoding="utf-8")
+
+    def mutate_generator(copied):
+        script_path = copied / "scripts" / "generate_suites.py"
+        script_path.write_text(
+            script_path.read_text(encoding="utf-8") + "\n# drift\n",
+            encoding="utf-8",
+        )
+
+    for mutate in (mutate_audit, mutate_generator):
+        copied = tmp_path / ("exp-" + mutate.__name__)
+        shutil.copytree(EXP, copied)
+        mutate(copied)
+        with pytest.raises(ContractDriftError):
+            load_contract(copied)
+
+
+def test_rollback_requires_frozen_14_sequence_probe(controller):
+    controller.runtime.baseline = BaselineCheck(
+        max_logit_diff=0.0, exact_matches=1, sequences=1
+    )
+    with pytest.raises(StateFlushError):
+        controller.rollback()
+    from warp_modeld.experiment import Measurements
+
+    fields = passing_measurements(controller.contract)
+    fields.update(
+        {
+            "rollback_exact_matches": 1,
+            "rollback_sequences": 1,
+        }
+    )
+    verdict = apply_acceptance_policy(
+        Measurements(**fields), controller.contract.thresholds
+    )
+    assert verdict.verdict == "REJECT"
+    assert "rollback_sequences" in verdict.failed_gates

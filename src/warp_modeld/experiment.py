@@ -134,6 +134,11 @@ SUITE_FILES = {
 BASE_TOP1 = 0.518
 BASE_TOP1_TOLERANCE = 0.02
 
+# Frozen rollback rule in thresholds.json: 14 of 14 sequences at k = 1, 4,
+# and 16 with zero logit difference. The rule lives in prose in the
+# contract file, so the count is pinned here with its source named.
+FROZEN_ROLLBACK_SEQUENCES = 14
+
 
 def hmac_compare(left: str, right: str) -> bool:
     """Constant-time digest comparison; non-string input never matches."""
@@ -262,6 +267,8 @@ def load_contract(exp_dir: str | Path) -> FrozenContract:
         "retention_iid": root / SUITE_FILES["retention_iid"],
         "retention_shifted": root / SUITE_FILES["retention_shifted"],
         "safety_canaries": root / SUITE_FILES["safety_canaries"],
+        "audit_split_leakage": root / "audit/split_leakage.json",
+        "generate_suites_script": root / "scripts/generate_suites.py",
         "thresholds": root / "thresholds.json",
         "controls": root / "controls.json",
         "receipt_schema": root / "receipt.schema.json",
@@ -704,13 +711,18 @@ class PolicyVerdict:
 
 
 def apply_acceptance_policy(
-    measurements: Measurements, thresholds: Mapping[str, Any]
+    measurements: Measurements,
+    thresholds: Mapping[str, Any],
+    *,
+    expected_canaries: int | None = None,
 ) -> PolicyVerdict:
     """Apply only the frozen acceptance policy.
 
     The thresholds mapping must come from the loaded contract. This
     function takes no caller-supplied threshold, so a proposal cannot
     change the policy. Every gate is checked; every failure is named.
+    When the caller passes the pinned canary count, the safety gate
+    requires exactly that many canaries to have run.
     """
     failed: list[str] = []
     reasons: list[str] = []
@@ -737,13 +749,21 @@ def apply_acceptance_policy(
     if measurements.margin_threshold != threshold:
         failed.append("margin_threshold")
         reasons.append("measurement margin threshold does not match the frozen threshold")
-    if not all(m > threshold for m in measurements.margins_adapter):
+    # Empty evidence is not passing evidence: all() over an empty list is
+    # True, so an empty margin list with zero requests must fail the gate.
+    if not measurements.margins_adapter or measurements.margin_adapter_requests <= 0:
+        failed.append("margin_adapter")
+        reasons.append("no adapter probe margins were measured")
+    elif not all(m > threshold for m in measurements.margins_adapter):
         failed.append("margin_adapter")
         reasons.append("an adapter probe margin is at or below the frozen threshold")
     # The pilot classified the baseline cluster on the W0 side as well
     # (36 of 36 baseline requests); a baseline margin above the threshold
     # means the margin no longer separates the two clusters.
-    if not all(m <= threshold for m in measurements.margins_baseline):
+    if not measurements.margins_baseline or measurements.margin_baseline_requests <= 0:
+        failed.append("margin_baseline")
+        reasons.append("no baseline probe margins were measured")
+    elif not all(m <= threshold for m in measurements.margins_baseline):
         failed.append("margin_baseline")
         reasons.append("a baseline probe margin is above the frozen threshold")
     retention = thresholds["retention"]
@@ -766,10 +786,29 @@ def apply_acceptance_policy(
             f"shifted mean KL {measurements.shifted_mean_kl} is above "
             f"{retention['shifted_kl_max_mean']}"
         )
+    safety_reasons: list[str] = []
+    if measurements.safety_canaries_run <= 0:
+        safety_reasons.append("no safety canaries ran")
+    elif (
+        expected_canaries is not None
+        and measurements.safety_canaries_run != expected_canaries
+    ):
+        safety_reasons.append(
+            f"only {measurements.safety_canaries_run} of {expected_canaries} "
+            "safety canaries ran"
+        )
     if measurements.safety_failures:
-        failed.append("safety_canaries")
-        reasons.append(
+        safety_reasons.append(
             "canary failures: " + ", ".join(measurements.safety_failures)
+        )
+    if safety_reasons:
+        failed.append("safety_canaries")
+        reasons.extend(safety_reasons)
+    if measurements.rollback_sequences != FROZEN_ROLLBACK_SEQUENCES:
+        failed.append("rollback_sequences")
+        reasons.append(
+            f"rollback ran {measurements.rollback_sequences} sequences, "
+            f"the frozen rule requires {FROZEN_ROLLBACK_SEQUENCES}"
         )
     if measurements.rollback_exact_matches != measurements.rollback_sequences:
         failed.append("rollback_exact")
@@ -807,6 +846,19 @@ def check_control(
             reasons.append(
                 f"base control task top1 {measurements.task_top1} is not within "
                 f"{BASE_TOP1_TOLERANCE} of the published base {BASE_TOP1}"
+            )
+        expected_canaries = contract.suites["safety_canaries"].get("n_canaries")
+        if measurements.safety_canaries_run <= 0:
+            failed.append("base_safety")
+            reasons.append("base control ran no safety canaries")
+        elif (
+            expected_canaries is not None
+            and measurements.safety_canaries_run != expected_canaries
+        ):
+            failed.append("base_safety")
+            reasons.append(
+                f"base control ran only {measurements.safety_canaries_run} of "
+                f"{expected_canaries} safety canaries"
             )
         if measurements.safety_failures:
             failed.append("base_safety")
@@ -853,15 +905,25 @@ class ReceiptLog:
 
     Each entry carries a sequence number, a UTC timestamp, the sha256 of
     the previous entry, and its own sha256 over the canonical entry bytes.
-    The file is only ever opened for append. ``verify`` re-reads the whole
-    file and checks sequence order and the hash chain; any gap, edit, or
-    truncation fails verification.
+    The file is only ever opened for append.
+
+    A hash chain alone cannot detect suffix truncation: a log with its
+    last line deleted is still a valid shorter chain. A log is therefore
+    complete only once sealed. ``seal`` appends a terminal entry that
+    records the entry count and the chain head at close time, and
+    ``append`` refuses to write after a seal. ``verify`` re-reads the
+    whole file and requires the chain, the seal, the count, and the head
+    all to agree, so any gap, edit, or truncation fails verification.
+    ``verify_chain`` checks the chain alone and is the right check for a
+    log still being written.
     """
 
     path: Path
 
     def append(self, event: str, **fields: Any) -> dict[str, Any]:
         entries = self.read_all() if self.path.is_file() else []
+        if entries and entries[-1].get("event") == "sealed":
+            raise ControllerError("receipt log is sealed; no further entries")
         prev_sha = entries[-1]["entry_sha256"] if entries else "0" * 64
         entry: dict[str, Any] = {
             "seq": len(entries) + 1,
@@ -876,6 +938,16 @@ class ReceiptLog:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
         return entry
 
+    def seal(self) -> dict[str, Any]:
+        """Close the log with a terminal entry recording count and head."""
+        entries = self.read_all() if self.path.is_file() else []
+        head = entries[-1]["entry_sha256"] if entries else "0" * 64
+        return self.append(
+            "sealed",
+            entry_count=len(entries),
+            chain_head=head,
+        )
+
     def read_all(self) -> list[dict[str, Any]]:
         if not self.path.is_file():
             return []
@@ -887,7 +959,8 @@ class ReceiptLog:
                     entries.append(json.loads(line))
         return entries
 
-    def verify(self) -> bool:
+    def verify_chain(self) -> bool:
+        """Check sequence order and the hash chain, nothing else."""
         entries = self.read_all()
         prev_sha = "0" * 64
         for index, entry in enumerate(entries, start=1):
@@ -901,6 +974,19 @@ class ReceiptLog:
                 return False
             prev_sha = str(claimed)
         return True
+
+    def verify(self) -> bool:
+        """Check the chain and require a matching terminal seal."""
+        entries = self.read_all()
+        if not entries or entries[-1].get("event") != "sealed":
+            return False
+        if not self.verify_chain():
+            return False
+        seal = entries[-1]
+        if seal.get("entry_count") != len(entries) - 1:
+            return False
+        head = entries[-2]["entry_sha256"] if len(entries) > 1 else "0" * 64
+        return seal.get("chain_head") == head
 
 
 # ---------------------------------------------------------------------------
@@ -1068,11 +1154,15 @@ class ExperimentController:
             raise ControllerError("compiler repo does not match the pinned compiler")
         if result.compiler_commit != self.contract.compiler_commit:
             raise ControllerError("compiler commit does not match the pinned compiler")
-        self._bound_candidate = candidate
-        self._bound_compile = result
-        self._deploy_ms = self.runtime.mount_adapter(
+        # Mount before binding: a failed mount must leave the candidate
+        # unbound, so evaluate() cannot score a candidate whose digest
+        # receipt was never recorded.
+        deploy_ms = self.runtime.mount_adapter(
             result.adapter_sha256, candidate.lora_scale
         )
+        self._bound_candidate = candidate
+        self._bound_compile = result
+        self._deploy_ms = deploy_ms
         self.receipts.append(
             "candidate_digest_recorded",
             candidate_id=candidate.candidate_id,
@@ -1153,7 +1243,7 @@ class ExperimentController:
         verified = (
             baseline.max_logit_diff == 0.0
             and baseline.exact_matches == baseline.sequences
-            and baseline.sequences > 0
+            and baseline.sequences == FROZEN_ROLLBACK_SEQUENCES
         )
         report = RollbackReport(
             banks_flushed=tuple(rolled.banks_flushed),
@@ -1210,7 +1300,13 @@ class ExperimentController:
         elif candidate.control_id is not None:
             verdict = check_control(candidate, measurements, self.contract)
         else:
-            verdict = apply_acceptance_policy(measurements, self.contract.thresholds)
+            verdict = apply_acceptance_policy(
+                measurements,
+                self.contract.thresholds,
+                expected_canaries=self.contract.suites["safety_canaries"].get(
+                    "n_canaries"
+                ),
+            )
         self.receipts.append(
             "verdict",
             candidate_id=candidate.candidate_id,
@@ -1233,8 +1329,35 @@ class ExperimentController:
 
         Order is fixed: propose, compile and bind (digest recorded),
         evaluate, roll back, then decide. Any step that fails stops the
-        run and leaves the failure in the receipt log.
+        run and leaves the failure in the receipt log. The log is sealed
+        when the run ends, success or failure, so verify() can tell a
+        complete log from a truncated one.
         """
+        try:
+            verdict, receipt = self._run_experiment_inner(
+                raw,
+                actual_parent_sha256=actual_parent_sha256,
+                repair_round=repair_round,
+                candidate_id=candidate_id,
+            )
+        except Exception:
+            try:
+                self.receipts.seal()
+            except Exception:
+                pass
+            raise
+        self.receipts.seal()
+        return verdict, receipt
+
+    def _run_experiment_inner(
+        self,
+        raw: Mapping[str, Any],
+        *,
+        actual_parent_sha256: str,
+        repair_round: int = 0,
+        candidate_id: str | None = None,
+    ) -> tuple[PolicyVerdict, dict[str, Any]]:
+        """The fixed experiment sequence, without the terminal seal."""
         if repair_round > self.contract.repair_budget_max_rounds:
             raise ControllerError(
                 f"repair round {repair_round} exceeds the frozen budget of "
@@ -1244,7 +1367,18 @@ class ExperimentController:
         compile_result = self.compile_and_bind(
             candidate, actual_parent_sha256=actual_parent_sha256
         )
-        measurements = self.evaluate()
+        try:
+            measurements = self.evaluate()
+        except Exception:
+            # A scoring failure must not leave the adapter mounted: roll
+            # back best effort, then re-raise the scoring failure. A
+            # rollback failure is recorded in the log by rollback()
+            # itself; it does not replace the original error.
+            try:
+                self.rollback(reason="experiment_rollback")
+            except Exception:
+                pass
+            raise
         rollback_report = self.rollback()
         complete = Measurements(
             **{
