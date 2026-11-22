@@ -3,9 +3,9 @@
 Runs only when WARP_LIVE_CEREBRAS_TEST=1 and CEREBRAS_API_KEY is set.
 Makes one real propose call and checks the receipt records the served
 model. The test asserts nothing about the proposed candidate beyond schema
-validity. A served model id that differs from the requested id is recorded
-in the receipt and reported, never treated as a pass for the requested
-model.
+validity. A served model id that differs from the requested id makes the
+client raise an error (ERR_CEREBRAS_MODEL_SUBSTITUTION), never a pass for
+the requested model.
 
 Skipped everywhere else. No credential is created by this test.
 """
