@@ -344,6 +344,49 @@ def test_config_digests_recompute(tmp_path):
     assert check_config_digests(log)[0]["verdict"] == "FALSIFIED"
 
 
+def test_config_digests_verify_binding_before_evaluation(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01, "quant": "bf16"}
+    digest = sha256_canonical(config)
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": "c1",
+                     "config": config, "config_digest": digest},
+                    {"event": "candidate_digest_recorded", "candidate_id": "c1",
+                     "config_digest": digest},
+                    {"event": "evaluated", "candidate_id": "c1"}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "VERIFIED"
+    assert "before its candidate was evaluated" in out["evidence"]
+
+
+def test_config_digests_falsify_digest_recorded_after_evaluation(tmp_path):
+    # Orda's witness: proposed -> evaluated -> digest recorded, with
+    # sequence numbers, links, and hashes all recomputing.
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01, "quant": "bf16"}
+    digest = sha256_canonical(config)
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": "c1",
+                     "config": config, "config_digest": digest},
+                    {"event": "evaluated", "candidate_id": "c1"},
+                    {"event": "candidate_digest_recorded", "candidate_id": "c1",
+                     "config_digest": digest}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "after evaluation" in out["evidence"]
+
+
+def test_config_digests_unverified_without_evaluated_event(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01, "quant": "bf16"}
+    digest = sha256_canonical(config)
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": "c1",
+                     "config": config, "config_digest": digest},
+                    {"event": "candidate_digest_recorded", "candidate_id": "c1",
+                     "config_digest": digest}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "UNVERIFIED"
+    assert "before-evaluation binding is not established" in out["evidence"]
+
+
 # --- cerebras bounds ----------------------------------------------------------
 
 

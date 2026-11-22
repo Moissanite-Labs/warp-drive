@@ -383,6 +383,8 @@ def check_config_digests(log_path: Path) -> list[dict]:
     except OSError as exc:
         return [result("config_digests", "UNVERIFIED", "cannot read log: %s" % exc)]
     proposed: dict[str, str] = {}
+    evaluated: set[str] = set()
+    recorded: set[str] = set()
     checked = 0
     for line in lines:
         entry = json.loads(line)
@@ -400,12 +402,16 @@ def check_config_digests(log_path: Path) -> list[dict]:
                                % entry.get("candidate_id"))]
             proposed[str(entry.get("candidate_id"))] = str(claimed)
             checked += 1
+        elif event == "evaluated":
+            evaluated.add(str(entry.get("candidate_id")))
         elif event == "candidate_digest_recorded":
             # No config is logged here. The digest must match the one
-            # proposed for the same candidate, i.e. the digest recorded
-            # before evaluation is the proposed config's digest.
+            # proposed for the same candidate, and it must have been
+            # recorded before that candidate was evaluated: a digest
+            # first recorded after evaluation binds nothing.
+            candidate_id = str(entry.get("candidate_id"))
             claimed = entry.get("config_digest")
-            earlier = proposed.get(str(entry.get("candidate_id")))
+            earlier = proposed.get(candidate_id)
             if claimed is None or earlier is None:
                 return [result("config_digests", "FALSIFIED",
                                "candidate_digest_recorded for %s has no matching proposal"
@@ -414,14 +420,30 @@ def check_config_digests(log_path: Path) -> list[dict]:
                 return [result("config_digests", "FALSIFIED",
                                "digest recorded before evaluation differs from the proposed "
                                "digest for %s" % entry.get("candidate_id"))]
+            if candidate_id in evaluated:
+                return [result("config_digests", "FALSIFIED",
+                               "digest for %s was first recorded after evaluation"
+                               % entry.get("candidate_id"))]
+            recorded.add(candidate_id)
             checked += 1
     if not checked:
         return [result("config_digests", "UNVERIFIED",
                        "no candidate_proposed/digest entries in the log")]
+    if not recorded:
+        return [result("config_digests", "VERIFIED",
+                       "exact: %d logged config digests recompute from the logged configs "
+                       "(canonical JSON, sorted keys). No digest was recorded, so no "
+                       "before-evaluation binding is claimed" % checked)]
+    unanchored = sorted(cid for cid in recorded if cid not in evaluated)
+    if unanchored:
+        return [result("config_digests", "UNVERIFIED",
+                       "digest for %s matches the proposed digest, but no evaluated event "
+                       "exists for it, so before-evaluation binding is not established"
+                       % ", ".join(unanchored))]
     return [result("config_digests", "VERIFIED",
                    "exact: %d logged config digests recompute from the logged configs "
-                   "(canonical JSON, sorted keys). The digest recorded before evaluation "
-                   "matches the proposed digest" % checked)]
+                   "(canonical JSON, sorted keys). Every digest was recorded before its "
+                   "candidate was evaluated, and matches the proposed digest" % checked)]
 
 
 # ---------------------------------------------------------------------------
