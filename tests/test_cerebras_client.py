@@ -346,12 +346,64 @@ class TestTransportFailures(unittest.TestCase):
 
 
 class TestReceiptHonesty(unittest.TestCase):
-    def test_wrong_served_model_is_recorded_not_substituted(self) -> None:
+    def test_wrong_served_model_is_rejected_with_substitution_code_and_receipt(self) -> None:
         with MockCerebrasServer("wrong_model") as server:
             client = make_client(server)
-            _, receipt = client.propose_candidate(valid_context())
-        self.assertEqual(receipt.requested_model, "kimi-k3.1-pro")
-        self.assertEqual(receipt.served_model, "qwen-3.8-27b")
+            with self.assertRaises(CerebrasSchemaError) as ctx:
+                client.propose_candidate(valid_context())
+        self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_SUBSTITUTION")
+        msg = str(ctx.exception)
+        self.assertIn("ERR_CEREBRAS_MODEL_SUBSTITUTION", msg)
+        self.assertIn('"requested_model": "kimi-k3.1-pro"', msg)
+        self.assertIn('"served_model": "qwen-3.8-27b"', msg)
+        self.assertIn('"status": "error"', msg)
+
+    def test_missing_served_model_is_rejected_fail_closed(self) -> None:
+        with MockCerebrasServer("missing_model") as server:
+            client = make_client(server)
+            with self.assertRaises(CerebrasSchemaError) as ctx:
+                client.propose_candidate(valid_context())
+        self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_MISSING")
+        self.assertIn("ERR_CEREBRAS_MODEL_MISSING", str(ctx.exception))
+
+    def test_invalid_ansi_oversized_or_untrimmed_served_model_is_rejected_without_leak(self) -> None:
+        for bad_model in ("", "   ", " kimi-k3.1-pro ", 123, "a" * 129, "qwen\x1b[31mevil\x00"):
+            raw = json.dumps(
+                {
+                    "id": "chatcmpl-bad",
+                    "model": bad_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"target_layer":"last","strength":0.5,"rank":8,"quantization":"q8_0"}',
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+            class _FakeResp:
+                def __enter__(self) -> "_FakeResp":
+                    return self
+
+                def __exit__(self, *args: object) -> bool:
+                    return False
+
+                def read(self) -> bytes:
+                    return raw
+
+            client = CerebrasKimiClient(API_KEY, base_url="http://127.0.0.1:1/v1")
+            with mock.patch("warp_modeld.cerebras_client.urllib.request.urlopen", return_value=_FakeResp()):
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    client.propose_candidate(valid_context())
+            self.assertEqual(ctx.exception.code, "ERR_CEREBRAS_MODEL_INVALID")
+            msg = str(ctx.exception)
+            self.assertIn('"served_model": null', msg)
+            self.assertNotIn("\x1b", msg)
+            self.assertNotIn("\x00", msg)
 
     def test_missing_usage_leaves_token_counts_none(self) -> None:
         with MockCerebrasServer("missing_usage") as server:
