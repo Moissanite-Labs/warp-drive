@@ -386,8 +386,12 @@ def check_config_digests(log_path: Path) -> list[dict]:
     evaluated: set[str] = set()
     recorded: set[str] = set()
     checked = 0
-    for line in lines:
-        entry = json.loads(line)
+    for index, line in enumerate(lines, start=1):
+        try:
+            entry = json.loads(line, parse_constant=_reject_constant)
+        except ValueError as exc:
+            return [result("config_digests", "FALSIFIED",
+                           "line %d is not strict JSON: %s" % (index, exc))]
         event = entry.get("event")
         if event == "candidate_proposed":
             config = entry.get("config")
@@ -426,6 +430,13 @@ def check_config_digests(log_path: Path) -> list[dict]:
                                % entry.get("candidate_id"))]
             recorded.add(candidate_id)
             checked += 1
+    # Fail closed: every evaluated candidate needs a digest recorded earlier in
+    # the log. A digest recorded after evaluation was rejected above; this
+    # catches candidates that were never proposed or never had a digest recorded.
+    unbound = sorted(cid for cid in evaluated if cid not in recorded)
+    if unbound:
+        return [result("config_digests", "FALSIFIED",
+                       "evaluated with no recorded digest: %s" % ", ".join(unbound))]
     if not checked:
         return [result("config_digests", "UNVERIFIED",
                        "no candidate_proposed/digest entries in the log")]

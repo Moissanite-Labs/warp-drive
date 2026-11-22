@@ -387,6 +387,75 @@ def test_config_digests_unverified_without_evaluated_event(tmp_path):
     assert "before-evaluation binding is not established" in out["evidence"]
 
 
+def _digest_log_entries(config, digest):
+    return [{"event": "candidate_proposed", "candidate_id": "A",
+             "config": config, "config_digest": digest},
+            {"event": "candidate_digest_recorded", "candidate_id": "A",
+             "config_digest": digest},
+            {"event": "evaluated", "candidate_id": "A"}]
+
+
+def test_config_digests_falsify_evaluated_candidate_with_no_recorded_digest(tmp_path):
+    # Valid chain: proposed(A), recorded(A), evaluated(A), proposed(B), evaluated(B).
+    # B is evaluated with no recorded digest and must not pass.
+    log = tmp_path / "log.jsonl"
+    config_a = {"rank": 8, "eta": 0.01}
+    config_b = {"rank": 8, "eta": 0.02}
+    entries = _digest_log_entries(config_a, sha256_canonical(config_a))
+    write_log(log, [dict(e) for e in entries])
+    assert check_config_digests(log)[0]["verdict"] == "VERIFIED"
+    write_log(log, [dict(e) for e in entries]
+              + [{"event": "candidate_proposed", "candidate_id": "B",
+                  "config": config_b, "config_digest": sha256_canonical(config_b)},
+                 {"event": "evaluated", "candidate_id": "B"}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "B" in out["evidence"] and "no recorded digest" in out["evidence"]
+
+
+def test_config_digests_falsify_evaluated_candidate_never_proposed(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    entries = _digest_log_entries(config, sha256_canonical(config))
+    write_log(log, [dict(e) for e in entries] + [{"event": "evaluated", "candidate_id": "ghost"}])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "ghost" in out["evidence"]
+
+
+def test_config_digests_falsify_digest_that_differs_from_proposal(tmp_path):
+    # Rechained so only the digest comparison can reject it.
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": "A",
+                     "config": config, "config_digest": sha256_canonical(config)},
+                    {"event": "candidate_digest_recorded", "candidate_id": "A",
+                     "config_digest": sha256_canonical({"rank": 16})},
+                    {"event": "evaluated", "candidate_id": "A"}])
+    assert check_receipt_log(log)[0]["verdict"] == "VERIFIED"
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "differs from the proposed digest" in out["evidence"]
+
+
+def test_config_digests_reject_non_strict_json(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    digest = sha256_canonical(config)
+    lines = write_log(log, _digest_log_entries(config, digest))
+    assert check_config_digests(log)[0]["verdict"] == "VERIFIED"
+    # NaN placed in an unrelated field of the evaluated entry, then rechained.
+    entry = json.loads(lines[2])
+    entry["max_logit_diff"] = float("nan")
+    body = {k: v for k, v in entry.items() if k != "entry_sha256"}
+    entry["entry_sha256"] = sha256_canonical({k: (None if v != v else v)
+                                              for k, v in body.items()})
+    log.write_text("\n".join(lines[:2] + [json.dumps(entry, sort_keys=True)]) + "\n")
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "strict JSON" in out["evidence"]
+
+
 # --- cerebras bounds ----------------------------------------------------------
 
 
