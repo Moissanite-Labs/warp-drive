@@ -1,0 +1,1501 @@
+diff --git a/blueprints/sandbox/warp-sandbox-exec.sh b/blueprints/sandbox/warp-sandbox-exec.sh
+index 7c84a4b..0a481a7 100755
+--- a/blueprints/sandbox/warp-sandbox-exec.sh
++++ b/blueprints/sandbox/warp-sandbox-exec.sh
+@@ -1,109 +1,169 @@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ 
+ # Mandatory fail-closed bubblewrap tool executor for siliconcordat/warp.
+ # Enforces empty network namespace (Zone A default), read-only verifier/model mounts,
+ # and zero access to warp-modeld control sockets or signing keys.
+ 
+ if [[ "${WARP_TOOL_EXECUTOR_REQUIRED:-1}" != "1" ]]; then
+     echo "ERR_SANDBOX_POLICY: WARP_TOOL_EXECUTOR_REQUIRED must remain 1" >&2
+     exit 126
+ fi
+ 
+ if [[ $# -lt 2 ]]; then
+     echo "Usage: $0 <ephemeral-worktree-dir> <command> [args...]" >&2
+     exit 2
+ fi
+ 
+ WORKTREE="$1"
+ shift
+ 
+-if ! WORKTREE_REAL="$(realpath -e -- "${WORKTREE}" 2>/dev/null)" || [[ ! -d "${WORKTREE_REAL}" ]]; then
++normalize_abs_path() {
++    local p="$1"
++    # Collapse leading multiple slashes (POSIX allows `pwd -P` to preserve `//`).
++    p="/${p#"${p%%[!/]*}"}"
++    printf '%s\n' "${p}"
++}
++
++resolve_existing_dir() {
++    local target="$1"
++    local resolved
++    if [[ ! -d "${target}" ]]; then
++        return 1
++    fi
++    resolved="$(cd -P -- "${target}" 2>/dev/null && pwd -P)" || return 1
++    normalize_abs_path "${resolved}"
++}
++
++resolve_existing_file() {
++    local target="$1"
++    local hops=0
++    local max_hops=40
++    local dir base resolved_dir link_target
++    if [[ ! -e "${target}" && ! -L "${target}" ]]; then
++        return 1
++    fi
++    while [[ -L "${target}" ]]; do
++        hops=$((hops + 1))
++        if (( hops > max_hops )); then
++            return 1
++        fi
++        dir="$(dirname -- "${target}")"
++        resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
++        resolved_dir="$(normalize_abs_path "${resolved_dir}")"
++        link_target="$(readlink -- "${target}" 2>/dev/null)" || return 1
++        if [[ -z "${link_target}" ]]; then
++            return 1
++        fi
++        if [[ "${link_target}" == /* ]]; then
++            target="${link_target}"
++        elif [[ "${resolved_dir}" == "/" ]]; then
++            target="/${link_target}"
++        else
++            target="${resolved_dir}/${link_target}"
++        fi
++    done
++    if [[ ! -e "${target}" ]]; then
++        return 1
++    fi
++    dir="$(dirname -- "${target}")"
++    base="$(basename -- "${target}")"
++    resolved_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)" || return 1
++    resolved_dir="$(normalize_abs_path "${resolved_dir}")"
++    if [[ "${resolved_dir}" == "/" ]]; then
++        printf '/%s\n' "${base}"
++    else
++        printf '%s/%s\n' "${resolved_dir}" "${base}"
++    fi
++}
++
++if ! WORKTREE_REAL="$(resolve_existing_dir "${WORKTREE}")" || [[ ! -d "${WORKTREE_REAL}" ]]; then
+     echo "ERR_SANDBOX_WORKTREE: worktree directory does not exist: ${WORKTREE}" >&2
+     exit 126
+ fi
++WORKTREE_REAL="/${WORKTREE_REAL#"${WORKTREE_REAL%%[!/]*}"}"
+ 
+ if [[ "${WORKTREE_REAL}" == "/" ]]; then
+     echo "ERR_SANDBOX_WORKTREE: refusing root directory as worktree" >&2
+     exit 126
+ fi
+ 
+ for denied in \
+     /run/warp-modeld \
+     /var/lib/warp-ledger \
+     /etc/warp/keys \
+     /etc/warp \
+     /var/lib/warp/models \
+     /var/lib/warp/snapshots \
+     /boot \
+     /efi; do
+     if [[ "${WORKTREE_REAL}" == "${denied}" || "${WORKTREE_REAL}" == "${denied}/"* || "${denied}" == "${WORKTREE_REAL}/"* ]]; then
+         echo "ERR_SANDBOX_WORKTREE: worktree overlaps protected host path (${denied}): ${WORKTREE_REAL}" >&2
+         exit 126
+     fi
+ done
+ 
+ # Pin trusted system bubblewrap path instead of honoring untrusted PATH lookup.
+ BWRAP_BIN=""
+ for candidate in /usr/bin/bwrap /bin/bwrap; do
+     if [[ -x "${candidate}" ]]; then
+-        resolved_bwrap="$(realpath -e -- "${candidate}" 2>/dev/null || true)"
++        resolved_bwrap="$(resolve_existing_file "${candidate}" 2>/dev/null || true)"
+         if [[ "${resolved_bwrap}" == "/usr/bin/bwrap" || "${resolved_bwrap}" == "/bin/bwrap" ]]; then
+             BWRAP_BIN="${resolved_bwrap}"
+             break
+         fi
+     fi
+ done
+ if [[ -z "${BWRAP_BIN}" ]]; then
+     echo "ERR_SANDBOX_UNAVAILABLE: trusted bubblewrap (/usr/bin/bwrap) is required; refusing unsandboxed execution" >&2
+     exit 126
+ fi
+ 
+ BWRAP_ARGS=(
+     --unshare-all
+     --unshare-net
+     --die-with-parent
+     --new-session
+     --clearenv
+     --setenv PATH "/usr/local/bin:/usr/bin:/bin"
+     --setenv LANG "C.UTF-8"
+     --setenv SOURCE_DATE_EPOCH "${SOURCE_DATE_EPOCH:-1700000000}"
+     --setenv WARP_SANDBOXED "1"
+     --ro-bind /usr /usr
+     --ro-bind /bin /bin
+     --ro-bind /lib /lib
+     --proc /proc
+     --dev /dev
+     --tmpfs /tmp
+     --bind "${WORKTREE_REAL}" /workspace
+     --chdir /workspace
+ )
+ 
+ if [[ -d /lib64 ]]; then
+     BWRAP_ARGS+=(--ro-bind /lib64 /lib64)
+ fi
+ 
+ # Protected verifier suites and base weights stay strictly read-only if present.
+ if [[ -d /etc/warp/canaries ]]; then
+     BWRAP_ARGS+=(--ro-bind /etc/warp/canaries /etc/warp/canaries)
+ fi
+ if [[ -d /var/lib/warp/models ]]; then
+     BWRAP_ARGS+=(--ro-bind /var/lib/warp/models /var/lib/warp/models)
+ fi
+ 
+ # Fail closed if a seccomp BPF filter is required or configured but unreadable.
+ SECCOMP_BPF="${WARP_SECCOMP_BPF_PATH:-}"
+ if [[ "${WARP_REQUIRE_SECCOMP_BPF:-0}" == "1" && -z "${SECCOMP_BPF}" ]]; then
+     echo "ERR_SANDBOX_SECCOMP: WARP_REQUIRE_SECCOMP_BPF=1 requires WARP_SECCOMP_BPF_PATH" >&2
+     exit 126
+ fi
+ if [[ -n "${SECCOMP_BPF}" ]]; then
+     if [[ ! -r "${SECCOMP_BPF}" || ! -f "${SECCOMP_BPF}" ]]; then
+         echo "ERR_SANDBOX_SECCOMP: compiled seccomp BPF filter missing or unreadable: ${SECCOMP_BPF}" >&2
+         exit 126
+     fi
+     exec 9<"${SECCOMP_BPF}"
+     BWRAP_ARGS+=(--seccomp 9)
+ fi
+ 
+ exec "${BWRAP_BIN}" "${BWRAP_ARGS[@]}" -- "$@"
+diff --git a/src/warp_modeld/canary.py b/src/warp_modeld/canary.py
+index 605b4d5..3a16d2c 100644
+--- a/src/warp_modeld/canary.py
++++ b/src/warp_modeld/canary.py
+@@ -330,549 +330,619 @@ class CanarySuite:
+                     category=cat,
+                     prompt=str(row["prompt"]),
+                     domains=domains,
+                     system_prompt=row.get("system_prompt"),
+                     must_contain=tuple(str(x) for x in row.get("must_contain", ())),
+                     must_not_contain=tuple(str(x) for x in row.get("must_not_contain", ())),
+                     prose_only_forbid=tuple(str(x) for x in row.get("prose_only_forbid", ())),
+                     regex_must_match=tuple(str(x) for x in row.get("regex_must_match", ())),
+                     regex_must_not_match=tuple(str(x) for x in row.get("regex_must_not_match", ())),
+                     min_chars=int(row.get("min_chars", 1)),
+                     max_chars=int(row["max_chars"]) if row.get("max_chars") is not None else None,
+                     max_tokens=int(row["max_tokens"]) if row.get("max_tokens") is not None else None,
+                 )
+             )
+ 
+         preservation_count = sum(1 for spec in specs if spec.category == "preservation")
+         if preservation_count < min_preservation:
+             raise CanaryConfigError(
+                 f"verifier canary JSONL requires at least {min_preservation} preservation canaries "
+                 f"(found {preservation_count})"
+             )
+         return cls(suite_sha256=actual_sha, canaries=tuple(specs), source_path=str(file_path))
+ 
+     def select_for_domains(self, domains: Sequence[str]) -> list[CanarySpec]:
+         domain_set = set(domains)
+         preservation = [c for c in self.canaries if c.category == "preservation"]
+         domain_matches = [c for c in self.canaries if c.category == "domain" and c.domains[0] in domain_set]
+         cross_matches = [
+             c
+             for c in self.canaries
+             if c.category == "cross_adapter" and len(domain_set) > 1 and set(c.domains).issubset(domain_set)
+         ]
+ 
+         # Every requested adapter domain must have at least one verifier-owned domain canary.
+         covered_domains = {c.domains[0] for c in domain_matches}
+         missing_domains = sorted(domain_set - covered_domains)
+         if missing_domains:
+             raise CanaryFailedError(
+                 f"no verifier-owned domain canaries configured for domains: {missing_domains}"
+             )
+ 
+         preservation.sort(key=lambda c: c.canary_id)
+         domain_matches.sort(key=lambda c: c.canary_id)
+         cross_matches.sort(key=lambda c: c.canary_id)
+         return preservation + domain_matches + cross_matches
+ 
+ 
+ @dataclass(frozen=True)
+ class CanaryCheckOutcome:
+     canary_id: str
+     category: str
+     passed: bool
+     failures: tuple[str, ...]
+ 
+ 
+ @dataclass(frozen=True)
+ class CanaryResult:
+     suite_sha256: str
+     outcomes: tuple[CanaryCheckOutcome, ...]
+     preservation_passed: int
+     preservation_total: int
+     canary_slot_flushed: bool
+     elapsed_ms: float = 0.0
+ 
+ 
+ def _extract_chat_content(response: dict[str, Any]) -> str:
+     choices = response.get("choices")
+     if isinstance(choices, list) and choices:
+         first = choices[0]
+         if isinstance(first, dict):
+             msg = first.get("message")
+             if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                 return msg["content"]
+             if isinstance(first.get("text"), str):
+                 return first["text"]
+     if isinstance(response.get("content"), str):
+         return response["content"]
+     raise CanaryFailedError("llama-server returned response without assistant text content")
+ 
+ 
++def _is_slot_clean_for_banks(
++    llama_client: LlamaServerClient,
++    sid: int,
++    expected_banks: tuple[str, ...],
++) -> bool:
++    """Verify post-erase slot cleanliness across every expected and reported state bank."""
++    if not hasattr(llama_client, "list_slots"):
++        return True
++    try:
++        slots_now = llama_client.list_slots()
++    except LlamaClientError:
++        return False
++    by_id = {int(s.id): s for s in slots_now}
++    s_info = by_id.get(sid)
++    if s_info is None:
++        return False
++    if (
++        getattr(s_info, "is_processing", False)
++        or getattr(s_info, "recurrent_state_tainted", False)
++        or getattr(s_info, "lattice_state_tainted", False)
++        or getattr(s_info, "ssm_state_tainted", False)
++        or getattr(s_info, "lattice_layers_tainted", 0) > 0
++        or bool(getattr(s_info, "active_lora_ids", ()))
++        or getattr(s_info, "n_decoded", 0) > 0
++        or getattr(s_info, "n_prompt_tokens_cache", 0) > 0
++    ):
++        return False
++    sbanks = s_info.state_banks
++    if not isinstance(sbanks, dict):
++        return False
++    for req_b in expected_banks:
++        st_b = sbanks.get(req_b)
++        if st_b is None or not st_b.is_clean:
++            return False
++    for st_b in sbanks.values():
++        if not st_b.is_clean:
++            return False
++    return True
++
++
++def _erase_slot_and_confirm(
++    llama_client: LlamaServerClient,
++    sid: int,
++    *,
++    erase_banks: tuple[str, ...] | None,
++    expected_banks: tuple[str, ...],
++    allow_legacy_implicit_kv_flush: bool = False,
++) -> bool:
++    """Erase one slot, confirm required banks, and verify post-erase cleanliness."""
++    resp = llama_client.erase_slot(sid, banks=erase_banks)
++    if not isinstance(resp, dict):
++        return False
++    confirmed = resp.get("banks_flushed")
++    if isinstance(confirmed, list):
++        confirmed_set = {str(b) for b in confirmed}
++    elif (
++        confirmed is None
++        and expected_banks == ("kv_cache",)
++        and allow_legacy_implicit_kv_flush
++    ):
++        confirmed_set = {"kv_cache"}
++    else:
++        return False
++    if any(b not in confirmed_set for b in expected_banks):
++        return False
++    return _is_slot_clean_for_banks(llama_client, sid, expected_banks)
++
++
+ class CanaryRunner:
+     """Executes shadow-loaded verifier-owned canaries against llama-server."""
+ 
+     def __init__(
+         self,
+         llama_client: LlamaServerClient,
+         suite: CanarySuite,
+         *,
+         canary_slot_id: int = 0,
+         seed: int = 42,
+         max_tokens: int = 256,
+         top_p: float = 1.0,
++        allow_legacy_implicit_kv_flush: bool = False,
+     ) -> None:
+         self.llama_client = llama_client
+         self.suite = suite
+         self.canary_slot_id = canary_slot_id
+         self.seed = seed
+         self.max_tokens = max_tokens
+         self.top_p = float(top_p)
++        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+ 
+     def run(
+         self,
+         bundles: Sequence[AdapterBundle],
+         *,
+         allowed_active_ids: frozenset[int] = frozenset(),
+         required_state_banks: Sequence[str] | None = None,
+     ) -> CanaryResult:
+         t0 = time.perf_counter()
+         if not bundles:
+             raise CanaryFailedError("cannot run shadow canaries on an empty adapter list")
+ 
+         # Verify all candidate llama_adapter_ids are loaded on llama-server and
+         # no unverified adapter has a non-zero global scale (--lora-init-without-apply invariant).
+         try:
+             loaded = self.llama_client.list_lora_adapters()
+         except LlamaClientError as exc:
+             raise CanaryFailedError(f"failed to inspect loaded llama-server adapters: {exc}") from exc
+ 
+         for item in loaded:
+             if item.id not in allowed_active_ids and abs(item.scale) > 0.0:
+                 raise CanaryFailedError(
+                     f"unverified adapter id {item.id} already has non-zero scale {item.scale}; "
+                     f"llama-server must start with --lora-init-without-apply",
+                     code="ERR_UNSAFE_RUNTIME_FLAGS",
+                 )
+ 
+         loaded_ids = {item.id for item in loaded}
+         requested_ids = {b.llama_adapter_id for b in bundles}
+         missing = sorted(requested_ids - loaded_ids)
+         if missing:
+             raise CanaryFailedError(f"candidate adapter ids not loaded in llama-server: {missing}")
+ 
+         # Ensure zero global scales are left active during shadow testing if not already mounted.
+         lora_payload = [{"id": b.llama_adapter_id, "scale": b.scale_float} for b in bundles]
+         selected = self.suite.select_for_domains([b.domain for b in bundles])
+ 
+         outcomes: list[CanaryCheckOutcome] = []
+         preservation_total = 0
+         preservation_passed = 0
+         slot_flushed = False
+ 
+         erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
+ 
+         slot_ids: tuple[int, ...] = (self.canary_slot_id,)
+         if hasattr(self.llama_client, "list_slots"):
+             try:
+                 listed_slots = self.llama_client.list_slots()
+                 if len(listed_slots) > 1:
+                     slot_ids = tuple(int(s.id) for s in listed_slots)
+             except LlamaClientError:
+                 slot_ids = (self.canary_slot_id,)
+ 
++        expected_banks: tuple[str, ...] = (
++            tuple(str(b) for b in required_state_banks)
++            if required_state_banks
++            else ("kv_cache",)
++        )
++
+         def _erase_and_confirm(sid: int) -> bool:
+-            resp = self.llama_client.erase_slot(sid, banks=erase_banks)
+-            if erase_banks is not None:
+-                confirmed = resp.get("banks_flushed") if isinstance(resp, dict) else None
+-                if not isinstance(confirmed, list):
+-                    return False
+-                confirmed_set = {str(b) for b in confirmed}
+-                if any(b not in confirmed_set for b in erase_banks):
+-                    return False
+-            return True
++            return _erase_slot_and_confirm(
++                self.llama_client,
++                sid,
++                erase_banks=erase_banks,
++                expected_banks=expected_banks,
++                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
++            )
+ 
+         try:
+             if len(slot_ids) == 1:
+                 for spec in selected:
+                     if not _erase_and_confirm(self.canary_slot_id):
+                         raise CanaryFailedError(
+-                            f"canary slot {self.canary_slot_id} erase failed to confirm required banks {list(erase_banks or ())}"
++                            f"canary slot {self.canary_slot_id} erase failed to confirm required banks {list(expected_banks)}"
+                         )
+                     messages: list[dict[str, str]] = []
+                     if spec.system_prompt:
+                         messages.append({"role": "system", "content": spec.system_prompt})
+                     messages.append({"role": "user", "content": spec.prompt})
+ 
+                     resp = self.llama_client.chat_completion(
+                         messages,
+                         lora=lora_payload,
+                         temperature=0.0,
+                         top_p=self.top_p,
+                         seed=self.seed,
+                         max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
+                         cache_prompt=False,
+                         id_slot=self.canary_slot_id,
+                     )
+                     text = _extract_chat_content(resp)
+                     failures = tuple(spec.evaluate(text))
+                     passed = len(failures) == 0
+                     if spec.category == "preservation":
+                         preservation_total += 1
+                         if passed:
+                             preservation_passed += 1
+                     outcomes.append(
+                         CanaryCheckOutcome(
+                             canary_id=spec.canary_id,
+                             category=spec.category,
+                             passed=passed,
+                             failures=failures,
+                         )
+                     )
+             else:
+                 # LPT load-balanced deterministic partitioning across parallel server slots for <3s Stage 3 execution
+                 buckets: dict[int, list[tuple[int, CanarySpec]]] = {sid: [] for sid in slot_ids}
+                 slot_loads: dict[int, int] = {sid: 0 for sid in slot_ids}
+                 ordered_specs = sorted(
+                     enumerate(selected),
+                     key=lambda pair: (
+                         -(pair[1].max_tokens if pair[1].max_tokens is not None else self.max_tokens),
+                         0 if pair[1].category != "preservation" else 1,
+                         pair[0],
+                     ),
+                 )
+                 for orig_idx, spec in ordered_specs:
+                     best_sid = min(slot_ids, key=lambda s: (slot_loads[s], s))
+                     buckets[best_sid].append((orig_idx, spec))
+                     slot_loads[best_sid] += spec.max_tokens if spec.max_tokens is not None else self.max_tokens
+ 
+                 def _run_slot_bucket(sid: int, items: list[tuple[int, CanarySpec]]) -> list[tuple[int, CanaryCheckOutcome]]:
+                     if not items:
+                         return []
+                     bucket_out: list[tuple[int, CanaryCheckOutcome]] = []
+                     for orig_idx, spec in items:
+                         if not _erase_and_confirm(sid):
+                             raise CanaryFailedError(
+-                                f"canary slot {sid} erase failed to confirm required banks {list(erase_banks or ())}"
++                                f"canary slot {sid} erase failed to confirm required banks {list(expected_banks)}"
+                             )
+                         msgs: list[dict[str, str]] = []
+                         if spec.system_prompt:
+                             msgs.append({"role": "system", "content": spec.system_prompt})
+                         msgs.append({"role": "user", "content": spec.prompt})
+                         r = self.llama_client.chat_completion(
+                             msgs,
+                             lora=lora_payload,
+                             temperature=0.0,
+                             top_p=self.top_p,
+                             seed=self.seed,
+                             max_tokens=spec.max_tokens if spec.max_tokens is not None else self.max_tokens,
+                             cache_prompt=False,
+                             id_slot=sid,
+                         )
+                         txt = _extract_chat_content(r)
+                         fails = tuple(spec.evaluate(txt))
+                         bucket_out.append(
+                             (
+                                 orig_idx,
+                                 CanaryCheckOutcome(
+                                     canary_id=spec.canary_id,
+                                     category=spec.category,
+                                     passed=(len(fails) == 0),
+                                     failures=fails,
+                                 ),
+                             )
+                         )
+                     return bucket_out
+ 
+                 indexed_outcomes: list[tuple[int, CanaryCheckOutcome]] = []
+                 with ThreadPoolExecutor(max_workers=len(slot_ids)) as pool:
+                     futs = [pool.submit(_run_slot_bucket, sid, buckets[sid]) for sid in slot_ids]
+                     for fut in futs:
+                         indexed_outcomes.extend(fut.result())
+ 
+                 indexed_outcomes.sort(key=lambda pair: pair[0])
+                 for _, out_item in indexed_outcomes:
+                     if out_item.category == "preservation":
+                         preservation_total += 1
+                         if out_item.passed:
+                             preservation_passed += 1
+                     outcomes.append(out_item)
+         except LlamaClientError as exc:
+             raise CanaryFailedError(f"shadow canary execution failed: {exc}") from exc
+         finally:
+             all_flushed = True
+             if len(slot_ids) <= 1:
+                 for sid in slot_ids:
+                     try:
+                         if not _erase_and_confirm(sid):
+                             all_flushed = False
+                     except LlamaClientError:
+                         all_flushed = False
+             else:
+                 def _safe_erase(sid: int) -> bool:
+                     try:
+                         return _erase_and_confirm(sid)
+                     except LlamaClientError:
+                         return False
+ 
+                 with ThreadPoolExecutor(max_workers=len(slot_ids)) as pool:
+                     all_flushed = all(pool.map(_safe_erase, slot_ids))
+-            if all_flushed and erase_banks is not None and hasattr(self.llama_client, "list_slots"):
+-                try:
+-                    post_slots = self.llama_client.list_slots()
+-                    post_by_id = {int(s.id): s for s in post_slots}
+-                    for sid in slot_ids:
+-                        s_info = post_by_id.get(sid)
+-                        if s_info is None:
+-                            all_flushed = False
+-                            break
+-                        if getattr(s_info, "lattice_state_tainted", False) or getattr(s_info, "ssm_state_tainted", False):
+-                            all_flushed = False
+-                            break
+-                        sbanks = getattr(s_info, "state_banks", None)
+-                        if isinstance(sbanks, dict):
+-                            for req_b in erase_banks:
+-                                st_b = sbanks.get(req_b)
+-                                if st_b is None or not st_b.is_clean:
+-                                    all_flushed = False
+-                                    break
+-                except LlamaClientError:
+-                    all_flushed = False
+             slot_flushed = all_flushed
+ 
+         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+         failed = [o for o in outcomes if not o.passed]
+         if preservation_passed != preservation_total:
+             detail = "; ".join(f"{o.canary_id}: {list(o.failures)}" for o in failed if o.category == "preservation")
+             raise CanaryFailedError(
+                 f"preservation canary gate failed ({preservation_passed}/{preservation_total}): {detail}"
+             )
+         if failed:
+             detail = "; ".join(f"{o.canary_id}({o.category}): {list(o.failures)}" for o in failed)
+             raise CanaryFailedError(f"verifier canary gate failed ({len(failed)}/{len(outcomes)}): {detail}")
+         if not slot_flushed:
+             raise CanaryFailedError("failed to flush canary slot after shadow evaluation")
+ 
+         return CanaryResult(
+             suite_sha256=self.suite.suite_sha256,
+             outcomes=tuple(outcomes),
+             preservation_passed=preservation_passed,
+             preservation_total=preservation_total,
+             canary_slot_flushed=slot_flushed,
+             elapsed_ms=elapsed_ms,
+         )
+ 
+ 
+ class ExternalCommandCanaryRunner:
+     """Executes an opaque verifier-owned canary command without reading private canary plaintext.
+ 
+     The command receives `--llama-url <url> --lora-json <json> --domains-json <json> --slot-id <id>`
+     and must exit 0 with a JSON object on stdout containing:
+       - `suite_sha256`: 64-char hex digest of the sealed canary file
+       - `preservation_passed`: int
+       - `preservation_total`: int (>= 4, must equal `preservation_passed`)
+       - `outcomes`: list of `{"canary_id": str, "category": str, "passed": bool, "failures": [...]}`
+     """
+ 
+     def __init__(
+         self,
+         llama_client: LlamaServerClient,
+         command: Sequence[str],
+         *,
+         suite_sha256_hint: str | None = None,
+         canary_slot_id: int = 0,
+         timeout_seconds: float = 30.0,
+         min_preservation: int = 4,
++        allow_legacy_implicit_kv_flush: bool = False,
+     ) -> None:
+         if not command:
+             raise CanaryConfigError("external canary command must be non-empty")
+         if min_preservation < 1:
+             raise CanaryConfigError("min_preservation must be >= 1")
+         self.llama_client = llama_client
+         self.command = tuple(str(c) for c in command)
+         self._pinned_suite_sha256: str | None = None
+         if suite_sha256_hint is not None:
+             if not isinstance(suite_sha256_hint, str) or not SHA256_RE.match(suite_sha256_hint):
+                 raise CanaryConfigError("suite_sha256_hint must be a 64-char lowercase hex sha256 digest")
+             self._pinned_suite_sha256 = suite_sha256_hint
+         self.suite_sha256 = suite_sha256_hint or hashlib.sha256(" ".join(self.command).encode("utf-8")).hexdigest()
+         self.canary_slot_id = canary_slot_id
+         self.timeout_seconds = float(timeout_seconds)
+         self.min_preservation = int(min_preservation)
++        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+ 
+     def run(
+         self,
+         bundles: Sequence[AdapterBundle],
+         *,
+         allowed_active_ids: frozenset[int] = frozenset(),
+         required_state_banks: Sequence[str] | None = None,
+     ) -> CanaryResult:
+         t0 = time.perf_counter()
+         if not bundles:
+             raise CanaryFailedError("cannot run shadow canaries on an empty adapter list")
+ 
+         try:
+             loaded = self.llama_client.list_lora_adapters()
+         except LlamaClientError as exc:
+             raise CanaryFailedError(f"failed to inspect loaded llama-server adapters: {exc}") from exc
+ 
+         for item in loaded:
+             if item.id not in allowed_active_ids and abs(item.scale) > 0.0:
+                 raise CanaryFailedError(
+                     f"unverified adapter id {item.id} already has non-zero scale {item.scale}; "
+                     f"llama-server must start with --lora-init-without-apply",
+                     code="ERR_UNSAFE_RUNTIME_FLAGS",
+                 )
+ 
+         loaded_ids = {item.id for item in loaded}
+         requested_ids = {b.llama_adapter_id for b in bundles}
+         missing = sorted(requested_ids - loaded_ids)
+         if missing:
+             raise CanaryFailedError(f"candidate adapter ids not loaded in llama-server: {missing}")
+ 
+         lora_payload = [{"id": b.llama_adapter_id, "scale": b.scale_float} for b in bundles]
+         domains = [b.domain for b in bundles]
+         erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
+ 
+         lora_json_str = json.dumps(lora_payload, separators=(",", ":"))
+         domains_json_str = json.dumps(domains, separators=(",", ":"))
+         has_placeholders = any(
+             tok_p in arg
+             for arg in self.command
+             for tok_p in ("{server_url}", "{llama_url}", "{lora_json}", "{domains_json}", "{slot_id}")
+         )
+         if has_placeholders:
+             cmd = [
+                 arg.replace("{server_url}", self.llama_client.base_url)
+                 .replace("{llama_url}", self.llama_client.base_url)
+                 .replace("{lora_json}", lora_json_str)
+                 .replace("{domains_json}", domains_json_str)
+                 .replace("{slot_id}", str(self.canary_slot_id))
+                 for arg in self.command
+             ]
+         else:
+             cmd = [
+                 *self.command,
+                 "--llama-url",
+                 self.llama_client.base_url,
+                 "--lora-json",
+                 lora_json_str,
+                 "--domains-json",
+                 domains_json_str,
+                 "--slot-id",
+                 str(self.canary_slot_id),
+             ]
+         run_env = dict(os.environ)
+         run_env["WARP_SERVER_URL"] = self.llama_client.base_url
+         run_env["WARP_LORA_JSON"] = lora_json_str
+ 
+         slot_ids: tuple[int, ...] = (self.canary_slot_id,)
+         if hasattr(self.llama_client, "list_slots"):
+             try:
+                 listed = self.llama_client.list_slots()
+                 if listed:
+                     slot_ids = tuple(int(s.id) for s in listed)
+             except LlamaClientError:
+                 slot_ids = (self.canary_slot_id,)
+ 
++        expected_banks: tuple[str, ...] = (
++            tuple(str(b) for b in required_state_banks)
++            if required_state_banks
++            else ("kv_cache",)
++        )
++
++        def _ext_erase_and_verify(sid: int) -> bool:
++            return _erase_slot_and_confirm(
++                self.llama_client,
++                sid,
++                erase_banks=erase_banks,
++                expected_banks=expected_banks,
++                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
++            )
++
+         slot_flushed = False
+         try:
+             for sid in slot_ids:
+-                self.llama_client.erase_slot(sid, banks=erase_banks)
++                if not _ext_erase_and_verify(sid):
++                    raise CanaryFailedError(
++                        f"opaque canary pre-run erase failed to confirm clean slot {sid} for banks {list(expected_banks)}"
++                    )
+             proc = subprocess.run(
+                 cmd,
+                 capture_output=True,
+                 text=True,
+                 env=run_env,
+                 timeout=self.timeout_seconds,
+                 check=False,
+             )
+         except (OSError, subprocess.SubprocessError, LlamaClientError) as exc:
+             raise CanaryFailedError(f"opaque verifier canary command failed to execute: {exc}") from exc
+         finally:
+             all_ok = True
+             for sid in slot_ids:
+                 try:
+-                    resp = self.llama_client.erase_slot(sid, banks=erase_banks)
+-                    if erase_banks is not None:
+-                        c_banks = resp.get("banks_flushed") if isinstance(resp, dict) else None
+-                        if not isinstance(c_banks, list) or any(b not in c_banks for b in erase_banks):
+-                            all_ok = False
++                    if not _ext_erase_and_verify(sid):
++                        all_ok = False
+                 except LlamaClientError:
+                     all_ok = False
+             slot_flushed = all_ok
+ 
+         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+         if not slot_flushed:
+             raise CanaryFailedError("failed to flush canary slot after opaque canary command")
+         if proc.returncode != 0:
+             raise CanaryFailedError(
+                 f"opaque verifier canary command rejected candidate (exit={proc.returncode}): "
+                 f"{(proc.stderr or proc.stdout).strip()[:300]}"
+             )
+         try:
+             parsed = _loads_strict_json(proc.stdout)
+         except (json.JSONDecodeError, ValueError) as exc:
+             raise CanaryFailedError(f"opaque verifier canary command returned invalid JSON: {exc}") from exc
+         if not isinstance(parsed, dict):
+             raise CanaryFailedError("opaque verifier canary command output must be a JSON object")
+ 
+         raw_suite_sha = parsed.get("suite_sha256")
+         if raw_suite_sha is None:
+             raw_suite_sha = parsed.get("canaries_sha256")
+         if raw_suite_sha is not None:
+             if not isinstance(raw_suite_sha, str) or not SHA256_RE.match(raw_suite_sha):
+                 raise CanaryFailedError(f"opaque verifier returned invalid suite_sha256: {raw_suite_sha!r}")
+             suite_sha = raw_suite_sha
+         elif self._pinned_suite_sha256 is not None:
+             raise CanaryFailedError(
+                 "opaque verifier output omitted required 'suite_sha256' while suite_sha256_hint is pinned"
+             )
+         else:
+             suite_sha = self.suite_sha256
+         if self._pinned_suite_sha256 is not None and not hmac.compare_digest(suite_sha, self._pinned_suite_sha256):
+             raise CanaryFailedError(
+                 f"opaque verifier suite_sha256 mismatch: got {suite_sha}, expected {self._pinned_suite_sha256}"
+             )
+         raw_outcomes = parsed.get("outcomes")
+         if raw_outcomes is None:
+             raw_outcomes = parsed.get("results")
+         if raw_outcomes is None:
+             raw_outcomes = parsed.get("canaries")
+ 
+         if not isinstance(raw_outcomes, list) or len(raw_outcomes) == 0:
+             raise CanaryFailedError(
+                 "opaque verifier canary command must return a non-empty per-canary 'outcomes' list; "
+                 "aggregate-only reports are rejected"
+             )
+ 
+         parsed_outcomes: list[CanaryCheckOutcome] = []
+         seen_ids: set[str] = set()
+         domain_outcome_count = 0
+         explicit_domains_covered: set[str] = set()
+         for idx, item in enumerate(raw_outcomes):
+             if not isinstance(item, dict) or not isinstance(item.get("passed"), bool):
+                 raise CanaryFailedError(
+                     f"opaque verifier canary outcome #{idx} must be an object with boolean 'passed'"
+                 )
+             raw_id = item.get("canary_id") if item.get("canary_id") is not None else item.get("id")
+             cid = str(raw_id or "").strip()
+             if not cid:
+                 raise CanaryFailedError(f"opaque verifier canary outcome #{idx} is missing a non-empty 'canary_id'")
+             if cid in seen_ids:
+                 raise CanaryFailedError(f"duplicate canary_id in opaque verifier outcomes: {cid!r}")
+             seen_ids.add(cid)
+ 
+             raw_cat = str(item.get("category") or "").strip().lower()
+             if raw_cat == "preservation":
+                 cat = "preservation"
+             elif raw_cat in ("domain", "formal"):
+                 cat = "domain"
+                 domain_outcome_count += 1
+                 dom_label = item.get("domain")
+                 if isinstance(dom_label, str) and dom_label.strip():
+                     explicit_domains_covered.add(dom_label.strip())
+             elif raw_cat == "cross_adapter":
+                 cat = "cross_adapter"
+             else:
+                 raise CanaryFailedError(
+                     f"invalid category {item.get('category')!r} for canary {cid!r}; "
+                     f"expected preservation, domain, or cross_adapter"
+diff --git a/src/warp_modeld/certificate.py b/src/warp_modeld/certificate.py
+index 7eafbcf..201573e 100644
+--- a/src/warp_modeld/certificate.py
++++ b/src/warp_modeld/certificate.py
+@@ -486,96 +486,98 @@ def verify_stack_division_free(
+     For N adapters with rational scales s_i = scale_num_i / scale_den_i:
+         ||sum_i s_i Delta_i||^2 <= N * sum_i (s_i^2 * ||Delta_i||^2)
+     Checked over a common integer denominator L = lcm(R_i * scale_den_i^2) with zero floats.
+     """
+     start_ns = time.perf_counter_ns()
+     if not items:
+         raise CertificateError("adapter stack must contain at least one adapter")
+ 
+     per_adapter_results: list[CertificateVerificationResult] = []
+     seen_ids: set[str] = set()
+     denominators: list[int] = []
+     stack_keys: list[tuple[str, str, int, int]] = []
+ 
+     for cert, adapter_id, adapter_sha256, scale_num, scale_den in items:
+         if adapter_id in seen_ids:
+             raise CertificateError(f"duplicate adapter_id in stack: {adapter_id}")
+         seen_ids.add(adapter_id)
+         _require_exact_int(scale_num, f"{adapter_id}.scale_num", allow_zero=False)
+         _require_exact_int(scale_den, f"{adapter_id}.scale_den", allow_zero=False)
+ 
+         res = verify_division_free(
+             cert,
+             single_bounds,
+             scale_num=scale_num,
+             scale_den=scale_den,
+             expected_adapter_id=adapter_id,
+             expected_adapter_sha256=adapter_sha256,
+             expected_base_weights_sha256=expected_base_weights_sha256,
+         )
+         per_adapter_results.append(res)
+         denominators.append(cert.radix_scale * (scale_den * scale_den))
+         stack_keys.append((adapter_id, adapter_sha256, scale_num, scale_den))
+ 
+     composed_bound_checked = False
+     composed_cert_verified = False
+ 
+     if len(items) == 1:
+         cert0, aid0, asha0, snum0, sden0 = items[0]
+         verify_division_free(
+             cert0,
+             joint_bounds,
+             scale_num=snum0,
+             scale_den=sden0,
+             expected_adapter_id=aid0,
+             expected_adapter_sha256=asha0,
+             expected_base_weights_sha256=expected_base_weights_sha256,
+         )
+     else:
+         n_adapters = len(items)
+         common_den = math.lcm(*denominators)
+         metric_specs = (
+             ("frobenius_sq_scaled", joint_bounds.max_frobenius_sq, "composed_frobenius_sq"),
+             ("spectral_norm_sq_scaled", joint_bounds.max_spectral_norm_sq, "composed_spectral_norm_sq"),
+             ("leakage_energy_scaled", joint_bounds.max_leakage_energy, "composed_leakage_energy"),
+             ("max_safety_dot_sq_scaled", joint_bounds.max_safety_dot_sq, "composed_max_safety_dot_sq"),
+         )
+         for attr, bound, metric_name in metric_specs:
+             total_scaled = 0
+             for (cert, _aid, _asha, scale_num, scale_den), term_den in zip(items, denominators):
+                 factor = common_den // term_den
+                 value_i = getattr(cert, attr)
+                 total_scaled += value_i * (scale_num * scale_num) * factor
+             cauchy_upper_num = n_adapters * total_scaled
+             _check_scaled_cross_mul_le(cauchy_upper_num, common_den, bound, metric_name, "composed stack")
+         composed_bound_checked = True
+ 
+     if composed_certificate is not None:
+         expected_stack_sha = stack_composition_digest(stack_keys)
+         verify_division_free(
+             composed_certificate,
+             joint_bounds,
+             expected_adapter_id="composed_stack",
+             expected_adapter_sha256=expected_stack_sha,
+             expected_base_weights_sha256=expected_base_weights_sha256,
+         )
+         tri_den = math.lcm(composed_certificate.radix_scale, *denominators)
+         comp_factor = tri_den // composed_certificate.radix_scale
+         for attr, metric_name in (
+             ("frobenius_sq_scaled", "composed_frobenius_sq"),
+             ("spectral_norm_sq_scaled", "composed_spectral_norm_sq"),
++            ("leakage_energy_scaled", "composed_leakage_energy"),
++            ("max_safety_dot_sq_scaled", "composed_max_safety_dot_sq"),
+         ):
+             per_nums = [
+                 getattr(cert, attr) * (snum * snum) * (tri_den // tden)
+                 for (cert, _aid, _asha, snum, _sden), tden in zip(items, denominators)
+             ]
+             comp_num = getattr(composed_certificate, attr) * comp_factor
+             _check_composed_norm_triangle_exact(per_nums, comp_num, metric_name)
+         composed_cert_verified = True
+ 
+     elapsed_ns = time.perf_counter_ns() - start_ns
+     return StackCertificateResult(
+         adapter_results=tuple(per_adapter_results),
+         composed_bound_checked=composed_bound_checked,
+         composed_cert_verified=composed_cert_verified,
+         elapsed_ns=elapsed_ns,
+     )
+diff --git a/src/warp_modeld/cli.py b/src/warp_modeld/cli.py
+index 102798c..ae7a318 100644
+--- a/src/warp_modeld/cli.py
++++ b/src/warp_modeld/cli.py
+@@ -1,153 +1,157 @@
+ """Command-line interface for warp-modeld."""
+ 
+ from __future__ import annotations
+ 
+ import argparse
+ import json
+ from pathlib import Path
+ import signal
+ import sys
+ import threading
+ from typing import Sequence
+ 
+ from .canary import CanarySuite
+ from .certificate import CertificateBounds, FixedRadixCertificate, verify_division_free
+ from .errors import WarpError
+ from .fingerprint import CheckpointFingerprint, Plane1Lineage, RuntimeFlags
+ from .ledger import HmacSha256Signer, LedgerVerifier, SignedLedger, repair_ledger
+ from .llama_client import LlamaServerClient, probe_llama_server_binary
+ from .server import WarpUnixRpcServer, loads_strict_json
+ from .verifier import WarpModeld
+ 
+ 
+ def _load_key_bytes(key_file: Path) -> bytes:
+     raw = key_file.read_bytes().strip()
+     if len(raw) < 16:
+         raise ValueError(f"signing key in {key_file} must be at least 16 bytes")
+     return raw
+ 
+ 
+ def _cmd_serve(args: argparse.Namespace) -> int:
+     cfg = loads_strict_json(Path(args.config).read_text(encoding="utf-8"))
+     if not isinstance(cfg, dict):
+         raise ValueError("daemon config must be a JSON object")
+     checkpoint = CheckpointFingerprint.from_dict(cfg["checkpoint"])
+     lineage = Plane1Lineage.from_dict(cfg["pinned_lineage"])
+     runtime_flags = RuntimeFlags.from_dict(cfg["runtime_flags"])
+     single_bounds = CertificateBounds.from_dict(cfg["single_bounds"])
+     joint_bounds = CertificateBounds.from_dict(cfg["joint_bounds"])
+ 
+     canary_suite = CanarySuite.from_verifier_file(
+         cfg["canary_suite_path"],
+         expected_sha256=cfg.get("canary_suite_sha256"),
+     )
+     key_bytes = _load_key_bytes(Path(cfg["ledger_key_path"]))
+     signer = HmacSha256Signer(key_bytes, key_id=str(cfg.get("ledger_key_id", "warp-ledger-hmac-v1")))
+     ledger = SignedLedger(cfg["ledger_path"], signer)
+     llama = LlamaServerClient(
+         cfg["llama_server_url"],
+         timeout_seconds=float(cfg.get("llama_timeout_seconds", 10.0)),
+         require_localhost=bool(cfg.get("require_localhost", True)),
+     )
+ 
+     zone_manifest_obj = None
+     if cfg.get("zone_manifest_path"):
+         zone_manifest_obj = loads_strict_json(Path(cfg["zone_manifest_path"]).read_text(encoding="utf-8"))
+ 
+     raw_req_files = cfg.get("require_loaded_adapter_files", True)
+     if type(raw_req_files) is not bool:
+         raise ValueError("require_loaded_adapter_files must be a boolean")
++    raw_legacy_kv = cfg.get("allow_legacy_implicit_kv_flush", False)
++    if type(raw_legacy_kv) is not bool:
++        raise ValueError("allow_legacy_implicit_kv_flush must be a boolean")
+ 
+     modeld = WarpModeld(
+         pinned_checkpoint=checkpoint,
+         pinned_lineage=lineage,
+         live_runtime_flags=runtime_flags,
+         single_bounds=single_bounds,
+         joint_bounds=joint_bounds,
+         canary_suite=canary_suite,
+         llama_client=llama,
+         ledger=ledger,
+         canary_slot_id=int(cfg.get("canary_slot_id", 0)),
+         pinned_zone_manifest_id=cfg.get("pinned_zone_manifest_id"),
+         pinned_zone_manifest=zone_manifest_obj,
+         require_loaded_adapter_files=raw_req_files,
++        allow_legacy_implicit_kv_flush=raw_legacy_kv,
+     )
+ 
+     server = WarpUnixRpcServer(
+         cfg["socket_path"],
+         modeld,
+         socket_mode=int(str(cfg.get("socket_mode", "0600")), 8),
+     )
+ 
+     stop_event = threading.Event()
+ 
+     def _handle_signal(_signum: int, _frame: object) -> None:
+         stop_event.set()
+ 
+     signal.signal(signal.SIGTERM, _handle_signal)
+     signal.signal(signal.SIGINT, _handle_signal)
+     server.start()
+     try:
+         while not stop_event.is_set():
+             stop_event.wait(timeout=0.5)
+     finally:
+         server.stop()
+     return 0
+ 
+ 
+ def _cmd_verify_ledger(args: argparse.Namespace) -> int:
+     key_bytes = _load_key_bytes(Path(args.key_file))
+     signer = HmacSha256Signer(key_bytes, key_id=args.key_id)
+     receipts = LedgerVerifier.verify_file(args.ledger, signer)
+     print(
+         json.dumps(
+             {
+                 "ok": True,
+                 "receipts_verified": len(receipts),
+                 "head_sha256": receipts[-1].receipt_sha256 if receipts else "0" * 64,
+             }
+         )
+     )
+     return 0
+ 
+ 
+ def _cmd_check_certificate(args: argparse.Namespace) -> int:
+     cert = FixedRadixCertificate.from_dict(loads_strict_json(Path(args.cert).read_text(encoding="utf-8")))
+     bounds = CertificateBounds.from_dict(loads_strict_json(Path(args.bounds).read_text(encoding="utf-8")))
+     res = verify_division_free(cert, bounds)
+     print(
+         json.dumps(
+             {
+                 "ok": True,
+                 "adapter_id": res.adapter_id,
+                 "cert_sha256": res.cert_sha256,
+                 "elapsed_us": round(res.elapsed_ns / 1000.0, 2),
+             }
+         )
+     )
+     return 0
+ 
+ 
+ def _cmd_repair_ledger(args: argparse.Namespace) -> int:
+     key_bytes = _load_key_bytes(Path(args.key_file))
+     signer = HmacSha256Signer(key_bytes, key_id=args.key_id)
+     result = repair_ledger(args.ledger, args.archive_dir, signer, confirmation=args.confirm)
+     print(json.dumps(result))
+     return 0
+ 
+ 
+ def _cmd_probe_llama(args: argparse.Namespace) -> int:
+     result = probe_llama_server_binary(args.binary)
+     print(json.dumps({"ok": True, **result}))
+     return 0
+ 
+ 
+ def main(argv: Sequence[str] | None = None) -> int:
+     parser = argparse.ArgumentParser(prog="warp-modeld", description="L3 fail-closed inference gatekeeper")
+     sub = parser.add_subparsers(dest="command", required=True)
+ 
+     serve_p = sub.add_parser("serve", help="Run warp-modeld Unix socket daemon")
+     serve_p.add_argument("--config", required=True, help="Path to daemon JSON config")
+     serve_p.set_defaults(func=_cmd_serve)
+ 
+     ledger_p = sub.add_parser("verify-ledger", help="Verify hash chain and signatures of a JSONL ledger")
+diff --git a/src/warp_modeld/verifier.py b/src/warp_modeld/verifier.py
+index d40ce2f..ea4b783 100644
+--- a/src/warp_modeld/verifier.py
++++ b/src/warp_modeld/verifier.py
+@@ -9,365 +9,378 @@ from pathlib import Path
+ import threading
+ import time
+ from typing import Any, Mapping, Sequence
+ 
+ from .canary import CanaryResult, CanaryRunner, CanarySuite, reject_adapter_supplied_canaries
+ from .certificate import (
+     CertificateBounds,
+     FixedRadixCertificate,
+     StackCertificateResult,
+     verify_stack_division_free,
+ )
+ from .errors import (
+     CheckpointMismatchError,
+     KillSwitchEngagedError,
+     LatticeFlushError,
+     StaleLineageError,
+     StateFlushError,
+     UnverifiedLoraOverrideError,
+     WarpError,
+     ZoneManifestDriftError,
+ )
+ from .fingerprint import (
+     AdapterBundle,
+     CheckpointFingerprint,
+     Plane1Lineage,
+     RuntimeFlags,
+     Stage1Report,
+     compute_file_sha256,
+     sha256_json,
+     validate_zone_manifest_id,
+     verify_stage1,
+     verify_zone_manifest_dict,
+ )
+ from .ledger import LedgerReceipt, SignedLedger
+ from .llama_client import LlamaClientError, LlamaServerClient
+ from .state_banks import BankFlushReceipt, STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM
+ 
+ 
+ @dataclass(frozen=True)
+ class MountResult:
+     slot_manifest_digest: str
+     active_adapters: tuple[dict[str, Any], ...]
+     stage1_reports: tuple[Stage1Report, ...]
+     stage2_result: StackCertificateResult
+     stage3_result: CanaryResult
+     slots_flushed: tuple[int, ...]
+     receipt: LedgerReceipt
+     bank_flush_receipts: tuple[BankFlushReceipt, ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
+ class RollbackResult:
+     reason: str
+     kill_switch_engaged: bool
+     slots_flushed: tuple[int, ...]
+     elapsed_ms: float
+     receipt: LedgerReceipt
+     bank_flush_receipts: tuple[BankFlushReceipt, ...] = ()
+ 
+ 
+ class WarpModeld:
+     """L3 zero-trust inference gatekeeper between L4 exo and L2 llama-server."""
+ 
+     def __init__(
+         self,
+         *,
+         pinned_checkpoint: CheckpointFingerprint,
+         pinned_lineage: Plane1Lineage,
+         live_runtime_flags: RuntimeFlags,
+         single_bounds: CertificateBounds,
+         joint_bounds: CertificateBounds,
+         canary_suite: CanarySuite,
+         llama_client: LlamaServerClient,
+         ledger: SignedLedger,
+         canary_slot_id: int = 0,
+         canary_max_tokens: int = 256,
+         canary_runner_override: Any | None = None,
+         pinned_zone_manifest_id: str | None = None,
+         pinned_zone_manifest: Mapping[str, Any] | None = None,
+         require_loaded_adapter_files: bool = False,
++        allow_legacy_implicit_kv_flush: bool = False,
+     ) -> None:
+         self._lock = threading.RLock()
+         self.pinned_checkpoint = pinned_checkpoint
+         self.pinned_lineage = pinned_lineage
+         self.live_runtime_flags = live_runtime_flags
+         self.single_bounds = single_bounds
+         self.joint_bounds = joint_bounds
+         self.canary_suite = canary_suite
+         self.llama_client = llama_client
+         self.ledger = ledger
+         self.require_loaded_adapter_files = bool(require_loaded_adapter_files)
++        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+         self.canary_runner = (
+             canary_runner_override
+             if canary_runner_override is not None
+             else CanaryRunner(
+                 llama_client,
+                 canary_suite,
+                 canary_slot_id=canary_slot_id,
+                 max_tokens=canary_max_tokens,
++                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
+             )
+         )
+ 
+         self._zone_bank_tags: dict[str, int] = {}
+         if pinned_zone_manifest is not None:
+             verified_id, tags = verify_zone_manifest_dict(pinned_zone_manifest)
+             if pinned_zone_manifest_id is not None:
+                 validate_zone_manifest_id(pinned_zone_manifest_id)
+                 if not hmac.compare_digest(verified_id, pinned_zone_manifest_id):
+                     raise ZoneManifestDriftError(
+                         f"pinned_zone_manifest_id ({pinned_zone_manifest_id}) != manifest_id ({verified_id})"
+                     )
+             self.pinned_zone_manifest_id: str | None = verified_id
+             self._zone_bank_tags = tags
+         elif pinned_zone_manifest_id is not None:
+             self.pinned_zone_manifest_id = validate_zone_manifest_id(pinned_zone_manifest_id)
+         else:
+             self.pinned_zone_manifest_id = None
+ 
+         self._active_bundles: list[AdapterBundle] = []
+         self._slot_manifest_digest: str | None = None
+         self._kill_switch_engaged: bool = False
+         self._learning_enabled: bool = True
+         self._state_quarantined: bool = False
+         self._quarantine_error_cls: type[StateFlushError] = StateFlushError
+ 
+     def identify_checkpoint(self) -> dict[str, Any]:
+         with self._lock:
+             return {
+                 "checkpoint": self.pinned_checkpoint.to_dict(),
+                 "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
+                 "pinned_lineage": self.pinned_lineage.to_dict(),
+                 "lineage_digest": self.pinned_lineage.canonical_digest(),
+                 "runtime_flags": self.live_runtime_flags.to_dict(),
+                 "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
+                 "canary_suite_sha256": self.canary_suite.suite_sha256,
+                 "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
+                 "zone_bank_tags": dict(self._zone_bank_tags),
+                 "has_horizontal_lattice": self.pinned_checkpoint.has_horizontal_lattice,
+                 "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+             }
+ 
+     def status(self) -> dict[str, Any]:
+         with self._lock:
+             stale = self._is_active_stack_stale()
+             zone_drift = self._is_active_zone_manifest_drifted()
+             return {
+                 "active_adapters": [b.manifest_entry() for b in self._active_bundles],
+                 "slot_manifest_digest": self._slot_manifest_digest,
+                 "kill_switch_engaged": self._kill_switch_engaged,
+                 "learning_enabled": self._learning_enabled,
+                 "state_quarantined": self._state_quarantined,
+                 "quarantine_code": self._quarantine_error_cls.code if self._state_quarantined else None,
+                 "stale_lineage": stale,
+                 "zone_manifest_drift": zone_drift,
+                 "pinned_zone_manifest_id": self.pinned_zone_manifest_id,
+                 "zone_bank_tags": dict(self._zone_bank_tags),
+                 "has_horizontal_lattice": self.pinned_checkpoint.has_horizontal_lattice,
+                 "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+                 "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
+                 "lineage_digest": self.pinned_lineage.canonical_digest(),
+                 "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
+                 "ledger_head_sha256": self.ledger.head_sha256,
+                 "ledger_count": self.ledger.count,
+             }
+ 
+     def _is_active_zone_manifest_drifted(self) -> bool:
+         if not self._active_bundles:
+             return False
+         for bundle in self._active_bundles:
+             if bundle.zone_manifest_id != self.pinned_zone_manifest_id:
+                 return True
+         return False
+ 
+     def _is_active_stack_stale(self) -> bool:
+         if not self._active_bundles:
+             return False
+         if self.pinned_lineage.contested_heads:
+             return True
+         for bundle in self._active_bundles:
+             if bundle.source_lineage.corpus_tree_sha256 != self.pinned_lineage.corpus_tree_sha256:
+                 return True
+             for domain, commit in bundle.source_lineage.domain_commits.items():
+                 if self.pinned_lineage.domain_commits.get(domain) != commit:
+                     return True
+         return False
+ 
+     def _compute_slot_manifest_digest(self, bundles: Sequence[AdapterBundle]) -> str:
+         payload: dict[str, Any] = {
+             "checkpoint_digest": self.pinned_checkpoint.canonical_digest(),
+             "lineage_digest": self.pinned_lineage.canonical_digest(),
+             "runtime_flags_digest": self.live_runtime_flags.canonical_digest(),
+             "canary_suite_sha256": self.canary_suite.suite_sha256,
+             "adapters": [b.manifest_entry() for b in bundles],
+         }
+         if self.pinned_zone_manifest_id is not None:
+             payload["zone_manifest_id"] = self.pinned_zone_manifest_id
+         return sha256_json(payload)
+ 
+     def _zero_all_lora_scales(self) -> None:
+         loaded = self.llama_client.list_lora_adapters()
+         if loaded:
+             self.llama_client.set_lora_adapters([{"id": item.id, "scale": 0.0} for item in loaded])
+ 
+     def _verify_loaded_adapters_binding(
+         self,
+         bundles: Sequence[AdapterBundle],
+         loaded: Sequence[Any],
+     ) -> None:
+         """Verify every bundle's llama_adapter_id is loaded and matches on-disk bytes."""
+         loaded_by_id = {item.id: item for item in loaded}
+         for bundle in bundles:
+             loaded_item = loaded_by_id.get(bundle.llama_adapter_id)
+             if loaded_item is None:
+                 raise CheckpointMismatchError(
+                     f"adapter {bundle.adapter_id}: llama_adapter_id={bundle.llama_adapter_id} "
+                     "is not loaded on llama-server"
+                 )
+             loaded_path_str = str(loaded_item.path or "").strip()
+             loaded_path = Path(loaded_path_str) if loaded_path_str else None
+             if loaded_path is not None and loaded_path.is_file():
+                 if bundle.adapter_path is not None:
+                     declared_resolved = Path(bundle.adapter_path).resolve()
+                     loaded_resolved = loaded_path.resolve()
+                     if declared_resolved != loaded_resolved:
+                         raise CheckpointMismatchError(
+                             f"adapter {bundle.adapter_id}: declared adapter_path ({declared_resolved}) "
+                             f"!= llama-server loaded path ({loaded_resolved})"
+                         )
+                 actual_sha = compute_file_sha256(loaded_path)
+                 if not hmac.compare_digest(actual_sha, bundle.adapter_sha256):
+                     raise CheckpointMismatchError(
+                         f"adapter {bundle.adapter_id}: loaded backend file digest mismatch "
+                         f"(expected {bundle.adapter_sha256}, actual {actual_sha})"
+                     )
+             elif self.require_loaded_adapter_files:
+                 raise CheckpointMismatchError(
+                     f"adapter {bundle.adapter_id}: loaded backend path {loaded_path_str!r} "
+                     "does not exist on disk while require_loaded_adapter_files=True"
+                 )
+ 
+     def _flush_all_slots(self) -> tuple[tuple[int, ...], tuple[BankFlushReceipt, ...]]:
+         """Erase every slot across all required state banks (KV, SSM, horizontal lattice).
+ 
+         When `pinned_checkpoint.has_horizontal_lattice` or `has_ssm_recurrent` is true,
+         requires explicit atomic backend confirmation of every required bank and verifies
+         post-erase cleanliness across every bank and pre-erase slot ID. Any missing or
+         failed horizontal-lattice confirmation raises LatticeFlushError
+         (`ERR_LATTICE_FLUSH_FAILED`); SSM/KV failures raise StateFlushError.
+         """
+         required_banks = self.pinned_checkpoint.required_state_banks()
+         needs_lattice = STATE_BANK_LATTICE in required_banks
+         needs_ssm = STATE_BANK_SSM in required_banks
+         req_banks_arg = required_banks if len(required_banks) > 1 else None
+ 
+         try:
+             slots = self.llama_client.list_slots()
++            if not slots:
++                err_cls = LatticeFlushError if needs_lattice else StateFlushError
++                raise err_cls("llama-server /slots returned empty slot list; refusing unverified zero-slot flush")
+             requested_slot_ids = {slot.id for slot in slots}
+             flushed: list[int] = []
+             confirmed_by_slot: dict[int, tuple[str, ...]] = {}
+ 
+             if len(slots) <= 1:
+                 slot_resps = [(slot, self.llama_client.erase_slot(slot.id, banks=req_banks_arg)) for slot in slots]
+             else:
+                 with ThreadPoolExecutor(max_workers=len(slots)) as pool:
+                     futs = [(slot, pool.submit(self.llama_client.erase_slot, slot.id, banks=req_banks_arg)) for slot in slots]
+                     slot_resps = [(slot, fut.result()) for slot, fut in futs]
+ 
+             for slot, resp in slot_resps:
+                 flushed.append(slot.id)
+-                raw_confirmed = resp.get("banks_flushed")
+-                if isinstance(raw_confirmed, list):
+-                    confirmed = tuple(str(b) for b in raw_confirmed)
+-                elif not needs_lattice and not needs_ssm:
+-                    confirmed = (STATE_BANK_KV,)
++                if not isinstance(resp, dict):
++                    confirmed: tuple[str, ...] = ()
+                 else:
+-                    confirmed = ()
+-
+-                if needs_lattice or needs_ssm:
+-                    missing_banks = [b for b in required_banks if b not in confirmed]
+-                    if missing_banks:
+-                        err_cls = LatticeFlushError if needs_lattice else StateFlushError
+-                        raise err_cls(
+-                            f"slot {slot.id} erase failed to confirm required state banks "
+-                            f"{missing_banks} (confirmed={list(confirmed)})"
+-                        )
++                    raw_confirmed = resp.get("banks_flushed")
++                    if isinstance(raw_confirmed, list):
++                        confirmed = tuple(str(b) for b in raw_confirmed)
++                    elif (
++                        raw_confirmed is None
++                        and not needs_lattice
++                        and not needs_ssm
++                        and self.allow_legacy_implicit_kv_flush
++                    ):
++                        confirmed = (STATE_BANK_KV,)
++                    else:
++                        confirmed = ()
++
++                missing_banks = [b for b in required_banks if b not in confirmed]
++                if missing_banks:
++                    err_cls = LatticeFlushError if needs_lattice else StateFlushError
++                    raise err_cls(
++                        f"slot {slot.id} erase failed to confirm required state banks "
++                        f"{missing_banks} (confirmed={list(confirmed)})"
++                    )
+                 confirmed_by_slot[slot.id] = confirmed
+ 
+             # Re-verify zero residual recurrent state, KV cache tokens, or horizontal lattice taint.
+             after = self.llama_client.list_slots()
+             after_ids = {slot.id for slot in after}
+             missing_slots = sorted(requested_slot_ids - after_ids)
+             if missing_slots:
+                 err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                 raise err_cls(f"post-erase /slots missing pre-erase slot ID(s): {missing_slots}")
+             unexpected_slots = sorted(after_ids - requested_slot_ids)
+             if unexpected_slots:
+                 err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                 raise err_cls(f"post-erase /slots returned unexpected unerased slot ID(s): {unexpected_slots}")
+ 
+             receipts: list[BankFlushReceipt] = []
+             for slot in after:
+                 if slot.is_processing:
+                     err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                     raise err_cls(f"slot {slot.id} is still processing after erase")
+                 if needs_lattice:
+                     lattice_bank = slot.state_banks.get(STATE_BANK_LATTICE)
+                     if (
+                         slot.lattice_state_tainted
+                         or slot.lattice_layers_tainted > 0
+                         or lattice_bank is None
+                         or not lattice_bank.is_clean
+                     ):
+                         raise LatticeFlushError(
+                             f"slot {slot.id} retained horizontal lattice state after erase "
+                             f"(lattice_tainted={slot.lattice_state_tainted}, "
+                             f"layers_tainted={slot.lattice_layers_tainted}, "
+                             f"bank={lattice_bank.to_dict() if lattice_bank else None})"
+                         )
+                 if needs_ssm:
+                     ssm_bank = slot.state_banks.get(STATE_BANK_SSM)
+                     if slot.ssm_state_tainted or ssm_bank is None or not ssm_bank.is_clean:
+                         raise StateFlushError(
+                             f"slot {slot.id} retained or failed to confirm clean SSM recurrent state after erase "
+                             f"(ssm_tainted={slot.ssm_state_tainted}, "
+                             f"bank={ssm_bank.to_dict() if ssm_bank else None})"
+                         )
+                 if (
+                     slot.recurrent_state_tainted
+                     or slot.active_lora_ids
+                     or slot.n_decoded > 0
+                     or slot.n_prompt_tokens_cache > 0
+                 ):
+                     raise StateFlushError(
+                         f"slot {slot.id} retained residual state after erase "
+                         f"(tainted={slot.recurrent_state_tainted}, active={slot.active_lora_ids}, "
+                         f"n_decoded={slot.n_decoded}, n_prompt_tokens_cache={slot.n_prompt_tokens_cache})"
+                     )
+                 receipts.append(
+                     BankFlushReceipt(
+                         slot_id=slot.id,
+                         banks_requested=required_banks,
+                         banks_confirmed=confirmed_by_slot.get(slot.id, ()),
+                         zone_manifest_id=self.pinned_zone_manifest_id,
+                         verified_clean=True,
+                     )
+                 )
+             return tuple(flushed), tuple(receipts)
+         except LlamaClientError as exc:
+             if needs_lattice:
+                 raise LatticeFlushError(f"failed to flush horizontal lattice and KV slots: {exc}") from exc
+             raise StateFlushError(f"failed to flush inference slots: {exc}") from exc
+ 
+     def _record_reject(
+         self,
+         err: WarpError,
+         *,
+         adapters: Sequence[dict[str, Any]] = (),
+         details: dict[str, Any] | None = None,
+     ) -> LedgerReceipt:
+         return self.ledger.append(
+             "reject",
+             checkpoint_fingerprint_sha256=self.pinned_checkpoint.canonical_digest(),
+             runtime_flags_sha256=self.live_runtime_flags.canonical_digest(),
+             slot_manifest_digest=self._slot_manifest_digest,
+             adapters=adapters,

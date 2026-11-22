@@ -1,0 +1,7 @@
+commit 516431afa21d53b98265aa8735f8a871707aad98
+Author:     Orda <342776047+orda-aska@users.noreply.github.com>
+AuthorDate: Sat Nov 21 19:48:01 2026 -0600
+Commit:     Orda <342776047+orda-aska@users.noreply.github.com>
+CommitDate: Sat Nov 21 19:48:01 2026 -0600
+
+    research: narrow evidence wording after review 6009446626

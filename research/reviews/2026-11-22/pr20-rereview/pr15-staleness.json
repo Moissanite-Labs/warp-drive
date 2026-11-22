@@ -1,0 +1,29 @@
+{
+  "assessment": "Historically head-pinned and accurate; stale as current-status documentation. Static target blobs supersede both review items; no target execution or fix verification performed.",
+  "executed_pr15": false,
+  "ledger_pins_reviewed_head": true,
+  "ledger_records_merged_state": false,
+  "merge_target_commit": "1117bbdcd0160bed91d2916161e86698137e12cb",
+  "pr15_merge_commit": "ef08c95f68d9e78e6317031fbdac32a9fc2b842b",
+  "pr15_merged_at": "2026-11-22T11:15:31Z",
+  "pr15_state": "MERGED",
+  "schema": "pr15-static-staleness-audit/v1",
+  "source_blobs": {
+    "merged_target_head": {
+      "commit": "1117bbdcd0160bed91d2916161e86698137e12cb",
+      "report_claims_baseline_already_hardened": false,
+      "report_explicitly_scopes_baseline_as_unhardened": true,
+      "report_sha256": "5210d553b2aa5d6f7c00d77832ffc415cfad832a357dca74088e73f0879435f4",
+      "sandbox_contains_realpath_e": false,
+      "sandbox_sha256": "0f9784b7098d65f30daf4f958e1d82ab6b2ce3735c77ff93802c4670136344a3"
+    },
+    "reviewed_head": {
+      "commit": "e6ad0967c2386eb3e3bdc7d81ff3a47808d53a1e",
+      "report_claims_baseline_already_hardened": true,
+      "report_explicitly_scopes_baseline_as_unhardened": false,
+      "report_sha256": "e5ed26ce1a06d0bb7a6de27596177cfc585482edb51e6f02c0548a85488d4051",
+      "sandbox_contains_realpath_e": true,
+      "sandbox_sha256": "d67b716e491036b1a575f9e9b32dcb274c8bd0761de44d164c23ec9c59cc8189"
+    }
+  }
+}

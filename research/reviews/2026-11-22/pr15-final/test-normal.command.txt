@@ -1,0 +1,1 @@
+PYTHONPATH=src:. python3 -B -W error -m unittest discover -s tests

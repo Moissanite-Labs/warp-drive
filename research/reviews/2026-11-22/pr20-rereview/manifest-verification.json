@@ -1,0 +1,13 @@
+{
+  "checked_files": 132,
+  "declared_file_count": 132,
+  "errors": [],
+  "manifest_entry_count": 132,
+  "manifest_sha256": "c3bf68d0f3171d48b17eff57a386de996835cf10e8c807f7d0470f540c5b6757",
+  "missing": [],
+  "ok": true,
+  "repo": "/private/tmp/warp-pr20-rereview",
+  "root": "research/iteration-2026-11-21",
+  "tracked_files_excluding_manifest": 132,
+  "uncovered": []
+}

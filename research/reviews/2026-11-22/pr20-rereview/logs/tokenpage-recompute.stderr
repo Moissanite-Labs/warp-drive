@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/tmp/warp-pr20-rereview-evidence/recompute_tokenpage_no_legend.py", line 49, in <module>
+    require(len(rows) == 240, f"expected 240 QA rows, got {len(rows)}")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/warp-pr20-rereview-evidence/recompute_tokenpage_no_legend.py", line 18, in require
+    raise RuntimeError(message)
+RuntimeError: expected 240 QA rows, got 952

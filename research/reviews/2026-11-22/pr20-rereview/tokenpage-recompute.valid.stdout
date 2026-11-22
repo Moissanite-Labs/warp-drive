@@ -1,0 +1,43 @@
+{
+  "cell_rows": {
+    "no_legend": 120,
+    "with_legend": 120
+  },
+  "comparison": {
+    "contradictory_prose_no_legend": -6.651419738969508,
+    "matches_preserved_machine_receipt_no_legend": true,
+    "prose_minus_recomputed": 9.102024819540588e-05,
+    "prose_value_reproduced": false
+  },
+  "per_field_rows": {
+    "no_legend": {
+      "criteria": 24,
+      "dependency": 24,
+      "priority": 24,
+      "scope": 24,
+      "title": 24
+    },
+    "with_legend": {
+      "criteria": 24,
+      "dependency": 24,
+      "priority": 24,
+      "scope": 24,
+      "title": 24
+    }
+  },
+  "raw_qa_bytes": 240010,
+  "raw_qa_rows": 952,
+  "raw_qa_sha256": "8cc8f1ce33be37a2d2ece4b5dab0722db5772460478551bb2007d319b0508334",
+  "rounded_legend_delta_bits": 1.767,
+  "schema": "independent-tokenpage-raw-qa-recompute/v1",
+  "scope": "numerical recomputation only; no harness rerun, model execution, or prose edit",
+  "selected_g1_qa_rows": 240,
+  "source_commit": "a694232ecd2dca2b568e7c6dda8d38e3515dcf78",
+  "source_path": "studies/expedition-proper-kl-audit/data/tokenpage_pr5/raw_qa_qwen1.5b.jsonl",
+  "source_repository": "Moissanite-Labs/tokenpage",
+  "unrounded_unfloored_empirical_kl_bits": {
+    "no_legend": -6.651510759217704,
+    "with_legend": -4.8844556181300325
+  }
+}
+receipt_sha256=f9f14b90b9236de05a861518f21f5c187e386a59f34198aa16433a8b35cee580

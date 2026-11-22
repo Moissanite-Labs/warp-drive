@@ -1,0 +1,7 @@
+scope=bounded independent non-author executable review; post-merge evidence, not approval
+requested_head=1117bbdcd0160bed91d2916161e86698137e12cb
+started_utc=2026-11-22T17:40:51Z
+host_uname=Darwin Ahrazs-MacBook-Pro.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:22:49 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6000 arm64
+python=Python 3.14.6
+source_repo=Moissanite-Labs/warp-drive (local path redacted)
+source_head=ee465f5261e108bed6572baf35e7000cb71846ae
