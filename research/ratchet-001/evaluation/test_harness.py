@@ -49,6 +49,10 @@ class HarnessTests(unittest.TestCase):
     def test_receipt_float_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "float"):
             evaluation.canonical({"value": 1.5})
+        self.assertEqual(self.cases["G25"]["request"]["input"]["eval_temperature"], 0.0)
+        self.assertEqual(evaluation.parse_input_json('{"value":0.0}'), {"value": 0.0})
+        with self.assertRaisesRegex(ValueError, "float"):
+            evaluation.parse_json('{"value":0.0}')
 
     def test_duplicate_receipt_key_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate"):

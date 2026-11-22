@@ -51,7 +51,7 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def parse_json(text: str) -> Any:
+def parse_input_json(text: str) -> Any:
     def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, value in pairs:
@@ -59,9 +59,17 @@ def parse_json(text: str) -> Any:
                 raise ValueError("duplicate key")
             result[key] = value
         return result
-    value = json.loads(text, object_pairs_hook=unique, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    return json.loads(text, object_pairs_hook=unique, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+
+
+def parse_json(text: str) -> Any:
+    value = parse_input_json(text)
     canonical(value)
     return value
+
+
+def request_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
 
 
 def load_pinned_framework() -> Any:
@@ -185,12 +193,12 @@ def run(run_dir: Path) -> dict[str, Any]:
     candidate = run_dir / "candidate"
     require(candidate.is_dir(), "candidate directory missing")
     source = json.loads((run_dir / "SOURCE.json").read_text(encoding="utf-8"))
-    cases_document = parse_json((EVALUATION / "corpus.json").read_text(encoding="utf-8"))
+    cases_document = parse_input_json((EVALUATION / "corpus.json").read_text(encoding="utf-8"))
     cases = cases_document["cases"]
     (run_dir / "requests").mkdir(exist_ok=True)
     (run_dir / "observations").mkdir(exist_ok=True)
     for case in cases:
-        (run_dir / "requests" / f"{case['id']}.json").write_text(canonical(case["request"]) + "\n", encoding="utf-8")
+        (run_dir / "requests" / f"{case['id']}.json").write_text(request_json(case["request"]) + "\n", encoding="utf-8")
     receipts = []
     previous = None
     total_ms = 0

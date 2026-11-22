@@ -12,4 +12,8 @@ No baseline or candidate corpus execution occurred during harness construction.
 6. Corpus generation was deterministic. Corpus SHA-256: `c82b509f4c2f91e5f672353f483a7641c19440cb9fe4bbdb8863fe40e77a3f7d`.
 7. Aletheia's pinned module is execute-time checked against SHA-256 `233d8e4a6e57624407f991446c2d80876677905e558fe0815084c44deb6004b7`, from PR 1 head `1513e0f3322cf0c9899b92732f656e14a87e9b41`.
 
-Post-lock failures belong to the run evidence. The evaluation tree may not be changed to improve a score. All failures, non-promotions, and falsifications are preserved.
+## Pre-baseline lock repair
+
+Locked tree `f25c85e65da1585fc590dc1b6cf393ebd5b66fdccf6815d9a42b077cbc621961` never executed a candidate case. The first invocation used a relative run path and stopped at the runner's path precondition. The second, absolute-path invocation stopped while loading the corpus because receipt-only float rejection was incorrectly applied to deliberate wrong-type input attacks. No requests, observations, receipts, or candidate summary were created.
+
+The harness was repaired before baseline execution to distinguish duplicate-safe request JSON from float-free receipt JSON. The corpus, candidate, expected labels, scoring rules, and compute caps were not changed. The v1 lock remains in Git history and under the baseline's setup-failure records. This is a harness repair, not a candidate adaptation or a measured result.
