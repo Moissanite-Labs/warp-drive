@@ -74,7 +74,7 @@ Live status: UNVERIFIED. No credential exists on this machine, and the Cerebras 
 
 ## Verification Boundary
 
-- **Verified offline now (53 passing unit, RPC, adversarial, and blueprint tests plus 1 opt-in live GGUF test):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), and CLI subprocesses. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, ledger tampering, and blueprint invariants.
+- **Verified offline now (174 passing unit, RPC, adversarial, and blueprint tests, 2 opt-in skips):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), CLI subprocesses, the Stage 4 trust-boundary regressions, and the optional SiliQuant bridge with a pinned real checker. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, ledger tampering, and blueprint invariants.
 - **Verified against simulated multi-bank Latent Lattice backend:** `tests/test_lattice_state_isolation.py` proves KV-only flush lets poisoned horizontal latents re-contaminate fresh KV writes, verifies `ERR_LATTICE_FLUSH_FAILED` quarantine on KV-only or lying backends, and confirms atomic multi-bank (`kv_cache` + `ssm_recurrent` + `lattice_horizontal_streams`) rollback with per-bank signed receipts.
 - **Verified live on `llama-server` 0.5.0 (build 11146, commit `7fe450e19`, CPU mode on `Qwen2.5-1.5B-Instruct`):** Full Stage 1 to Stage 4 `warp-modeld` lifecycle over a `0600` Unix socket mounted a real `weft` rank-4 F16 GGUF v3 LoRA (`84,384` bytes on `blk.27.ffn_up.weight`, 0-byte re-derivation). Stage 2 ran in `16.71 us`, 5 live shadow canaries cleared in `4.90 s`, and kill-switch plus `POST /slots/0?action=erase` ran in `4.22 ms`, restoring bit-exact base `W0` output with verified HMAC receipts.
 - **Requires Linux target hardware or real Lattice serving engine (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, live CUDA multi-adapter benchmarks on the 8 GiB RTX 3080 host, and live hardware execution on a real Latent Lattice checkpoint once a GGUF/C++ Lattice backend ships.
@@ -83,6 +83,7 @@ Live status: UNVERIFIED. No credential exists on this machine, and the Cerebras 
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) explains the zero-trust inference boundary, the four verification stages, the three-machine layout, and recovery rules.
 - [PLAN.md](PLAN.md) lists milestones, acceptance gates, and non-goals.
+- [docs/alpha-readiness.md](docs/alpha-readiness.md) records the offline alpha gate, required deployment inputs, and unverified limits.
 
 ## License
 

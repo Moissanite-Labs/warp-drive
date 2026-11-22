@@ -369,6 +369,28 @@ class WarpModeld:
                             f"{req_bank} state after erase "
                             f"(bank={bank_status.to_dict() if bank_status else None})"
                         )
+                reported_banks = slot.state_banks
+                if not isinstance(reported_banks, dict):
+                    raise StateFlushError(f"slot {slot.id} reported non-mapping state bank status")
+                if slot.lattice_state_tainted or slot.lattice_layers_tainted > 0:
+                    raise LatticeFlushError(
+                        f"slot {slot.id} retained horizontal lattice taint after erase "
+                        f"(lattice_tainted={slot.lattice_state_tainted}, "
+                        f"layers_tainted={slot.lattice_layers_tainted})"
+                    )
+                if slot.ssm_state_tainted:
+                    raise StateFlushError(
+                        f"slot {slot.id} retained SSM taint after erase "
+                        f"(ssm_tainted={slot.ssm_state_tainted})"
+                    )
+                for bank_name, bank_status in reported_banks.items():
+                    if bank_status.is_clean:
+                        continue
+                    err_cls = LatticeFlushError if bank_name == STATE_BANK_LATTICE else StateFlushError
+                    raise err_cls(
+                        f"slot {slot.id} reported a dirty non-required state bank {bank_name} after erase "
+                        f"(bank={bank_status.to_dict()})"
+                    )
                 receipts.append(
                     BankFlushReceipt(
                         slot_id=slot.id,

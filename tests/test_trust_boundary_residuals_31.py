@@ -28,12 +28,13 @@ from warp_modeld.canary import (
     _is_slot_clean_for_banks,
 )
 from warp_modeld.cli import _cmd_serve
-from warp_modeld.errors import CanaryFailedError, StateFlushError
+from warp_modeld.errors import CanaryFailedError, LatticeFlushError, StateFlushError
 from warp_modeld.fingerprint import AdapterBundle, CheckpointFingerprint
 from warp_modeld.ledger import HmacSha256Signer, SignedLedger
 from warp_modeld.llama_client import LlamaClientError
 from warp_modeld.state_banks import (
     STATE_BANK_KV,
+    STATE_BANK_LATTICE,
     STATE_BANK_SSM,
     StateBankStatus,
 )
@@ -389,6 +390,51 @@ class TestResidualFailOpens(unittest.TestCase):
                 expected_banks=(STATE_BANK_KV,),
             )
         )
+
+    def test_kv_only_flush_rejects_dirty_non_required_banks_and_flags(self) -> None:
+        clean_kv = StateBankStatus(bank=STATE_BANK_KV, tainted=False)
+        dirty_ssm = StateBankStatus(bank=STATE_BANK_SSM, tainted=True)
+        dirty_lattice = StateBankStatus(bank=STATE_BANK_LATTICE, tainted=True)
+
+        def make_client(banks: dict[str, StateBankStatus], **flags: Any) -> Any:
+            class _Client:
+                def list_slots(self) -> list[Any]:
+                    return [_clean_slot(0, state_banks=dict(banks), **flags)]
+
+                def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                    return {"banks_flushed": [STATE_BANK_KV]}
+
+            return _Client()
+
+        cases = {
+            "extra_dirty_ssm_bank": ({STATE_BANK_KV: clean_kv, STATE_BANK_SSM: dirty_ssm}, {}),
+            "extra_dirty_lattice_bank": ({STATE_BANK_KV: clean_kv, STATE_BANK_LATTICE: dirty_lattice}, {}),
+            "top_level_ssm_taint": ({STATE_BANK_KV: clean_kv}, {"ssm_state_tainted": True}),
+            "top_level_lattice_taint": ({STATE_BANK_KV: clean_kv}, {"lattice_state_tainted": True}),
+            "lattice_layers_taint": ({STATE_BANK_KV: clean_kv}, {"lattice_layers_tainted": 1}),
+        }
+        for label, (banks, flags) in cases.items():
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as td:
+                    modeld = _build_modeld(td, make_client(banks, **flags))
+                    with self.assertRaises((StateFlushError, LatticeFlushError)):
+                        modeld._flush_all_slots()
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, make_client({STATE_BANK_KV: clean_kv}))
+            flushed, receipts = modeld._flush_all_slots()
+            self.assertEqual(flushed, (0,))
+            self.assertTrue(receipts[0].verified_clean)
+
+    def test_client_with_list_slots_none_is_not_clean(self) -> None:
+        class _NoneListSlotsClient:
+            list_slots = None
+
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+        client = _NoneListSlotsClient()
+        self.assertFalse(_is_slot_clean_for_banks(client, 0, (STATE_BANK_KV,)))  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

@@ -413,7 +413,7 @@ def _is_slot_clean_for_banks(
     expected_banks: tuple[str, ...],
 ) -> bool:
     """Verify post-erase slot cleanliness across every expected and reported state bank."""
-    if not hasattr(llama_client, "list_slots"):
+    if not callable(getattr(llama_client, "list_slots", None)):
         return False
     try:
         slots_now = llama_client.list_slots()
