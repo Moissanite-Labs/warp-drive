@@ -570,6 +570,152 @@ def test_policy_is_unverified_without_the_frozen_canary_list(tmp_path):
     assert check_policy(m, exp)[0]["verdict"] == "UNVERIFIED"
 
 
+# --- single-rule must-fail tests ----------------------------------------------
+# Each test is built so that exactly one rejection rule can reject it. The
+# companion control in each test shows the same input passes without the fault.
+
+
+def unconstrained_exp_dir(tmp: Path, *, rank=8, layer=31) -> Path:
+    """Contract whose receipt schema leaves rank and target_layer open, so only
+    the manifest comparison in check_receipt can reject a wrong value."""
+    exp = make_exp_dir(tmp)
+    schema = json.loads((exp / "receipt.schema.json").read_text())
+    cfg = schema["properties"]["candidate"]["properties"]["config"]["properties"]
+    cfg["rank"] = {"type": "integer"}
+    cfg["target_layer"] = {"type": "integer"}
+    dump(exp / "receipt.schema.json", schema)
+    manifest = json.loads((exp / "manifest.json").read_text())
+    manifest["allowed_candidate_knobs"]["rank"] = rank
+    manifest["last_layer_target"]["layer"] = layer
+    dump(exp / "manifest.json", manifest)
+    return exp
+
+
+def receipt_evidence(tmp: Path, exp: Path, mutate):
+    receipt = passing_receipt(exp)
+    mutate(receipt)
+    path = tmp / "receipt.json"
+    dump(path, receipt)
+    out = check_receipt(path, exp)[0]
+    return out["verdict"], out["evidence"]
+
+
+def test_receipt_control_for_single_rule_tests_is_verified(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    assert receipt_evidence(tmp_path, exp, lambda r: None)[0] == "VERIFIED"
+
+
+def test_receipt_falsifies_wrong_suite_digest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r.update(suite_sha256="0" * 64))
+    assert verdict == "FALSIFIED"
+    assert evidence == "suite_sha256 does not match the recomputed combined suite digest"
+
+
+def test_receipt_falsifies_rank_that_differs_from_manifest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path, rank=4)
+    verdict, evidence = receipt_evidence(tmp_path, exp, lambda r: None)
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate rank 8 != frozen 4"
+
+
+def test_receipt_falsifies_target_layer_that_differs_from_manifest_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path, layer=30)
+    verdict, evidence = receipt_evidence(tmp_path, exp, lambda r: None)
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate target_layer 31 != frozen 30"
+
+
+def test_receipt_falsifies_eta_outside_frozen_range_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r["candidate"]["config"].update(eta=0.5))
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate eta 0.5 outside frozen range [0.002, 0.02]"
+
+
+def test_receipt_falsifies_lora_scale_outside_allowed_values_only(tmp_path):
+    exp = unconstrained_exp_dir(tmp_path)
+    verdict, evidence = receipt_evidence(
+        tmp_path, exp, lambda r: r["candidate"]["config"].update(lora_scale=0.5))
+    assert verdict == "FALSIFIED"
+    assert evidence == "candidate lora_scale 0.5 is not 0.0, 1.0, or -1.0"
+
+
+def write_log_overrides(path: Path, entries, *, seqs=None, prevs=None):
+    """Chain a log, optionally forcing a seq or prev_sha256 on an entry, and
+    recompute every entry hash so the hash check cannot be what rejects it."""
+    prev = "0" * 64
+    lines = []
+    for i, fields in enumerate(entries, start=1):
+        entry = {"seq": (seqs or {}).get(i, i), "ts_utc": "2026-11-21T00:00:00+00:00",
+                 "event": fields["event"], "prev_sha256": (prevs or {}).get(i, prev)}
+        entry.update({k: v for k, v in fields.items() if k != "event"})
+        entry["entry_sha256"] = sha256_canonical(entry)
+        lines.append(json.dumps(entry, sort_keys=True))
+        prev = entry["entry_sha256"]
+    path.write_text("\n".join(lines) + "\n")
+
+
+THREE_EVENTS = [{"event": "candidate_proposed", "candidate_id": "c1"},
+                {"event": "evaluated", "candidate_id": "c1"},
+                {"event": "verdict", "verdict": "ACCEPT"}]
+
+
+def test_receipt_log_falsifies_sequence_gap_only(tmp_path):
+    log = tmp_path / "log.jsonl"
+    write_log_overrides(log, THREE_EVENTS)
+    assert check_receipt_log(log)[0]["verdict"] == "VERIFIED"
+    write_log_overrides(log, THREE_EVENTS, seqs={3: 4})
+    out = check_receipt_log(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "seq 4, expected 3" in out["evidence"]
+
+
+def test_receipt_log_falsifies_broken_prev_link_only(tmp_path):
+    log = tmp_path / "log.jsonl"
+    write_log_overrides(log, THREE_EVENTS, prevs={2: "f" * 64})
+    out = check_receipt_log(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "prev_sha256 does not match" in out["evidence"]
+
+
+def test_policy_regressed_control_that_did_not_regress_is_falsified(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    reg = passing_receipt(exp)
+    reg["candidate"]["candidate_id"] = "regressed-control"
+    reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["measurements"]["task"]["top1"] = 0.40
+    reg["verdict"] = "REJECT"
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "VERIFIED"
+    assert "regressed-control" in out["evidence"]
+    # Claims REJECT, but task top1 is above the base value: only the
+    # did-not-regress rule can reject it, the generic policy would agree.
+    reg["measurements"]["task"]["top1"] = 0.60
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "did not regress" in out["evidence"]
+
+
+def test_policy_regressed_control_claiming_accept_is_falsified_by_the_control_rule(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    reg = passing_receipt(exp)
+    reg["candidate"]["candidate_id"] = "regressed-control"
+    reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["measurements"]["task"]["top1"] = 0.40
+    reg["verdict"] = "ACCEPT"
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert out["evidence"] == "independent control check says REJECT, receipt claims ACCEPT"
+
+
 # --- independence ------------------------------------------------------------
 
 
