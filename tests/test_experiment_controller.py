@@ -553,6 +553,37 @@ def test_receipt_log_refuses_append_after_seal(tmp_path):
         log.append("second", value=2)
 
 
+def test_evaluated_entry_carries_null_not_nan_for_pending_rollback(controller):
+    import math
+
+    candidate = controller.propose({"eta": 0.01, "lora_scale": 1.0})
+    controller.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
+    measurements = controller.evaluate()
+    assert measurements.rollback_max_logit_diff is None
+    entries = controller.receipts.read_all()
+    evaluated = [e for e in entries if e["event"] == "evaluated"][0]
+    assert evaluated["measurements"]["rollback"]["max_logit_diff"] is None
+    raw = (controller.receipts.path).read_text(encoding="utf-8")
+    assert "NaN" not in raw
+    assert "Infinity" not in raw
+    # Strict JSON round-trips the whole log.
+    import json as _json
+
+    def _reject(name):
+        raise ValueError(name)
+
+    for line in raw.splitlines():
+        _json.loads(line, parse_constant=_reject)
+
+
+def test_receipt_log_refuses_non_finite_values(tmp_path):
+    log = ReceiptLog(tmp_path / "log.jsonl")
+    with pytest.raises(ValueError):
+        log.append("bad", value=float("nan"))
+    with pytest.raises(ValueError):
+        log.append("bad", value=float("inf"))
+
+
 def test_promote_refuses_measurements_without_rollback(controller):
     candidate = controller.propose({"eta": 0.01, "lora_scale": 1.0})
     controller.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)

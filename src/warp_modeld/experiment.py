@@ -148,7 +148,9 @@ def hmac_compare(left: str, right: str) -> bool:
 
 
 def _canonical_bytes(payload: Any) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
 
 
 def _sha256_canonical(payload: Any) -> str:
@@ -525,9 +527,13 @@ class Compiler(Protocol):
 
 @dataclass(frozen=True)
 class BaselineCheck:
-    """Baseline log-probability restoration check after rollback."""
+    """Baseline log-probability restoration check after rollback.
 
-    max_logit_diff: float
+    ``max_logit_diff`` is None until a rollback has run: the placeholder
+    used before rollback carries no measured difference.
+    """
+
+    max_logit_diff: float | None
     exact_matches: int
     sequences: int
 
@@ -616,7 +622,7 @@ class Measurements:
     safety_failures: tuple[str, ...]
     rollback_exact_matches: int
     rollback_sequences: int
-    rollback_max_logit_diff: float
+    rollback_max_logit_diff: float | None
 
     def to_receipt_dict(self) -> dict[str, Any]:
         return {
@@ -935,7 +941,9 @@ class ReceiptLog:
         entry["entry_sha256"] = _sha256_canonical(entry)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, sort_keys=True) + "\n")
+            # allow_nan=False: a non-finite value fails loudly here
+            # instead of writing a bare NaN token, which is not JSON.
+            f.write(json.dumps(entry, sort_keys=True, allow_nan=False) + "\n")
         return entry
 
     def seal(self) -> dict[str, Any]:
@@ -1200,7 +1208,9 @@ class ExperimentController:
         margins = self.runtime.probe_margins()
         self._evaluate_ms = (time.monotonic() - started) * 1000.0
         # Rollback fields are filled by rollback(); until then they are
-        # placeholders that promote_or_reject refuses to use.
+        # placeholders that promote_or_reject refuses to use. The
+        # difference is null, not NaN: a NaN would serialize as a bare
+        # NaN token, which is not valid JSON.
         measurements = _measurements_from_raw(
             task=raw["task"],
             margins=margins,
@@ -1208,7 +1218,7 @@ class ExperimentController:
             shifted=raw["retention_shifted"],
             safety=raw["safety_canaries"],
             rollback=BaselineCheck(
-                max_logit_diff=float("nan"), exact_matches=-1, sequences=-1
+                max_logit_diff=None, exact_matches=-1, sequences=-1
             ),
             margin_threshold=self.contract.margin_threshold,
         )
