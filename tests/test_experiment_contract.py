@@ -25,7 +25,7 @@ def sha256_file(path):
 
 def test_manifest_pins_present():
     manifest = load(EXP / "manifest.json")
-    assert manifest["manifest_version"] == "0.1.0"
+    assert manifest["manifest_version"] == "0.1.1"
     assert manifest["base_checkpoint"]["file"] == "Qwen3.5-4B-Q8_0.gguf"
     assert manifest["base_checkpoint"]["sha256"] == (
         "10cc391b403021dd11c614679d2fd92f611c3681d29e29651b717316965d61e1"
@@ -172,6 +172,14 @@ def test_margin_rule_wording_is_two_sided():
     assert "two-sided" in rule
     assert "adapter" in rule and "above" in rule
     assert "baseline" in rule and "at or below" in rule
+
+
+def test_manifest_and_thresholds_versions_agree():
+    # The lane 5 controller refuses a contract whose manifest_version differs
+    # from thresholds_version. Bumping one without the other must fail here.
+    manifest = load(EXP / "manifest.json")
+    thresholds = load(EXP / "thresholds.json")
+    assert manifest["manifest_version"] == thresholds["thresholds_version"]
 
 
 def test_manifest_sha256_is_pinned_in_a_tracked_file():
