@@ -35,9 +35,15 @@ It is built for operators running local open-weight models and coding agents who
 
 ## Running Tests and CLI Checks
 
-Requires Python 3.11 or newer with no external runtime packages:
+Requires Python 3.11 or newer with no external runtime packages (`pytest` is optional and needed to run the `pytest`-based experiment contract and controller suites):
 
 ```bash
+# Full test suite (pytest: 245 passed, 2 opt-in live tests skipped on main @ 4653d62e)
+PYTHONPATH=src pytest tests/
+
+# unittest-only discovery (128 unittest.TestCase items: 126 passed, 2 skipped when pytest is installed;
+# omits the 119 pytest-style tests in tests/test_experiment_contract.py and tests/test_experiment_controller.py,
+# and fails to import tests/test_experiment_controller.py if pytest is absent)
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
@@ -74,9 +80,9 @@ Live status: UNVERIFIED. No credential exists on this machine, and the Cerebras 
 
 ## Verification Boundary
 
-- **Verified offline now (53 passing unit, RPC, adversarial, and blueprint tests plus 1 opt-in live GGUF test):** Covers all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), and CLI subprocesses. Adversarial cases verify forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, ledger tampering, and blueprint invariants.
+- **Verified offline on `main` (`4653d62e`):** `PYTHONPATH=src pytest tests/` runs **245 passing tests and 2 skipped opt-in live tests** (247 collected across 15 test modules: 126 passing `unittest.TestCase` tests across 13 stdlib modules, 16 tests in `tests/test_experiment_contract.py`, and 103 parametrized tests in `tests/test_experiment_controller.py`). `PYTHONPATH=src python3 -m unittest discover -s tests -v` runs **128 `unittest.TestCase` tests (126 passed, 2 skipped)** when `pytest` is installed (it omits the 119 `pytest`-only experiment tests, and fails to import `tests/test_experiment_controller.py` if `pytest` is absent). Both skipped tests are opt-in live smoke tests: `tests/test_live_llama_smoke.py` (`WARP_LIVE_LLAMA_TEST=1`, `WARP_LIVE_BASE_GGUF`, `WEFT_SRC`) and `tests/test_live_cerebras_smoke.py` (`WARP_LIVE_CEREBRAS_TEST=1`, `CEREBRAS_API_KEY`). Offline coverage spans all four `warp-modeld` stages, Unix socket RPC (`warp_infer`, `warp_complete`), CLI subprocesses, Cerebras client contracts, bounded experiment contracts/controller invariants, forged certificates, inflated scales, stale lineage, flag and zone-manifest drift, forged canaries, ledger tampering, and blueprint invariants.
 - **Verified against simulated multi-bank Latent Lattice backend:** `tests/test_lattice_state_isolation.py` proves KV-only flush lets poisoned horizontal latents re-contaminate fresh KV writes, verifies `ERR_LATTICE_FLUSH_FAILED` quarantine on KV-only or lying backends, and confirms atomic multi-bank (`kv_cache` + `ssm_recurrent` + `lattice_horizontal_streams`) rollback with per-bank signed receipts.
-- **Verified live on `llama-server` 0.5.0 (build 11146, commit `7fe450e19`, CPU mode on `Qwen2.5-1.5B-Instruct`):** Full Stage 1 to Stage 4 `warp-modeld` lifecycle over a `0600` Unix socket mounted a real `weft` rank-4 F16 GGUF v3 LoRA (`84,384` bytes on `blk.27.ffn_up.weight`, 0-byte re-derivation). Stage 2 ran in `16.71 us`, 5 live shadow canaries cleared in `4.90 s`, and kill-switch plus `POST /slots/0?action=erase` ran in `4.22 ms`, restoring bit-exact base `W0` output with verified HMAC receipts.
+- **Past unarchived author-host live run (2026-11-19, commit `763355f`, unrecorded CPU host running `llama-server` 0.5.0 build 11146 / commit `7fe450e19` on `Qwen2.5-1.5B-Instruct`; no run receipt committed in this repo):** Reported a full Stage 1 to Stage 4 `warp-modeld` lifecycle over a `0600` Unix socket mounting a `weft` rank-4 F16 GGUF v3 LoRA (`84,384` bytes on `blk.27.ffn_up.weight`, 0-byte re-derivation), with Stage 2 in `16.71 us`, 5 live shadow canaries in `4.90 s`, and kill-switch plus `POST /slots/0?action=erase` in `4.22 ms`, restoring bit-exact base `W0` output with verified HMAC receipts. No `.gguf`, log, or `.jsonl` run receipt is tracked in this repository; the committed opt-in harness (`tests/test_live_llama_smoke.py::TestLiveLlamaSmoke::test_live_full_stage1_to_stage4_real_llama_server_and_weft_lora`) verifies Stage 2 `< 5 ms` (`5,000,000 ns`), 5 live shadow canaries, slot-0 erase, bit-exact base output restoration, and a 4-receipt HMAC-SHA256 ledger chain when run with `WARP_LIVE_LLAMA_TEST=1`, `WARP_LIVE_BASE_GGUF`, and `WEFT_SRC`, and does not pin the specific 2026-11-19 timings above.
 - **Requires Linux target hardware or real Lattice serving engine (not yet executed):** Building and booting `mkosi` disk images in QEMU, flashing dual-boot `compute-rtx3080` or `client-omarchy` laptops, live CUDA multi-adapter benchmarks on the 8 GiB RTX 3080 host, and live hardware execution on a real Latent Lattice checkpoint once a GGUF/C++ Lattice backend ships.
 
 ## Documents
