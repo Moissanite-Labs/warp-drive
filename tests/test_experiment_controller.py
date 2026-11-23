@@ -635,6 +635,7 @@ def test_full_run_accepts_passing_candidate(controller):
     assert events == [
         "candidate_proposed",
         "candidate_digest_recorded",
+        "adapter_mounted",
         "evaluated",
         "rollback_verified",
         "verdict",
@@ -695,7 +696,7 @@ def test_receipt_matches_frozen_schema_shape(controller):
 # --- regression tests for the orda re-review (2026-11-21) -------------------
 
 
-def test_failed_mount_cannot_evaluate_without_digest_receipt(controller):
+def test_failed_mount_cannot_evaluate_without_binding(controller):
     class FailingMountRuntime(FakeRuntime):
         def mount_adapter(self, adapter_sha256, lora_scale):
             raise ControllerError("mock mount failed")
@@ -705,9 +706,17 @@ def test_failed_mount_cannot_evaluate_without_digest_receipt(controller):
     with pytest.raises(ControllerError):
         controller.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
     events = [e["event"] for e in controller.receipts.read_all()]
-    assert "candidate_digest_recorded" not in events
+    assert "candidate_digest_recorded" in events
+    assert "adapter_mounted" not in events
     with pytest.raises(ControllerError, match="no bound candidate"):
         controller.evaluate()
+
+
+def test_digest_is_recorded_before_the_mount_event(controller):
+    candidate = controller.propose({"eta": 0.01, "lora_scale": 1.0})
+    controller.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
+    events = [e["event"] for e in controller.receipts.read_all()]
+    assert events.index("candidate_digest_recorded") < events.index("adapter_mounted")
 
 
 def test_scoring_failure_rolls_back_and_emits_no_success(controller):

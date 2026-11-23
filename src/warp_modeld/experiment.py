@@ -1218,15 +1218,8 @@ class ExperimentController:
             raise ControllerError("compiler repo does not match the pinned compiler")
         if result.compiler_commit != self.contract.compiler_commit:
             raise ControllerError("compiler commit does not match the pinned compiler")
-        # Mount before binding: a failed mount must leave the candidate
-        # unbound, so evaluate() cannot score a candidate whose digest
-        # receipt was never recorded.
-        deploy_ms = self.runtime.mount_adapter(
-            result.adapter_sha256, candidate.lora_scale
-        )
-        self._bound_candidate = candidate
-        self._bound_compile = result
-        self._deploy_ms = deploy_ms
+        # Record the digest before the adapter goes live. A crash after the
+        # mount then leaves a receipt that describes the mounted adapter.
         self.receipts.append(
             "candidate_digest_recorded",
             candidate_id=candidate.candidate_id,
@@ -1240,8 +1233,20 @@ class ExperimentController:
                 "command_version": result.command_version,
             },
             compile_ms=compile_ms,
-            deploy_ms=self._deploy_ms,
+            deploy_ms=None,
             hash_recorded_before_evaluation=True,
+        )
+        deploy_ms = self.runtime.mount_adapter(
+            result.adapter_sha256, candidate.lora_scale
+        )
+        self._bound_candidate = candidate
+        self._bound_compile = result
+        self._deploy_ms = deploy_ms
+        self.receipts.append(
+            "adapter_mounted",
+            candidate_id=candidate.candidate_id,
+            adapter_sha256=result.adapter_sha256,
+            deploy_ms=deploy_ms,
         )
         return result
 
