@@ -30,9 +30,9 @@ Core Exact Theorems & Fail-Closed Gates:
     leakage (`int4/exact = 0/1` vs `exact/int4 > 0`), and `d_r = 256` horizontal
     outlier-masked RMS blindness (`[1536] + [1]*255`: naive `ratio^2 = 802160640/16779511 < 64`
     vs `siliquant` bulk-split `1048576/3 > 64`, using exact `comparison.rs` `w^2 / 12` variance).
-  - Pillar 5 (`HardenedLatentLatticeContract` & `verify_4bank_lattice_flush`): Fail-closed
-    governor closing live `warp-drive` gaps `LLLM-WD-01`, `LLLM-WD-02`, `LLLM-WD-03`
-    across `main@38a7072` and `PR#15@e6ad096`.
+  - Pillar 5 (`HardenedLatentLatticeContract` & `verify_4bank_lattice_flush`): Standalone
+    reference/blueprint fail-closed gates modeling live `warp-drive` gaps `LLLM-WD-01`,
+    `LLLM-WD-02`, `LLLM-WD-03` across `main@38a7072` and `PR#15@e6ad096` (not wired into `src/`).
   - Pillar 6: Read-only verification of `arXiv:2611.21608` tables/discrepancies,
     `ShivamDuggal4/latent-lattice-language-models`, and `Moissanite-Labs/warp-drive`
     anchors (skipped under `--standalone`).
@@ -724,8 +724,9 @@ def validate_hardened_lattice_contract(
     runtime_flags: Mapping[str, Any],
 ) -> dict[str, Any]:
     """
-    Fail-closed Stage-1 Latent Lattice Checkpoint + RuntimeFlags contract closing live
-    `Moissanite-Labs/warp-drive` gaps (`LLLM-WD-01`, `LLLM-WD-02`, `LLLM-WD-03`).
+    Standalone reference/blueprint fail-closed Stage-1 Latent Lattice Checkpoint +
+    RuntimeFlags contract gate modeling `Moissanite-Labs/warp-drive` gaps
+    (`LLLM-WD-01`, `LLLM-WD-02`, `LLLM-WD-03`; not wired into `src/`).
     """
     require(isinstance(ckpt, Mapping), "BAD_CKPT_TYPE", "ckpt must be a mapping")
     require(isinstance(runtime_flags, Mapping), "BAD_FLAGS_TYPE", "runtime_flags must be a mapping")
@@ -833,7 +834,8 @@ def verify_4bank_lattice_flush(
     expected_r0_sha256: str | None = None,
 ) -> dict[str, Any]:
     """
-    Fail-closed 4-bank atomic rollback verifier closing `LLLM-WD-01..03`:
+    Standalone reference/blueprint fail-closed 4-bank atomic rollback gate modeling
+    `LLLM-WD-01..03` (not wired into `src/`):
       - Strict slot-set equality (`pre_slot_ids == post_slot_ids`) and `is_processing is False`,
       - Explicit strict `bool`/`int` validation (blocks `llama_client.py:181-182` negative/string coercions),
       - Explicit confirmation of EVERY required bank (including `lattice_jacobi_feedback`),

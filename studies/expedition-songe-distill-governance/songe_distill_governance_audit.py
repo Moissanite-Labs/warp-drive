@@ -11,6 +11,7 @@ Bridges four systems in exact rational arithmetic (pure Python 3 stdlib, zero fl
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from fractions import Fraction
 import hashlib
 import json
@@ -355,7 +356,7 @@ def hardened_clustered_ville_gate(
     drift: Fraction,
     drift_limit: Fraction,
 ) -> dict[str, Any]:
-    """Conversation-clustered two-sided Bonferroni pure-Q Ville gate closing SNG-02 & SNG-03."""
+    """Standalone reference conversation-clustered two-sided Bonferroni pure-Q Ville gate modeling SNG-02 & SNG-03 (not wired into src/)."""
     if (
         not isinstance(conversation_outcomes, list)
         or not isinstance(alpha, Fraction)
@@ -428,63 +429,109 @@ def has_secret_in_body(text: str) -> bool:
     return any(pattern.search(text) is not None for pattern in SECRET_PATTERNS)
 
 
-def evaluate_songe_governance_boundary(config: dict[str, Any]) -> dict[str, Any]:
-    """Fail-closed governance bridge uniting Songe with warp-drive, hillclimb#4, and AUDIT-068R."""
+REQUIRED_GOVERNANCE_KEYS: tuple[str, ...] = (
+    "vocab_clip",
+    "bregman_normalized",
+    "fused_serving_artifact",
+    "fused_outputs_rejudged",
+    "quick_dream_enabled",
+    "rule_requires_explicit_user_approval",
+    "review_fail_closed",
+    "hindsight_fence_escaped",
+    "control_requires_bearer_token",
+    "installation_id_publicly_disclosed",
+    "root_routes_guarded",
+    "base_fingerprint_mode",
+    "includes_tokenizer_and_gguf",
+    "base_sha256",
+    "body_secret_redaction_enabled",
+    "sample_recorded_body",
+    "strict_json_verdict_only",
+    "runtime_pip_require_hashes",
+    "eval_temperature",
+    "eval_top_p",
+)
+
+
+def evaluate_songe_governance_boundary(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Standalone reference/blueprint fail-closed governance gate modeling Songe
+    invariants for warp-drive, hillclimb#4, and AUDIT-068R (not wired into src/).
+
+    Validates mapping type and required key presence before checking each
+    invariant, folding missing or invalid keys into refusal reasons rather than
+    raising KeyError.
+    """
+    if not isinstance(config, Mapping):
+        return {"admitted": False, "reasons": ["CONFIG_NOT_MAPPING"]}
     reasons: list[str] = []
+    for key in REQUIRED_GOVERNANCE_KEYS:
+        if key not in config:
+            reasons.append(f"MISSING_KEY:{key}")
+    vocab_clip = config.get("vocab_clip")
+    bregman_normalized = config.get("bregman_normalized")
     if (
-        not isinstance(config["vocab_clip"], Fraction)
-        or not isinstance(config["bregman_normalized"], bool)
-        or config["vocab_clip"] < 0
-        or (config["vocab_clip"] > 0 and config["bregman_normalized"] is not True)
+        not isinstance(vocab_clip, Fraction)
+        or not isinstance(bregman_normalized, bool)
+        or vocab_clip < 0
+        or (vocab_clip > 0 and bregman_normalized is not True)
     ):
         reasons.append("CLIPPED_KL_NON_BREGMAN")
+    fused_serving_artifact = config.get("fused_serving_artifact")
+    fused_outputs_rejudged = config.get("fused_outputs_rejudged")
     if (
-        not isinstance(config["fused_serving_artifact"], bool)
-        or not isinstance(config["fused_outputs_rejudged"], bool)
-        or (config["fused_serving_artifact"] and config["fused_outputs_rejudged"] is not True)
+        not isinstance(fused_serving_artifact, bool)
+        or not isinstance(fused_outputs_rejudged, bool)
+        or (fused_serving_artifact and fused_outputs_rejudged is not True)
     ):
         reasons.append("FUSED_ARTIFACT_NOT_REJUDGED")
+    quick_dream_enabled = config.get("quick_dream_enabled")
+    rule_requires_explicit_user_approval = config.get("rule_requires_explicit_user_approval")
+    review_fail_closed = config.get("review_fail_closed")
+    hindsight_fence_escaped = config.get("hindsight_fence_escaped")
     if (
-        not isinstance(config["quick_dream_enabled"], bool)
-        or not isinstance(config["rule_requires_explicit_user_approval"], bool)
-        or not isinstance(config["review_fail_closed"], bool)
-        or config["hindsight_fence_escaped"] is not True
+        not isinstance(quick_dream_enabled, bool)
+        or not isinstance(rule_requires_explicit_user_approval, bool)
+        or not isinstance(review_fail_closed, bool)
+        or hindsight_fence_escaped is not True
         or (
-            config["quick_dream_enabled"]
+            quick_dream_enabled
             and (
-                config["rule_requires_explicit_user_approval"] is not True
-                or config["review_fail_closed"] is not True
+                rule_requires_explicit_user_approval is not True
+                or review_fail_closed is not True
             )
         )
     ):
         reasons.append("PROMPT_RULE_INJECTION_UNSANITIZED")
     if (
-        config["control_requires_bearer_token"] is not True
-        or config["installation_id_publicly_disclosed"] is not False
-        or config["root_routes_guarded"] is not True
+        config.get("control_requires_bearer_token") is not True
+        or config.get("installation_id_publicly_disclosed") is not False
+        or config.get("root_routes_guarded") is not True
     ):
         reasons.append("CONTROL_API_UNAUTHENTICATED")
     if (
-        config["base_fingerprint_mode"] != "content_sha256"
-        or config["includes_tokenizer_and_gguf"] is not True
-        or not _is_sha256_hex(config["base_sha256"])
+        config.get("base_fingerprint_mode") != "content_sha256"
+        or config.get("includes_tokenizer_and_gguf") is not True
+        or not _is_sha256_hex(config.get("base_sha256"))
     ):
         reasons.append("BASE_FINGERPRINT_NOT_CRYPTOGRAPHIC")
+    sample_recorded_body = config.get("sample_recorded_body")
     if (
-        config["body_secret_redaction_enabled"] is not True
-        or not isinstance(config["sample_recorded_body"], str)
-        or has_secret_in_body(config["sample_recorded_body"])
+        config.get("body_secret_redaction_enabled") is not True
+        or not isinstance(sample_recorded_body, str)
+        or has_secret_in_body(sample_recorded_body)
     ):
         reasons.append("BODY_SECRET_REDACTION_MISSING")
-    if config["strict_json_verdict_only"] is not True:
+    if config.get("strict_json_verdict_only") is not True:
         reasons.append("JUDGE_VERDICT_REGEX_FALLBACK")
-    if config["runtime_pip_require_hashes"] is not True:
+    if config.get("runtime_pip_require_hashes") is not True:
         reasons.append("UNPINNED_RUNTIME_PIP_INSTALL")
+    eval_temperature = config.get("eval_temperature")
+    eval_top_p = config.get("eval_top_p")
     if (
-        not _is_exact_rat(config["eval_temperature"])
-        or config["eval_temperature"] != 0
-        or not _is_exact_rat(config["eval_top_p"])
-        or config["eval_top_p"] != 1
+        not _is_exact_rat(eval_temperature)
+        or eval_temperature != 0
+        or not _is_exact_rat(eval_top_p)
+        or eval_top_p != 1
     ):
         reasons.append("EVAL_SAMPLING_NONDETERMINISTIC")
     return {"admitted": len(reasons) == 0, "reasons": reasons}

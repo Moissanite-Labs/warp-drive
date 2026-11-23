@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import MappingProxyType
 import unittest
 from unittest.mock import patch
 
@@ -127,8 +128,10 @@ class TestClippedKlTheorem(unittest.TestCase):
         for fn in (mod.songe_clipped_kl_interval, mod.bregman_clipped_kl_interval):
             for bad in (
                 ("not-list", p, Fraction(1, 1)),
-                ([Fraction(1, 1)], p, Fraction(1, 1)),
+                ((Fraction(1, 2), Fraction(1, 2)), p, Fraction(1, 1)),
+                ([Fraction(1, 1)], [Fraction(1, 1)], Fraction(1, 1)),
                 ([Fraction(0, 1), Fraction(1, 1)], p, Fraction(1, 1)),
+                ([Fraction(-1, 2), Fraction(3, 2)], [Fraction(-1, 2), Fraction(3, 2)], Fraction(1, 1)),
                 ([Fraction(1, 3), Fraction(1, 3)], p, Fraction(1, 1)),
                 ([0.5, 0.5], p, Fraction(1, 1)),
                 (p, [Fraction(1, 3), Fraction(1, 3), Fraction(1, 3)], Fraction(1, 1)),
@@ -137,6 +140,8 @@ class TestClippedKlTheorem(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     fn(*bad)  # type: ignore[arg-type]
+            with self.assertRaisesRegex(ValueError, "distributions must match length"):
+                fn(p, [Fraction(1, 3), Fraction(1, 3), Fraction(1, 3)], Fraction(1, 1))
         for bad_grad in (
             (0.5, Fraction(1, 16)),
             (Fraction(1, 2), 0.1),
@@ -156,7 +161,7 @@ class TestBootstrapAndClusteredVilleGate(unittest.TestCase):
         self.assertEqual(mod.ville_mixture_ratio(8, 8), Fraction(511, 9))
         self.assertEqual(mod.ville_mixture_ratio(9, 9), Fraction(1023, 10))
         for bad in ((-1, 0), (2, -1), (2, 3), (True, 0), (1, True)):
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "rounds and wins must be ints"):
                 mod.ville_mixture_ratio(*bad)  # type: ignore[arg-type]
 
         b12 = mod.songe_bootstrap_unanimous_null_risk(1, 2)
@@ -222,6 +227,7 @@ class TestBootstrapAndClusteredVilleGate(unittest.TestCase):
         # Input guards
         for bad in (
             ("not-list", Fraction(1, 20), 1, 5, True, Fraction(0, 1), Fraction(1, 20)),
+            ((("c0", 1),), Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
             (convs9, 0.05, 1, 5, True, Fraction(0, 1), Fraction(1, 20)),
             (convs9, Fraction(0, 1), 1, 5, True, Fraction(0, 1), Fraction(1, 20)),
             (convs9, Fraction(1, 1), 1, 5, True, Fraction(0, 1), Fraction(1, 20)),
@@ -237,6 +243,7 @@ class TestBootstrapAndClusteredVilleGate(unittest.TestCase):
             ([(" ", 1)], Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
             ([("c0", True)], Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
             ([("c0", 2)], Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
+            ([("c0", 1, "extra")], Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
             ([["c0", 1]], Fraction(1, 20), 1, 1, True, Fraction(0, 1), Fraction(1, 20)),
         ):
             with self.assertRaises(ValueError):
@@ -330,6 +337,58 @@ class TestDetectorsAndGovernanceBoundary(unittest.TestCase):
         for overrides, expected_reason in single_failures:
             res = mod.evaluate_songe_governance_boundary(dict(base, **overrides))
             self.assertFalse(res["admitted"], f"expected reject for {overrides}")
+            self.assertEqual(res["reasons"], [expected_reason])
+
+    def test_governance_boundary_partial_empty_and_non_mapping_configs_fail_closed(self) -> None:
+        # Non-mapping inputs return explicit denial rather than TypeError/AttributeError
+        for bad_cfg in (None, [], "not-a-dict", 123):
+            res = mod.evaluate_songe_governance_boundary(bad_cfg)  # type: ignore[arg-type]
+            self.assertEqual(res, {"admitted": False, "reasons": ["CONFIG_NOT_MAPPING"]})
+
+        # Read-only Mapping (MappingProxyType) is accepted when valid and fails closed when empty
+        base = _valid_governance_config()
+        self.assertEqual(
+            mod.evaluate_songe_governance_boundary(MappingProxyType(base)),
+            {"admitted": True, "reasons": []},
+        )
+        self.assertFalse(mod.evaluate_songe_governance_boundary(MappingProxyType({}))["admitted"])
+
+        # Empty config {} folds all 20 missing keys and all 9 invariant refusals without KeyError
+        empty_res = mod.evaluate_songe_governance_boundary({})
+        self.assertFalse(empty_res["admitted"])
+        for key in mod.REQUIRED_GOVERNANCE_KEYS:
+            self.assertIn(f"MISSING_KEY:{key}", empty_res["reasons"])
+        for inv_reason in (
+            "CLIPPED_KL_NON_BREGMAN",
+            "FUSED_ARTIFACT_NOT_REJUDGED",
+            "PROMPT_RULE_INJECTION_UNSANITIZED",
+            "CONTROL_API_UNAUTHENTICATED",
+            "BASE_FINGERPRINT_NOT_CRYPTOGRAPHIC",
+            "BODY_SECRET_REDACTION_MISSING",
+            "JUDGE_VERDICT_REGEX_FALLBACK",
+            "UNPINNED_RUNTIME_PIP_INSTALL",
+            "EVAL_SAMPLING_NONDETERMINISTIC",
+        ):
+            self.assertIn(inv_reason, empty_res["reasons"])
+
+        # Dropping any single required key returns admitted=False with MISSING_KEY:<key> and no KeyError
+        for key in mod.REQUIRED_GOVERNANCE_KEYS:
+            partial = dict(base)
+            del partial[key]
+            res = mod.evaluate_songe_governance_boundary(partial)
+            self.assertFalse(res["admitted"], f"expected reject when missing {key}")
+            self.assertIn(f"MISSING_KEY:{key}", res["reasons"])
+            self.assertGreaterEqual(len(res["reasons"]), 2)
+
+        # Zone-B hostile values (None, oversized ints, non-ASCII hash) fail closed cleanly
+        for overrides, expected_reason in (
+            ({"vocab_clip": None}, "CLIPPED_KL_NON_BREGMAN"),
+            ({"vocab_clip": 10**5000}, "CLIPPED_KL_NON_BREGMAN"),
+            ({"base_sha256": "\u00e9" * 64}, "BASE_FINGERPRINT_NOT_CRYPTOGRAPHIC"),
+            ({"eval_temperature": 10**5000}, "EVAL_SAMPLING_NONDETERMINISTIC"),
+        ):
+            res = mod.evaluate_songe_governance_boundary(dict(base, **overrides))
+            self.assertFalse(res["admitted"])
             self.assertEqual(res["reasons"], [expected_reason])
 
 
