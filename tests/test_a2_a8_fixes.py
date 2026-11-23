@@ -364,14 +364,22 @@ class TestA2RollbackRequiredBanks(unittest.TestCase):
             self.assertEqual(ctl_lc_none.rollback().required_banks, (STATE_BANK_KV,))
 
             # Post-init mutation of controller.required_state_banks must fail closed (never fail open or downgrade).
-            for idx, bad_mut in enumerate((("bogus",), (), (10**5000,), "kv_cache")):
+            for idx, (bad_mut, rx) in enumerate(
+                (
+                    (("bogus",), "unknown state bank"),
+                    ((), "must include"),
+                    ((10**5000,), "non-string state bank"),
+                    ("kv_cache", "sequence of state bank names"),
+                )
+            ):
                 ctl_mut = self._make_controller(
                     tdp / f"post_mut_{idx}",
-                    _CustomLifecycle(flushed=(STATE_BANK_KV,)),
+                    _CustomLifecycle(flushed=ALL_STATE_BANKS),
                 )
                 ctl_mut.required_state_banks = bad_mut  # type: ignore[assignment]
-                with self.assertRaises(StateFlushError):
+                with self.assertRaisesRegex(StateFlushError, rx):
                     ctl_mut.rollback()
+                self.assertEqual(ctl_mut.receipts.read_all()[-1]["event"], "rollback_failed")
             ctl_post_down = self._make_controller(
                 tdp / "post_down",
                 _CustomLifecycle(flushed=(STATE_BANK_KV,)),
@@ -408,6 +416,331 @@ class TestA2RollbackRequiredBanks(unittest.TestCase):
                 with self.assertRaisesRegex(StateFlushError, "malformed banks_flushed"):
                     ctl_mal.rollback()
                 self.assertEqual(ctl_mal.receipts.read_all()[-1]["event"], "rollback_failed")
+
+    def test_05_issue66_bad_decl_receipts_fallback_lock_and_guard_kills(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="iss66_") as td:
+            os.chmod(td, 0o700)
+            tdp = Path(td)
+
+            # Defect 1a: rolled.required_banks=("bogus",) must append rollback_failed and re-raise StateFlushError.
+            ctl_bad_rolled = self._make_controller(
+                tdp / "bad_rolled",
+                _CustomLifecycle(flushed=(STATE_BANK_KV,), rolled_required=("bogus",)),
+            )
+            with self.assertRaisesRegex(StateFlushError, "unknown state bank"):
+                ctl_bad_rolled.rollback("bad_rolled_decl")
+            entries_1a = ctl_bad_rolled.receipts.read_all()
+            self.assertEqual([e["event"] for e in entries_1a], ["rollback_failed"])
+            self.assertIn("StateFlushError", entries_1a[0]["reason"])
+            self.assertEqual(entries_1a[0]["requested_reason"], "bad_rolled_decl")
+
+            # Defect 1b: lifecycle.required_state_banks() raising RuntimeError must append rollback_failed and re-raise.
+            class _RaisingDeclLifecycle:
+                def required_state_banks(self) -> tuple[str, ...]:
+                    raise RuntimeError("checkpoint bank metadata unreadable")
+
+                def rollback(self, reason: str) -> LifecycleRollback:
+                    return LifecycleRollback(
+                        banks_flushed=(STATE_BANK_KV,),
+                        slots_flushed=(0,),
+                    )
+
+            ctl_raise_decl = self._make_controller(
+                tdp / "raise_decl",
+                _RaisingDeclLifecycle(),
+            )
+            with self.assertRaisesRegex(RuntimeError, "checkpoint bank metadata unreadable"):
+                ctl_raise_decl.rollback("raise_decl")
+            entries_1b = ctl_raise_decl.receipts.read_all()
+            self.assertEqual([e["event"] for e in entries_1b], ["rollback_failed"])
+            self.assertIn("RuntimeError", entries_1b[0]["reason"])
+
+            # Defect 2: undeclared fail-closed ALL_STATE_BANKS fallback cannot be lowered after construction.
+            ctl_fallback = self._make_controller(
+                tdp / "fallback_lock",
+                _CustomLifecycle(flushed=(STATE_BANK_KV,)),
+            )
+            with self.assertRaisesRegex(
+                StateFlushError, "missed banks: ssm_recurrent, lattice_horizontal_streams"
+            ):
+                ctl_fallback.rollback()
+            ctl_fallback.required_state_banks = (STATE_BANK_KV,)
+            with self.assertRaisesRegex(
+                StateFlushError, "missed banks: ssm_recurrent, lattice_horizontal_streams"
+            ):
+                ctl_fallback.rollback()
+            self.assertEqual(
+                [e["event"] for e in ctl_fallback.receipts.read_all()],
+                ["rollback_failed", "rollback_failed"],
+            )
+
+            # Post-init widening from KV-only declaration to KV+SSM is strictly enforced.
+            ctl_widen = self._make_controller(
+                tdp / "widen",
+                _CustomLifecycle(flushed=(STATE_BANK_KV,), rolled_required=(STATE_BANK_KV,)),
+            )
+            ctl_widen.required_state_banks = (STATE_BANK_KV, STATE_BANK_SSM)
+            with self.assertRaisesRegex(StateFlushError, "ssm_recurrent"):
+                ctl_widen.rollback()
+
+            # Lifecycle exposing required_state_banks() -> (KV, SSM) with rolled.required_banks=None accepts (KV, SSM).
+            ctl_lc_accept = self._make_controller(
+                tdp / "lc_accept",
+                _CustomLifecycle(
+                    flushed=(STATE_BANK_KV, STATE_BANK_SSM),
+                    declared_required=(STATE_BANK_KV, STATE_BANK_SSM),
+                    rolled_required=None,
+                    expose_method=True,
+                ),
+            )
+            rep_lc = ctl_lc_accept.rollback()
+            self.assertTrue(rep_lc.verified)
+            self.assertEqual(rep_lc.required_banks, (STATE_BANK_KV, STATE_BANK_SSM))
+            self.assertEqual(rep_lc.banks_flushed, (STATE_BANK_KV, STATE_BANK_SSM))
+
+    def test_06_issue67_per_slot_clean_receipt_enforcement(self) -> None:
+        class _RawRollbackResult:
+            def __init__(self, slots_flushed: Any, bank_flush_receipts: Any) -> None:
+                self.slots_flushed = slots_flushed
+                self.bank_flush_receipts = bank_flush_receipts
+
+        class _RawReceipt:
+            def __init__(self, slot_id: Any, banks_confirmed: Any, verified_clean: Any) -> None:
+                self.slot_id = slot_id
+                self.banks_confirmed = banks_confirmed
+                self.verified_clean = verified_clean
+
+        class _StaticWarp:
+            def __init__(
+                self,
+                result: Any,
+                pinned_banks: tuple[str, ...] | None = None,
+            ) -> None:
+                self._result = result
+                if pinned_banks is not None:
+                    self.pinned_checkpoint = _FakeCheckpoint(pinned_banks)
+
+            def rollback(self, reason: str) -> Any:
+                return self._result
+
+        with tempfile.TemporaryDirectory(prefix="iss67_") as td:
+            os.chmod(td, 0o700)
+            tdp = Path(td)
+
+            # Positive multi-slot control: both slots have 1 verified_clean=True receipt confirming all banks.
+            warp_ok = _StaticWarp(
+                RollbackResult(
+                    reason="ok",
+                    kill_switch_engaged=False,
+                    slots_flushed=(0, 1),
+                    elapsed_ms=1.0,
+                    receipt=None,
+                    bank_flush_receipts=(
+                        BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                        BankFlushReceipt(1, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                    ),
+                )
+            )
+            ctl_ok = self._make_controller(tdp / "ok_multi", WarpModeldLifecycle(warp_ok))
+            rep_ok = ctl_ok.rollback()
+            self.assertTrue(rep_ok.verified)
+            self.assertEqual(rep_ok.slots_flushed, (0, 1))
+            self.assertEqual(set(rep_ok.banks_flushed), set(ALL_STATE_BANKS))
+
+            # Case 1: slot 0 confirms all banks, slot 1 confirms KV only, slots_flushed=(0, 1) -> REJECT.
+            warp_partial = _StaticWarp(
+                RollbackResult(
+                    reason="partial",
+                    kill_switch_engaged=False,
+                    slots_flushed=(0, 1),
+                    elapsed_ms=1.0,
+                    receipt=None,
+                    bank_flush_receipts=(
+                        BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                        BankFlushReceipt(1, (STATE_BANK_KV,), (STATE_BANK_KV,), None, True),
+                    ),
+                )
+            )
+            ctl_partial = self._make_controller(tdp / "partial", WarpModeldLifecycle(warp_partial))
+            with self.assertRaisesRegex(
+                StateFlushError, "missed banks: ssm_recurrent, lattice_horizontal_streams"
+            ):
+                ctl_partial.rollback()
+            self.assertEqual(ctl_partial.receipts.read_all()[-1]["event"], "rollback_failed")
+
+            # Case 2: unflushed slot 7 supplies a bank that slot 0 lacks -> ignore slot 7 -> REJECT.
+            warp_slot7 = _StaticWarp(
+                RollbackResult(
+                    reason="slot7",
+                    kill_switch_engaged=False,
+                    slots_flushed=(0,),
+                    elapsed_ms=1.0,
+                    receipt=None,
+                    bank_flush_receipts=(
+                        BankFlushReceipt(
+                            0,
+                            (STATE_BANK_KV, STATE_BANK_SSM),
+                            (STATE_BANK_KV, STATE_BANK_SSM),
+                            None,
+                            True,
+                        ),
+                        BankFlushReceipt(7, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                    ),
+                )
+            )
+            ctl_slot7 = self._make_controller(tdp / "slot7", WarpModeldLifecycle(warp_slot7))
+            with self.assertRaisesRegex(StateFlushError, "lattice_horizontal_streams"):
+                ctl_slot7.rollback()
+            self.assertEqual(ctl_slot7.receipts.read_all()[-1]["event"], "rollback_failed")
+
+            # Case 3: every bank confirmed on slot 0, but verified_clean is False -> REJECT.
+            warp_dirty = _StaticWarp(
+                RollbackResult(
+                    reason="dirty",
+                    kill_switch_engaged=False,
+                    slots_flushed=(0,),
+                    elapsed_ms=1.0,
+                    receipt=None,
+                    bank_flush_receipts=(
+                        BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, False),
+                    ),
+                )
+            )
+            ctl_dirty = self._make_controller(tdp / "dirty", WarpModeldLifecycle(warp_dirty))
+            with self.assertRaisesRegex(StateFlushError, "missed banks"):
+                ctl_dirty.rollback()
+            self.assertEqual(ctl_dirty.receipts.read_all()[-1]["event"], "rollback_failed")
+
+            # Missing receipt for a flushed slot, duplicate receipts for a slot, empty slots, and bool slot_id -> REJECT.
+            extra_cases = (
+                (
+                    "missing_slot1",
+                    RollbackResult(
+                        "m", False, (0, 1), 1.0, None,
+                        (BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),),
+                    ),
+                    "missed banks",
+                ),
+                (
+                    "dup_slot0",
+                    RollbackResult(
+                        "d", False, (0,), 1.0, None,
+                        (
+                            BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                            BankFlushReceipt(0, ALL_STATE_BANKS, ALL_STATE_BANKS, None, True),
+                        ),
+                    ),
+                    "missed banks",
+                ),
+                (
+                    "empty_slots",
+                    RollbackResult("e", False, (), 1.0, None, ()),
+                    "missed banks",
+                ),
+                (
+                    "bool_slot_id",
+                    _RawRollbackResult(
+                        (1,),
+                        (_RawReceipt(True, ALL_STATE_BANKS, True),),
+                    ),
+                    "missed banks",
+                ),
+                (
+                    "malformed_slots_str",
+                    _RawRollbackResult("0", ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_slots_bytes",
+                    _RawRollbackResult(b"0", ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_slots_int",
+                    _RawRollbackResult(123, ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_slots_bool_elem",
+                    _RawRollbackResult((True,), ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_slots_neg_elem",
+                    _RawRollbackResult((-1,), ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_slots_dup_elem",
+                    _RawRollbackResult((0, 0), ()),
+                    "malformed slots_flushed",
+                ),
+                (
+                    "malformed_receipts_str",
+                    _RawRollbackResult((0,), "bad"),
+                    "malformed bank_flush_receipts",
+                ),
+                (
+                    "malformed_receipts_bytes",
+                    _RawRollbackResult((0,), b"bad"),
+                    "malformed bank_flush_receipts",
+                ),
+                (
+                    "malformed_receipts_int",
+                    _RawRollbackResult((0,), 123),
+                    "malformed bank_flush_receipts",
+                ),
+                (
+                    "verified_clean_non_bool_int",
+                    _RawRollbackResult((0,), (_RawReceipt(0, ALL_STATE_BANKS, 1),)),
+                    "missed banks",
+                ),
+            )
+            for tag, res_obj, rx in extra_cases:
+                with self.subTest(tag=tag):
+                    ctl_x = self._make_controller(
+                        tdp / tag, WarpModeldLifecycle(_StaticWarp(res_obj))
+                    )
+                    with self.assertRaisesRegex(StateFlushError, rx):
+                        ctl_x.rollback()
+                    self.assertEqual(ctl_x.receipts.read_all()[-1]["event"], "rollback_failed")
+
+            # Malformed rc.banks_confirmed must fail closed with StateFlushError (never TypeError or silent dedup).
+            class _EvilConfirmedStr(str):
+                pass
+
+            class _ReceiptNoBanks:
+                def __init__(self, slot_id: int) -> None:
+                    self.slot_id = slot_id
+                    self.verified_clean = True
+
+            malformed_confirmed_cases = (
+                ("confirmed_missing_attr", _ReceiptNoBanks(0), (STATE_BANK_KV,)),
+                ("confirmed_none", _RawReceipt(0, None, True), (STATE_BANK_KV,)),
+                ("confirmed_int", _RawReceipt(0, 123, True), (STATE_BANK_KV,)),
+                ("confirmed_empty_str", _RawReceipt(0, "", True), (STATE_BANK_KV,)),
+                ("confirmed_empty_bytes", _RawReceipt(0, b"", True), (STATE_BANK_KV,)),
+                ("confirmed_str", _RawReceipt(0, STATE_BANK_KV, True), (STATE_BANK_KV,)),
+                ("confirmed_bytes", _RawReceipt(0, b"kv_cache", True), (STATE_BANK_KV,)),
+                ("confirmed_non_str_elem", _RawReceipt(0, (STATE_BANK_KV, 123), True), (STATE_BANK_KV,)),
+                ("confirmed_bool_elem", _RawReceipt(0, (STATE_BANK_KV, True), True), (STATE_BANK_KV,)),
+                ("confirmed_unhashable_elem", _RawReceipt(0, ([STATE_BANK_KV],), True), (STATE_BANK_KV,)),
+                ("confirmed_str_subclass", _RawReceipt(0, (_EvilConfirmedStr(STATE_BANK_KV),), True), (STATE_BANK_KV,)),
+                ("confirmed_unknown_bank", _RawReceipt(0, (*ALL_STATE_BANKS, "bogus"), True), None),
+                ("confirmed_dup_kv_only", _RawReceipt(0, (STATE_BANK_KV, STATE_BANK_KV), True), (STATE_BANK_KV,)),
+                ("confirmed_dup_all_banks", _RawReceipt(0, (*ALL_STATE_BANKS, STATE_BANK_KV), True), None),
+            )
+            for tag, rc_obj, pinned in malformed_confirmed_cases:
+                with self.subTest(tag=tag):
+                    lc_bad = WarpModeldLifecycle(
+                        _StaticWarp(_RawRollbackResult((0,), (rc_obj,)), pinned_banks=pinned)
+                    )
+                    with self.assertRaisesRegex(StateFlushError, "malformed banks_confirmed"):
+                        lc_bad.rollback("direct_bad_confirmed")
+                    ctl_bad = self._make_controller(tdp / tag, lc_bad)
+                    with self.assertRaisesRegex(StateFlushError, "malformed banks_confirmed"):
+                        ctl_bad.rollback()
+                    self.assertEqual(ctl_bad.receipts.read_all()[-1]["event"], "rollback_failed")
 
 
 class TestA8CerebrasSchemaAndControllerBridge(unittest.TestCase):

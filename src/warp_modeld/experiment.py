@@ -632,13 +632,71 @@ class WarpModeldLifecycle:
 
     def rollback(self, reason: str) -> LifecycleRollback:
         result = self._warp.rollback(reason=reason)
-        banks: set[str] = set()
-        for receipt in result.bank_flush_receipts:
-            banks.update(receipt.banks_confirmed)
+        raw_slots = getattr(result, "slots_flushed", None)
+        if isinstance(raw_slots, (str, bytes)) or not isinstance(raw_slots, Sequence):
+            raise StateFlushError("warp rollback returned malformed slots_flushed")
+        slots_list: list[int] = []
+        seen_slots: set[int] = set()
+        for slot_id in raw_slots:
+            if type(slot_id) is not int or slot_id < 0 or slot_id in seen_slots:
+                raise StateFlushError("warp rollback returned malformed slots_flushed")
+            seen_slots.add(slot_id)
+            slots_list.append(slot_id)
+        slots_flushed = tuple(slots_list)
+        required_banks = self.required_state_banks()
+
+        raw_receipts = getattr(result, "bank_flush_receipts", None)
+        if isinstance(raw_receipts, (str, bytes)) or not isinstance(
+            raw_receipts, Sequence
+        ):
+            raise StateFlushError(
+                "warp rollback returned malformed bank_flush_receipts"
+            )
+
+        receipts_by_slot: dict[int, list[Any]] = {}
+        for receipt in raw_receipts:
+            slot_id = getattr(receipt, "slot_id", None)
+            if type(slot_id) is int:
+                receipts_by_slot.setdefault(slot_id, []).append(receipt)
+
+        if not slots_flushed:
+            confirmed_across_all: set[str] = set()
+        else:
+            per_slot_sets: list[set[str]] = []
+            for slot_id in slots_flushed:
+                slot_receipts = receipts_by_slot.get(slot_id, [])
+                if len(slot_receipts) != 1:
+                    per_slot_sets.append(set())
+                    continue
+                rc = slot_receipts[0]
+                if getattr(rc, "verified_clean", None) is not True:
+                    per_slot_sets.append(set())
+                    continue
+                raw_confirmed = getattr(rc, "banks_confirmed", None)
+                if isinstance(raw_confirmed, (str, bytes)) or not isinstance(
+                    raw_confirmed, Sequence
+                ):
+                    raise StateFlushError(
+                        "warp rollback returned malformed banks_confirmed"
+                    )
+                slot_confirmed: set[str] = set()
+                for bank in raw_confirmed:
+                    if (
+                        type(bank) is not str
+                        or bank not in VALID_STATE_BANK_SET
+                        or bank in slot_confirmed
+                    ):
+                        raise StateFlushError(
+                            "warp rollback returned malformed banks_confirmed"
+                        )
+                    slot_confirmed.add(bank)
+                per_slot_sets.append(slot_confirmed)
+            confirmed_across_all = set.intersection(*per_slot_sets)
+
         return LifecycleRollback(
-            banks_flushed=tuple(sorted(banks)),
-            slots_flushed=tuple(result.slots_flushed),
-            required_banks=self.required_state_banks(),
+            banks_flushed=tuple(sorted(confirmed_across_all)),
+            slots_flushed=slots_flushed,
+            required_banks=required_banks,
         )
 
 
@@ -1210,29 +1268,34 @@ class ExperimentController:
 
     def _resolve_required_state_banks(self, rolled: LifecycleRollback) -> tuple[str, ...]:
         """Resolve required state banks fail-closed without allowing silent downgrade."""
-        sources: list[tuple[str, ...]] = []
+        authoritative: list[tuple[str, ...]] = []
         if self._pinned_required_state_banks is not None:
-            sources.append(self._pinned_required_state_banks)
-        if self.required_state_banks is not None:
-            sources.append(
-                _validate_required_state_banks(
-                    self.required_state_banks, name="required_state_banks"
-                )
-            )
+            authoritative.append(self._pinned_required_state_banks)
         lc_fn = getattr(self.lifecycle, "required_state_banks", None)
         if callable(lc_fn):
             lc_banks = lc_fn()
             if lc_banks is not None:
-                sources.append(
-                    _validate_required_state_banks(lc_banks, name="lifecycle.required_state_banks")
+                authoritative.append(
+                    _validate_required_state_banks(
+                        lc_banks, name="lifecycle.required_state_banks"
+                    )
                 )
         if rolled.required_banks is not None:
-            sources.append(
-                _validate_required_state_banks(rolled.required_banks, name="rolled.required_banks")
+            authoritative.append(
+                _validate_required_state_banks(
+                    rolled.required_banks, name="rolled.required_banks"
+                )
             )
-        if not sources:
+        post_banks: tuple[str, ...] | None = None
+        if self.required_state_banks is not None:
+            post_banks = _validate_required_state_banks(
+                self.required_state_banks, name="required_state_banks"
+            )
+        if not authoritative:
             return ALL_STATE_BANKS
-        required_set = {bank for group in sources for bank in group}
+        required_set = {bank for group in authoritative for bank in group}
+        if post_banks is not None:
+            required_set.update(post_banks)
         return tuple(bank for bank in ALL_STATE_BANKS if bank in required_set)
 
     def propose(
@@ -1386,7 +1449,20 @@ class ExperimentController:
                 requested_reason=reason,
             )
             raise
-        expected_banks = self._resolve_required_state_banks(rolled)
+        try:
+            expected_banks = self._resolve_required_state_banks(rolled)
+        except Exception as exc:
+            # A malformed or failing bank declaration after lifecycle rollback
+            # must still leave a rollback_failed trace before re-raising.
+            self.receipts.append(
+                "rollback_failed",
+                reason=(
+                    "required state bank resolution raised "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                requested_reason=reason,
+            )
+            raise
         if isinstance(rolled.banks_flushed, (str, bytes)) or not isinstance(
             rolled.banks_flushed, Sequence
         ):
