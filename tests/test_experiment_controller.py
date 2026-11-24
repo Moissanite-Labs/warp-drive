@@ -490,16 +490,16 @@ def test_warp_lifecycle_adapter_collects_flush_banks():
                     BankFlushReceipt(
                         slot_id=0,
                         banks_requested=ALL_STATE_BANKS,
-                        banks_confirmed=("kv_cache", "ssm_recurrent"),
+                        banks_confirmed=ALL_STATE_BANKS,
                         zone_manifest_id=None,
-                        verified_clean=False,
+                        verified_clean=True,
                     ),
                     BankFlushReceipt(
                         slot_id=1,
                         banks_requested=ALL_STATE_BANKS,
-                        banks_confirmed=("lattice_horizontal_streams",),
+                        banks_confirmed=ALL_STATE_BANKS,
                         zone_manifest_id=None,
-                        verified_clean=False,
+                        verified_clean=True,
                     ),
                 ),
             )
