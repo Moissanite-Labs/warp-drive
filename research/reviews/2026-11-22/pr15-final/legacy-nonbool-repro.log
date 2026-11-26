@@ -1,0 +1,4 @@
+input=False stored_modeld=False stored_canary=False stored_external=False
+flush=input:False rejected=StateFlushError: slot 0 erase failed to confirm required state banks ['kv_cache'] (confirmed=[])
+input='false' stored_modeld=True stored_canary=True stored_external=True
+flush=input:'false' accepted slots=(0,) confirmed=('kv_cache',)
