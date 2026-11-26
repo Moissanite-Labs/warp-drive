@@ -12,6 +12,11 @@ check or negative control.  Thus ``VERIFIED`` text and self-asserted ``PASS`` ar
 source findings, not independent proof.  The caller and its domain verifier are
 inside the TCB for higher badges; this intake gate does not make an untrusted
 producer part of that TCB.
+
+A source ``FAIL`` or a failed source negative control vetoes every higher badge.
+A trusted verifier result with ``passed=false`` is per-check and non-blocking by
+design: it removes only the badge that check or control would earn, while badges
+earned by other, independently verified check kinds stand.
 """
 
 from __future__ import annotations
@@ -972,22 +977,14 @@ def intake_gameplay_evidence(
                 "a failed negative control suppresses every higher badge",
             )
         )
-    verifier_refuted = verification_valid and (
-        any(not result.passed for result in result_validator.check_results.values())
-        or any(not result.passed for result in result_validator.control_results.values())
-    )
-    if verifier_refuted:
-        # A trusted verifier that explicitly refutes any check or negative
-        # control vetoes every higher badge, mirroring SOURCE_FAIL_VETO.
-        findings.append(
-            Finding(
-                "VERIFIER_FAIL_VETO",
-                "$.trusted_verification",
-                "a trusted verifier result with passed=false suppresses every higher badge",
-            )
-        )
+    # Owner decision (PR #36 review item 3): only producer-side failures veto
+    # aggregation.  A source FAIL (SOURCE_FAIL_VETO) and a failed source
+    # negative control (CONTROL_FAIL_VETO) suppress every higher badge.  A
+    # trusted verifier result with passed=false is per-check and non-blocking
+    # by design: it removes only the badge that check or control would earn,
+    # while badges earned by other, independently verified check kinds stand.
 
-    if verification_valid and not source_failure and not control_failure and not verifier_refuted:
+    if verification_valid and not source_failure and not control_failure:
         has_control = result_validator.passing_control()
         if source_badges != (OBSERVED,) and not has_control:
             findings.append(

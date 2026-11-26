@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
+import inspect
 import json
 import unittest
 from typing import Any
 
+import warp_modeld.gameplay_gate as gameplay_gate_module
 from warp_modeld.gameplay_gate import (
     DEFAULT_LIMITS,
     LIVE_CONFIRMED,
@@ -816,7 +818,10 @@ class GameplayGateTrustMutationTests(unittest.TestCase):
         self.assertIn("SOURCE_IMPORTER_CONFLICT", codes(result))
         self.assertTrue(any(f.code == "SOURCE_CHECK" and "FAIL" in f.message for f in result.source_findings))
 
-    def test_trusted_verifier_refutation_vetoes_every_higher_badge(self) -> None:
+    def test_false_live_verdict_does_not_destroy_independent_replay_and_proof(self) -> None:
+        # Pinned design (PR head 85305d76, owner decision on review item 3): a
+        # trusted verifier result with passed=false for one check removes only
+        # the badge that check would earn; it does not veto other kinds.
         artifact = make_artifact()
         trusted = trusted_results(artifact)
         checks = tuple(
@@ -830,9 +835,10 @@ class GameplayGateTrustMutationTests(unittest.TestCase):
             ),
         )
         self.assertTrue(result.verification_valid)
-        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertEqual(result.admitted_badges, (OBSERVED, REPLAYED, MODEL_PROVEN))
         self.assertEqual(result.source_badges, (OBSERVED, REPLAYED, MODEL_PROVEN, LIVE_CONFIRMED))
-        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+        self.assertIn("CHECK_NOT_INDEPENDENTLY_PASSED", codes(result))
+        self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
 
     def test_supplying_both_verifier_forms_fails_closed(self) -> None:
         artifact = make_artifact()
@@ -981,7 +987,8 @@ class GameplayGateReviewClosureTests(unittest.TestCase):
         self.assertFalse(result.envelope_valid)
         self.assertEqual(result.admitted_badges, ())
 
-    # Item 4: failed-control and verifier-refutation vetoes.
+    # Item 4: a failed producer control vetoes; a trusted refutation is
+    # per-check and non-blocking by design (owner decision on review item 3).
 
     def test_failed_producer_control_vetoes_higher_badges(self) -> None:
         # orda-aska witness: controls [true, false], three PASS checks, trusted
@@ -1005,8 +1012,10 @@ class GameplayGateReviewClosureTests(unittest.TestCase):
         self.assertEqual(result.admitted_badges, (OBSERVED,))
         self.assertIn("CONTROL_FAIL_VETO", codes(result))
 
-    def test_trusted_control_refutation_vetoes_higher_badges(self) -> None:
-        # abu-aska witness (control half): trusted verifier refutes control[1].
+    def test_trusted_control_refutation_does_not_veto_verified_badges(self) -> None:
+        # abu-aska witness (control half), now pinned non-blocking: the trusted
+        # verifier refutes control[1], but control[0] independently passes, so
+        # every independently verified check badge still stands.
         artifact = make_artifact()
         second = deepcopy(artifact["evidence"]["negative_controls"][0])
         second["name"] = "second-control"
@@ -1024,13 +1033,34 @@ class GameplayGateReviewClosureTests(unittest.TestCase):
             verifier_results=TrustedDomainVerification(trusted.artifact_sha256, trusted.checks, controls),
         )
         self.assertTrue(result.verification_valid)
-        self.assertEqual(result.admitted_badges, (OBSERVED,))
-        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+        self.assertEqual(result.source_badges, (OBSERVED, REPLAYED, MODEL_PROVEN, LIVE_CONFIRMED))
+        self.assertEqual(result.admitted_badges, (OBSERVED, REPLAYED, MODEL_PROVEN, LIVE_CONFIRMED))
+        self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
+        self.assertTrue(any(d.code == "CONTROL_VERDICT_DIFFERENCE" for d in result.unresolved_differences))
 
-    def test_trusted_check_refutation_vetoes_all_higher_badges(self) -> None:
-        # abu-aska witness (full): producer all PASS with two passing controls;
-        # trusted verifier refutes model_proof and control[1] while passing
-        # replay, live, and control[0].  Nothing above OBSERVED may survive.
+    def test_refuted_sole_control_counts_as_no_passing_control(self) -> None:
+        # A trusted refutation of a negative control does not veto; it simply
+        # does not count as a passing negative control, so
+        # MISSING_NEGATIVE_CONTROL_VERIFICATION still applies.
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        controls = tuple(
+            TrustedNegativeControlResult(control.control_sha256, False) for control in trusted.negative_controls
+        )
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(trusted.artifact_sha256, trusted.checks, controls),
+        )
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("MISSING_NEGATIVE_CONTROL_VERIFICATION", codes(result))
+        self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
+
+    def test_trusted_check_refutation_removes_only_that_checks_badge(self) -> None:
+        # abu-aska witness (full), now pinned non-blocking: the trusted verifier
+        # refutes model_proof and control[1] while passing replay, live, and
+        # control[0].  Only MODEL_PROVEN is lost; replay and live (routed via
+        # replay) keep their badges.
         artifact = make_artifact()
         second = deepcopy(artifact["evidence"]["negative_controls"][0])
         second["name"] = "second-control"
@@ -1052,10 +1082,11 @@ class GameplayGateReviewClosureTests(unittest.TestCase):
             verifier_results=TrustedDomainVerification(trusted.artifact_sha256, checks, controls),
         )
         self.assertTrue(result.verification_valid)
-        self.assertEqual(result.admitted_badges, (OBSERVED,))
-        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+        self.assertEqual(result.admitted_badges, (OBSERVED, REPLAYED, LIVE_CONFIRMED))
+        self.assertIn("CHECK_NOT_INDEPENDENTLY_PASSED", codes(result))
+        self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
 
-    def test_replay_result_passed_false_vetoes_higher_badges(self) -> None:
+    def test_refuted_replay_result_removes_only_the_replay_badge(self) -> None:
         artifact = make_artifact()
         trusted = trusted_results(artifact)
         checks = (
@@ -1066,8 +1097,37 @@ class GameplayGateReviewClosureTests(unittest.TestCase):
             verifier_results=TrustedDomainVerification(trusted.artifact_sha256, checks, trusted.negative_controls),
         )
         self.assertTrue(result.verification_valid)
-        self.assertEqual(result.admitted_badges, (OBSERVED,))
-        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+        self.assertEqual(result.admitted_badges, (OBSERVED, MODEL_PROVEN, LIVE_CONFIRMED))
+        self.assertIn("CHECK_NOT_INDEPENDENTLY_PASSED", codes(result))
+        self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
+
+    def test_verifier_fail_veto_appears_nowhere_in_gate_findings_or_module(self) -> None:
+        # Owner decision: the VERIFIER_FAIL_VETO code no longer exists; for
+        # every refutation scenario its string appears in none of the gate's
+        # findings, and not in gameplay_gate.py at all.
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        refuted_live = tuple(
+            TrustedCheckResult(r.check_sha256, False) if i == 2 else r for i, r in enumerate(trusted.checks)
+        )
+        refuted_controls = tuple(
+            TrustedNegativeControlResult(c.control_sha256, False) for c in trusted.negative_controls
+        )
+        scenarios = {
+            "refuted_live_check": TrustedDomainVerification(
+                trusted.artifact_sha256, refuted_live, trusted.negative_controls
+            ),
+            "refuted_sole_control": TrustedDomainVerification(
+                trusted.artifact_sha256, trusted.checks, refuted_controls
+            ),
+        }
+        for name, results in scenarios.items():
+            with self.subTest(scenario=name):
+                result = intake(artifact, verifier_results=results)
+                self.assertNotIn("VERIFIER_FAIL_VETO", codes(result))
+                self.assertNotIn("VERIFIER_FAIL_VETO", {f.code for f in result.source_findings})
+                self.assertNotIn("VERIFIER_FAIL_VETO", {d.code for d in result.unresolved_differences})
+        self.assertNotIn("VERIFIER_FAIL_VETO", inspect.getsource(gameplay_gate_module))
 
     # Item 5: mixed-type result keys must produce a finding, not a TypeError.
 

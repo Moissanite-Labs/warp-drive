@@ -61,7 +61,7 @@ WARP_LIVE_LLAMA_TEST=1 WARP_LIVE_BASE_GGUF=<model.gguf> WEFT_SRC=<weft/src> PYTH
 
 ## Gameplay Evidence Intake Gate
 
-`src/warp_modeld/gameplay_gate.py` ingests `gameplay-evidence/v0.1` without dependencies or gameplay execution. `intake_gameplay_evidence(raw_json)` rejects duplicate keys, unknown fields, invalid types, unbounded values, and bad artifact/source/payload/check commitments. Its default independent result for a valid envelope is **OBSERVED only**. **OBSERVED** means the envelope is well formed and digest consistent; it does not mean that gameplay was observed. Source statuses, `VERIFIED` labels, source badges, and limitations are returned separately; none is an independent admission. A failed negative control or a trusted verifier result with `passed=false` vetoes every badge above OBSERVED, mirroring the source-FAIL veto.
+`src/warp_modeld/gameplay_gate.py` ingests `gameplay-evidence/v0.1` without dependencies or gameplay execution. `intake_gameplay_evidence(raw_json)` rejects duplicate keys, unknown fields, invalid types, unbounded values, and bad artifact/source/payload/check commitments. Its default independent result for a valid envelope is **OBSERVED only**. **OBSERVED** means the envelope is well formed and digest consistent; it does not mean that gameplay was observed. Source statuses, `VERIFIED` labels, source badges, and limitations are returned separately; none is an independent admission. A source `FAIL` and a failed producer-side negative control veto every badge above OBSERVED (`SOURCE_FAIL_VETO`, `CONTROL_FAIL_VETO`). A trusted verifier result with `passed=false` is per-check and non-blocking for other check kinds, by design: it removes only the badge that check or control would earn, while badges earned by other, independently verified check kinds stand; if no negative control independently passes, `MISSING_NEGATIVE_CONTROL_VERIFICATION` still applies.
 
 **TCB boundary:** the artifact, raw source, and producer are untrusted. Warp's parser, canonical digest checks, and admission rules establish envelope integrity only. For REPLAYED, MODEL_PROVEN, or LIVE_CONFIRMED, the caller must supply results from a domain verifier it has chosen to trust. Those results bind the exact artifact digest plus the canonical digest of every relevant check and negative control. The caller/domain verifier is therefore inside the TCB for those higher badges and must authenticate checker pins and parse raw source with its own duplicate-key rejection. A verifier exception, missing independently passing negative control, source/importer conflict, or model/live commitment mismatch cannot promote a badge.
 
@@ -73,7 +73,7 @@ Run the adversarial intake tests with:
 PYTHONPATH=src python3 -m unittest tests/test_gameplay_gate.py -v
 ```
 
-At this commit, `PYTHONPATH=src python3 -B -m pytest -q tests/test_gameplay_gate.py` reports 83 passed with 135 subtests.
+At this commit, `PYTHONPATH=src python3 -B -m pytest -q tests/test_gameplay_gate.py` reports 85 passed with 137 subtests.
 
 ## Cerebras Kimi K3.1 Pro Client (lane 6)
 
