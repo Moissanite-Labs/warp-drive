@@ -47,3 +47,24 @@ E4 held. `PYTHONPATH=src python3 -m pytest -q` gave 258 passed, 2 skipped, and 1
 The audit checker `falsify_probe.py` now reports `F9_append_after_tamper=raise:LedgerTamperError` and `F9_verify_after=raise:LedgerTamperError` at this head. At the audited main head it reported ok for the append.
 
 The tail check reads and verifies the whole ledger on each append. That cost is bounded by the local file size and was not benchmarked on a large ledger. No live endpoint, GPU, paid provider, or network backend was used. These are local file logic checks only.
+
+## Post-review addendum (2026-11-26)
+
+Appended after review 3 (abu-aska, WD61-01/WD61-02) on PR #61. No earlier text above was edited.
+
+### Scope boundary: single-writer assumption
+
+`_require_undisturbed_tail()` and the append in `SignedLedger.append()` use no advisory file lock (`fcntl.flock` or equivalent). The verify-then-append sequence is therefore not atomic: with concurrent writers on the same path, another process can race between the tail verification and the append. The ledger is designed for a single writer per path; concurrent writers are out of scope and can interleave receipts that each pass verification individually.
+
+### Fixed items
+
+- WD61-01 (blocking): `LedgerVerifier.verify_file` now fails closed with `LedgerTamperError` for a non-regular-file path (directory substitution), non-UTF-8 bytes, and any other unreadable `OSError`; `prev_receipt_sha256` and `receipt_sha256` must match the lowercase ASCII 64-char hex SHA-256 shape (`.isascii()` + regex) before `hmac.compare_digest`, and the `signature` field gets the same guard in `verify_file` and in `HmacSha256Signer.verify`, so non-ASCII hash/signature tampers raise `LedgerTamperError` instead of `TypeError`. A missing file on a live handle that already has entries raises `LedgerTamperError` via the "missing or out of sequence" tail guard. A missing or 0-byte file still verifies as an empty ledger (`[]`), unchanged.
+- WD61-02 (blocking): `tests/test_ledger_live_tail.py` gained tests that reach each `_require_undisturbed_tail` guard with a valid on-disk chain: external valid write on a fresh `count == 0` handle ("unknown to this handle"), truncation and unlink-plus-external-append on an active handle ("missing or out of sequence"), and a different valid same-length chain signed with the same key copied over the file ("head changed").
+- Non-blocking: the head-hash comparison in `_require_undisturbed_tail` now uses `hmac.compare_digest` (both operands are validated lowercase hex digests).
+
+### Verification after the fixes (commands run in this tree, 2026-11-26)
+
+- `PYTHONPATH=src python3 -B -m pytest -q tests/` -> 266 passed, 2 skipped, 263 subtests passed.
+- `PYTHONPATH=src python3 -B -m unittest discover -s tests` -> Ran 149 tests, OK (skipped=2).
+- `PYTHONPATH=src python3 -B -m pytest -q tests/test_ledger_live_tail.py` -> 10 passed.
+- The 2 skips are the pre-existing live smoke skips (no live endpoint used).

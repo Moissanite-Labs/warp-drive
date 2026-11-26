@@ -103,6 +103,18 @@ def _canonical_bytes(payload: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+_SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _is_sha256_hex(value: Any) -> bool:
+    """True only for a lowercase ASCII 64-char hex SHA-256 digest string.
+
+    hmac.compare_digest raises TypeError on non-ASCII str input, so hash and
+    signature fields must pass this shape check before any comparison.
+    """
+    return isinstance(value, str) and value.isascii() and _SHA256_HEX_RE.fullmatch(value) is not None
+
+
 class ReceiptSigner(Protocol):
     algorithm: str
     key_id: str
@@ -129,8 +141,10 @@ class HmacSha256Signer:
         return hmac.new(self._key, payload, hashlib.sha256).hexdigest()
 
     def verify(self, payload: bytes, signature: str) -> bool:
+        if not _is_sha256_hex(signature):
+            return False
         expected = self.sign(payload)
-        return isinstance(signature, str) and hmac.compare_digest(expected, signature)
+        return hmac.compare_digest(expected, signature)
 
 
 @dataclass(frozen=True)
@@ -189,18 +203,26 @@ class LedgerVerifier:
     @staticmethod
     def verify_file(path: str | Path, signer: ReceiptSigner) -> list[LedgerReceipt]:
         file_path = Path(path)
-        if not file_path.exists():
-            return []
-
-        receipts: list[LedgerReceipt] = []
-        expected_prev = GENESIS_HASH
-        expected_seq = 1
-
-        raw_text = file_path.read_text(encoding="utf-8")
+        try:
+            if not file_path.exists():
+                return []
+            if not file_path.is_file():
+                raise LedgerTamperError(f"ledger path is not a regular file: {file_path}")
+            raw_text = file_path.read_text(encoding="utf-8")
+        except LedgerTamperError:
+            raise
+        except UnicodeDecodeError as exc:
+            raise LedgerTamperError(f"ledger file is not valid UTF-8 (tampered): {exc}") from exc
+        except OSError as exc:
+            raise LedgerTamperError(f"ledger file is not readable as a regular file: {exc}") from exc
         if raw_text == "":
             return []
         if not raw_text.strip():
             raise LedgerTamperError("ledger file contains only whitespace (tampered or wiped)")
+
+        receipts: list[LedgerReceipt] = []
+        expected_prev = GENESIS_HASH
+        expected_seq = 1
 
         for line_no, raw_line in enumerate(raw_text.splitlines(), start=1):
             if not raw_line.strip():
@@ -255,7 +277,7 @@ class LedgerVerifier:
                 raise LedgerTamperError(f"ledger line {line_no}: timestamp_utc and reason must be strings")
             if not isinstance(record["event"], str) or record["event"] not in VALID_EVENTS:
                 raise LedgerTamperError(f"ledger line {line_no}: invalid event '{record['event']}'")
-            if not isinstance(record["prev_receipt_sha256"], str) or not hmac.compare_digest(
+            if not _is_sha256_hex(record["prev_receipt_sha256"]) or not hmac.compare_digest(
                 record["prev_receipt_sha256"], expected_prev
             ):
                 raise LedgerTamperError(
@@ -280,7 +302,7 @@ class LedgerVerifier:
             }
             body_bytes = _canonical_bytes(body)
             recomputed_sha = hashlib.sha256(body_bytes).hexdigest()
-            if not isinstance(record["receipt_sha256"], str) or not hmac.compare_digest(
+            if not _is_sha256_hex(record["receipt_sha256"]) or not hmac.compare_digest(
                 record["receipt_sha256"], recomputed_sha
             ):
                 raise LedgerTamperError(f"ledger line {line_no}: receipt_sha256 mismatch (body tampered)")
@@ -291,7 +313,11 @@ class LedgerVerifier:
                 )
 
             sig_input = f"{record['receipt_sha256']}:{record['sig_alg']}:{record['key_id']}".encode("ascii")
-            if not isinstance(record["signature"], str) or not signer.verify(sig_input, record["signature"]):
+            if (
+                not isinstance(record["signature"], str)
+                or not record["signature"].isascii()
+                or not signer.verify(sig_input, record["signature"])
+            ):
                 raise LedgerTamperError(f"ledger line {line_no}: invalid cryptographic signature")
 
             receipt = LedgerReceipt(
@@ -353,7 +379,7 @@ class SignedLedger:
             return
         if not on_disk or on_disk[-1].seq != self.count:
             raise LedgerTamperError("ledger file tail is missing or out of sequence")
-        if on_disk[-1].receipt_sha256 != self._prev_hash:
+        if not hmac.compare_digest(on_disk[-1].receipt_sha256, self._prev_hash):
             raise LedgerTamperError("ledger file head changed since this handle was opened")
 
     def append(
