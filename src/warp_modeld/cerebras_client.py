@@ -24,10 +24,10 @@ endpoint id. Pass it with ``CEREBRAS_MODEL_ID``. Whether shared inference
 serves ``kimi-k3.1-pro`` is UNVERIFIED. The live path is UNVERIFIED until
 a credentialed call succeeds and its receipt is filed.
 
-Candidate bounds below are provisional. Lane 4 freezes the experiment
-contract. Until that freeze lands, these bounds are the interface the
-controller targets. A frozen manifest may narrow them. It must not widen
-them without a lane 4 change.
+Candidate bounds below are aligned with the frozen demo-2026-11-22
+experiment contract (``experiments/demo-2026-11-22/manifest.json`` v0.1.1)
+and the pinned Weft compiler quantization set (``bf16``, ``f16``, ``f32``,
+``int8``, ``int4``). Proposals cannot widen these bounds.
 """
 
 from __future__ import annotations
@@ -69,11 +69,27 @@ DEFAULT_SEED = 42
 DEFAULT_MAX_COMPLETION_TOKENS = 1024
 DEFAULT_REASONING_EFFORT = "low"
 
-# Provisional candidate bounds, pending the lane 4 freeze.
-PINNED_TARGET_LAYER = "last"
-ALLOWED_RANKS = (4, 8, 16, 32)
-ALLOWED_QUANTIZATIONS = ("q8_0", "q4_0", "bf16")
-MAX_STRENGTH = 1.0
+# Frozen candidate bounds aligned with experiments/demo-2026-11-22/manifest.json
+# (v0.1.1) and siliconcordat/weft SUPPORTED_QUANT_DTYPES.
+PINNED_TARGET_LAYER = 31
+PINNED_TARGET_TENSOR = "ffn_up"
+ALLOWED_RANKS = (8,)
+ALLOWED_QUANTIZATIONS = ("bf16", "f16", "f32", "int8", "int4")
+ETA_MIN = 0.002
+ETA_MAX = 0.02
+ALLOWED_LAMBDAS: tuple[float | int | str, ...] = (0.1, 1, 10, "mean_eigenvalue")
+ALLOWED_LORA_SCALES = (0.0, 1.0)
+CANDIDATE_SCHEMA_KEYS = frozenset(
+    {
+        "target_layer",
+        "target_tensor",
+        "eta",
+        "lambda",
+        "rank",
+        "lora_scale",
+        "quantization",
+    }
+)
 MAX_REPAIR_ROUNDS = 3
 FAILED_GATES = ("task", "retention_iid", "retention_shifted", "safety", "logprob_margin")
 MAX_MEASUREMENTS = 32
@@ -87,19 +103,37 @@ RETRYABLE_HTTP_CODES = (408, 429, 500, 502, 503, 504)
 
 @dataclass(frozen=True)
 class CandidateConfig:
-    """One schema-valid candidate for the pinned last-layer target."""
+    """One schema-valid candidate aligned with the frozen last-layer contract."""
 
-    target_layer: str
-    strength: float
+    target_layer: int
+    target_tensor: str
+    eta: float
+    lam: float | int | str
     rank: int
+    lora_scale: float
     quantization: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "target_layer": self.target_layer,
-            "strength": self.strength,
+            "target_tensor": self.target_tensor,
+            "eta": self.eta,
+            "lambda": self.lam,
             "rank": self.rank,
+            "lora_scale": self.lora_scale,
             "quantization": self.quantization,
+        }
+
+    def to_controller_dict(self) -> dict[str, Any]:
+        """Convert directly into the mapping accepted by ``ExperimentController.propose``."""
+        return {
+            "target_layer": self.target_layer,
+            "target_tensor": self.target_tensor,
+            "eta": self.eta,
+            "lambda": self.lam,
+            "rank": self.rank,
+            "lora_scale": self.lora_scale,
+            "quant": self.quantization,
         }
 
 
@@ -181,6 +215,8 @@ def _describe_value(value: Any) -> str:
         return "int with %d bits" % value.bit_length()
     if type(value) is str and len(value) > 100:
         return "str of %d characters" % len(value)
+    if type(value) not in (int, float, str, bool, type(None)):
+        return "<%s>" % type(value).__name__
     return repr(value)
 
 
@@ -210,33 +246,69 @@ def _is_int(value: Any) -> bool:
 
 
 def validate_candidate(payload: Any) -> CandidateConfig:
-    """Validate a candidate dict strictly. Reject anything outside the schema."""
+    """Validate a candidate dict strictly against the frozen contract schema."""
     if not isinstance(payload, dict):
         raise CerebrasSchemaError(f"candidate must be an object, got {type(payload).__name__}")
-    if set(payload.keys()) != {"target_layer", "strength", "rank", "quantization"}:
+    if any(type(k) is not str for k in payload.keys()) or set(payload.keys()) != CANDIDATE_SCHEMA_KEYS:
         raise CerebrasSchemaError(
-            f"candidate keys must be exactly target_layer, strength, rank, quantization, got {sorted(payload.keys())}"
+            "candidate keys must be exactly target_layer, target_tensor, eta, lambda, "
+            f"rank, lora_scale, quantization, got {sorted(_describe_value(k) for k in payload.keys())}"
         )
-    if payload["target_layer"] != PINNED_TARGET_LAYER:
+    target_layer = payload["target_layer"]
+    if not _is_int(target_layer) or target_layer != PINNED_TARGET_LAYER:
         raise CerebrasSchemaError(
-            f"target_layer must be {PINNED_TARGET_LAYER!r}, got {_describe_value(payload['target_layer'])}"
+            f"target_layer must be {PINNED_TARGET_LAYER!r}, got {_describe_value(target_layer)}"
         )
-    strength = payload["strength"]
-    if not _is_number(strength) or not 0.0 < float(strength) <= MAX_STRENGTH:
-        raise CerebrasSchemaError(f"strength must be a number in (0, {MAX_STRENGTH}], got {_describe_value(strength)}")
+    target_tensor = payload["target_tensor"]
+    if type(target_tensor) is not str or target_tensor != PINNED_TARGET_TENSOR:
+        raise CerebrasSchemaError(
+            f"target_tensor must be {PINNED_TARGET_TENSOR!r}, got {_describe_value(target_tensor)}"
+        )
+    eta = payload["eta"]
+    if not _is_number(eta) or not ETA_MIN <= float(eta) <= ETA_MAX:
+        raise CerebrasSchemaError(
+            f"eta must be a number in [{ETA_MIN}, {ETA_MAX}], got {_describe_value(eta)}"
+        )
+    raw_lam = payload["lambda"]
+    lam: float | int | str
+    if type(raw_lam) is str:
+        if raw_lam != "mean_eigenvalue":
+            raise CerebrasSchemaError(
+                f"lambda must be one of {list(ALLOWED_LAMBDAS)}, got {_describe_value(raw_lam)}"
+            )
+        lam = raw_lam
+    elif _is_number(raw_lam):
+        lam_f = float(raw_lam)
+        if lam_f not in (0.1, 1.0, 10.0):
+            raise CerebrasSchemaError(
+                f"lambda must be one of {list(ALLOWED_LAMBDAS)}, got {_describe_value(raw_lam)}"
+            )
+        lam = int(lam_f) if lam_f in (1.0, 10.0) else 0.1
+    else:
+        raise CerebrasSchemaError(
+            f"lambda must be one of {list(ALLOWED_LAMBDAS)}, got {_describe_value(raw_lam)}"
+        )
     rank = payload["rank"]
     if not _is_int(rank) or rank not in ALLOWED_RANKS:
         raise CerebrasSchemaError(f"rank must be one of {list(ALLOWED_RANKS)}, got {_describe_value(rank)}")
+    lora_scale = payload["lora_scale"]
+    if not _is_number(lora_scale) or float(lora_scale) not in ALLOWED_LORA_SCALES:
+        raise CerebrasSchemaError(
+            f"lora_scale must be one of {list(ALLOWED_LORA_SCALES)}, got {_describe_value(lora_scale)}"
+        )
     quantization = payload["quantization"]
-    if quantization not in ALLOWED_QUANTIZATIONS:
+    if type(quantization) is not str or quantization not in ALLOWED_QUANTIZATIONS:
         raise CerebrasSchemaError(
             f"quantization must be one of {list(ALLOWED_QUANTIZATIONS)}, got {_describe_value(quantization)}"
         )
     return CandidateConfig(
         target_layer=PINNED_TARGET_LAYER,
-        strength=float(strength),
+        target_tensor=PINNED_TARGET_TENSOR,
+        eta=float(eta),
+        lam=lam,
         rank=int(rank),
-        quantization=str(quantization),
+        lora_scale=float(lora_scale),
+        quantization=quantization,
     )
 
 

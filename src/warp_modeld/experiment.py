@@ -68,7 +68,7 @@ from .errors import (
     UnverifiedLoraOverrideError,
 )
 from .fingerprint import compute_file_sha256
-from .state_banks import ALL_STATE_BANKS
+from .state_banks import ALL_STATE_BANKS, STATE_BANK_KV, VALID_STATE_BANK_SET
 
 __all__ = [
     "BaselineCheck",
@@ -570,12 +570,37 @@ class Runtime(Protocol):
         ...
 
 
+def _validate_required_state_banks(banks: Any, *, name: str) -> tuple[str, ...]:
+    """Validate a checkpoint/lifecycle required-state-bank sequence fail-closed."""
+    if isinstance(banks, (str, bytes)) or not isinstance(banks, Sequence):
+        raise StateFlushError(f"{name} must be a sequence of state bank names")
+    out: list[str] = []
+    seen: set[str] = set()
+    for bank in banks:
+        if type(bank) is not str:
+            raise StateFlushError(
+                f"{name} contains non-string state bank: <{type(bank).__name__}>"
+            )
+        if bank not in VALID_STATE_BANK_SET:
+            raise StateFlushError(
+                f"{name} contains unknown state bank: {bank[:64]!r}"
+            )
+        if bank in seen:
+            raise StateFlushError(f"{name} contains duplicate state bank: {bank!r}")
+        seen.add(bank)
+        out.append(bank)
+    if STATE_BANK_KV not in seen:
+        raise StateFlushError(f"{name} must include {STATE_BANK_KV!r}")
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class LifecycleRollback:
     """What the Warp lifecycle reports after a rollback."""
 
     banks_flushed: tuple[str, ...]
     slots_flushed: tuple[int, ...]
+    required_banks: tuple[str, ...] | None = None
 
 
 class Lifecycle(Protocol):
@@ -588,20 +613,90 @@ class WarpModeldLifecycle:
     """Lifecycle adapter over a real ``WarpModeld`` instance.
 
     Delegates rollback to ``WarpModeld.rollback``, which zeroes LoRA
-    scales and flushes every live slot across every required state bank.
+    scales and flushes every live slot across every required state bank
+    for the pinned checkpoint (for example ``("kv_cache",)`` for a KV-only
+    transformer, or KV + SSM / horizontal lattice for hybrid checkpoints).
     """
 
     def __init__(self, warp: Any) -> None:
         self._warp = warp
 
+    def required_state_banks(self) -> tuple[str, ...] | None:
+        ckpt = getattr(self._warp, "pinned_checkpoint", None)
+        fn = getattr(ckpt, "required_state_banks", None)
+        if callable(fn):
+            return _validate_required_state_banks(
+                fn(), name="pinned_checkpoint.required_state_banks"
+            )
+        return None
+
     def rollback(self, reason: str) -> LifecycleRollback:
         result = self._warp.rollback(reason=reason)
-        banks: set[str] = set()
-        for receipt in result.bank_flush_receipts:
-            banks.update(receipt.banks_confirmed)
+        raw_slots = getattr(result, "slots_flushed", None)
+        if isinstance(raw_slots, (str, bytes)) or not isinstance(raw_slots, Sequence):
+            raise StateFlushError("warp rollback returned malformed slots_flushed")
+        slots_list: list[int] = []
+        seen_slots: set[int] = set()
+        for slot_id in raw_slots:
+            if type(slot_id) is not int or slot_id < 0 or slot_id in seen_slots:
+                raise StateFlushError("warp rollback returned malformed slots_flushed")
+            seen_slots.add(slot_id)
+            slots_list.append(slot_id)
+        slots_flushed = tuple(slots_list)
+        required_banks = self.required_state_banks()
+
+        raw_receipts = getattr(result, "bank_flush_receipts", None)
+        if isinstance(raw_receipts, (str, bytes)) or not isinstance(
+            raw_receipts, Sequence
+        ):
+            raise StateFlushError(
+                "warp rollback returned malformed bank_flush_receipts"
+            )
+
+        receipts_by_slot: dict[int, list[Any]] = {}
+        for receipt in raw_receipts:
+            slot_id = getattr(receipt, "slot_id", None)
+            if type(slot_id) is int:
+                receipts_by_slot.setdefault(slot_id, []).append(receipt)
+
+        if not slots_flushed:
+            confirmed_across_all: set[str] = set()
+        else:
+            per_slot_sets: list[set[str]] = []
+            for slot_id in slots_flushed:
+                slot_receipts = receipts_by_slot.get(slot_id, [])
+                if len(slot_receipts) != 1:
+                    per_slot_sets.append(set())
+                    continue
+                rc = slot_receipts[0]
+                if getattr(rc, "verified_clean", None) is not True:
+                    per_slot_sets.append(set())
+                    continue
+                raw_confirmed = getattr(rc, "banks_confirmed", None)
+                if isinstance(raw_confirmed, (str, bytes)) or not isinstance(
+                    raw_confirmed, Sequence
+                ):
+                    raise StateFlushError(
+                        "warp rollback returned malformed banks_confirmed"
+                    )
+                slot_confirmed: set[str] = set()
+                for bank in raw_confirmed:
+                    if (
+                        type(bank) is not str
+                        or bank not in VALID_STATE_BANK_SET
+                        or bank in slot_confirmed
+                    ):
+                        raise StateFlushError(
+                            "warp rollback returned malformed banks_confirmed"
+                        )
+                    slot_confirmed.add(bank)
+                per_slot_sets.append(slot_confirmed)
+            confirmed_across_all = set.intersection(*per_slot_sets)
+
         return LifecycleRollback(
-            banks_flushed=tuple(sorted(banks)),
-            slots_flushed=tuple(result.slots_flushed),
+            banks_flushed=tuple(sorted(confirmed_across_all)),
+            slots_flushed=slots_flushed,
+            required_banks=required_banks,
         )
 
 
@@ -1066,6 +1161,7 @@ class RollbackReport:
     slots_flushed: tuple[int, ...]
     baseline: BaselineCheck
     verified: bool
+    required_banks: tuple[str, ...] = ALL_STATE_BANKS
 
 
 def build_receipt(
@@ -1152,11 +1248,55 @@ class ExperimentController:
     lifecycle: Lifecycle
     receipts: ReceiptLog
     environment: Mapping[str, Any] = field(default_factory=dict)
+    required_state_banks: Sequence[str] | None = None
 
     _bound_candidate: Candidate | None = field(default=None, init=False, repr=False)
     _bound_compile: CompileResult | None = field(default=None, init=False, repr=False)
     _deploy_ms: float = field(default=0.0, init=False, repr=False)
     _evaluate_ms: float = field(default=0.0, init=False, repr=False)
+    _pinned_required_state_banks: tuple[str, ...] | None = field(
+        default=None, init=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.required_state_banks is not None:
+            validated = _validate_required_state_banks(
+                self.required_state_banks, name="required_state_banks"
+            )
+            self.required_state_banks = validated
+            self._pinned_required_state_banks = validated
+
+    def _resolve_required_state_banks(self, rolled: LifecycleRollback) -> tuple[str, ...]:
+        """Resolve required state banks fail-closed without allowing silent downgrade."""
+        authoritative: list[tuple[str, ...]] = []
+        if self._pinned_required_state_banks is not None:
+            authoritative.append(self._pinned_required_state_banks)
+        lc_fn = getattr(self.lifecycle, "required_state_banks", None)
+        if callable(lc_fn):
+            lc_banks = lc_fn()
+            if lc_banks is not None:
+                authoritative.append(
+                    _validate_required_state_banks(
+                        lc_banks, name="lifecycle.required_state_banks"
+                    )
+                )
+        if rolled.required_banks is not None:
+            authoritative.append(
+                _validate_required_state_banks(
+                    rolled.required_banks, name="rolled.required_banks"
+                )
+            )
+        post_banks: tuple[str, ...] | None = None
+        if self.required_state_banks is not None:
+            post_banks = _validate_required_state_banks(
+                self.required_state_banks, name="required_state_banks"
+            )
+        if not authoritative:
+            return ALL_STATE_BANKS
+        required_set = {bank for group in authoritative for bank in group}
+        if post_banks is not None:
+            required_set.update(post_banks)
+        return tuple(bank for bank in ALL_STATE_BANKS if bank in required_set)
 
     def propose(
         self, raw: Mapping[str, Any], *, candidate_id: str | None = None
@@ -1293,9 +1433,11 @@ class ExperimentController:
         return measurements
 
     def rollback(self, reason: str = "experiment_rollback") -> RollbackReport:
-        """Restore and verify the baseline, including the full state flush.
+        """Restore and verify the baseline, including the full required state flush.
 
-        The Warp lifecycle rollback must flush every state bank. The
+        The Warp lifecycle rollback must flush every state bank required by
+        the pinned checkpoint/controller profile (failing closed to
+        ``ALL_STATE_BANKS`` when no required bank set is declared). The
         baseline is then verified by comparing restored logits with the
         pinned baseline: any nonzero difference fails verification.
         """
@@ -1312,12 +1454,55 @@ class ExperimentController:
                 requested_reason=reason,
             )
             raise
-        missing = [bank for bank in ALL_STATE_BANKS if bank not in rolled.banks_flushed]
+        try:
+            expected_banks = self._resolve_required_state_banks(rolled)
+        except Exception as exc:
+            # A malformed or failing bank declaration after lifecycle rollback
+            # must still leave a rollback_failed trace before re-raising.
+            self.receipts.append(
+                "rollback_failed",
+                reason=(
+                    "required state bank resolution raised "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                requested_reason=reason,
+            )
+            raise
+        if isinstance(rolled.banks_flushed, (str, bytes)) or not isinstance(
+            rolled.banks_flushed, Sequence
+        ):
+            self.receipts.append(
+                "rollback_failed",
+                reason="lifecycle rollback returned malformed banks_flushed",
+                required_banks=list(expected_banks),
+            )
+            raise StateFlushError("lifecycle rollback returned malformed banks_flushed")
+        flushed_list: list[str] = []
+        seen_flushed: set[str] = set()
+        for bank in rolled.banks_flushed:
+            if (
+                type(bank) is not str
+                or bank not in VALID_STATE_BANK_SET
+                or bank in seen_flushed
+            ):
+                self.receipts.append(
+                    "rollback_failed",
+                    reason="lifecycle rollback returned malformed banks_flushed",
+                    required_banks=list(expected_banks),
+                )
+                raise StateFlushError(
+                    "lifecycle rollback returned malformed banks_flushed"
+                )
+            seen_flushed.add(bank)
+            flushed_list.append(bank)
+        flushed_banks = tuple(flushed_list)
+        missing = [bank for bank in expected_banks if bank not in flushed_banks]
         if missing:
             self.receipts.append(
                 "rollback_failed",
                 reason=f"state flush missed banks: {', '.join(missing)}",
-                banks_flushed=list(rolled.banks_flushed),
+                required_banks=list(expected_banks),
+                banks_flushed=list(flushed_banks),
             )
             raise StateFlushError(
                 f"rollback state flush missed banks: {', '.join(missing)}"
@@ -1329,15 +1514,17 @@ class ExperimentController:
             and baseline.sequences == FROZEN_ROLLBACK_SEQUENCES
         )
         report = RollbackReport(
-            banks_flushed=tuple(rolled.banks_flushed),
+            banks_flushed=flushed_banks,
             slots_flushed=tuple(rolled.slots_flushed),
             baseline=baseline,
             verified=verified,
+            required_banks=expected_banks,
         )
         self.receipts.append(
             "rollback_verified" if verified else "rollback_failed",
             reason=reason,
-            banks_flushed=list(rolled.banks_flushed),
+            required_banks=list(expected_banks),
+            banks_flushed=list(flushed_banks),
             slots_flushed=list(rolled.slots_flushed),
             baseline={
                 "max_logit_diff": baseline.max_logit_diff,
