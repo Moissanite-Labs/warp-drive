@@ -43,11 +43,27 @@ def _chat_response(*, content: str, model: str = "kimi-k3.1-pro", usage: dict[st
 
 MODE_CONTENT: dict[str, str] = {
     "ok_propose": json.dumps(
-        {"target_layer": "last", "strength": 0.5, "rank": 16, "quantization": "q8_0"},
+        {
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.01,
+            "lambda": 1,
+            "rank": 8,
+            "lora_scale": 1.0,
+            "quantization": "bf16",
+        },
         separators=(",", ":"),
     ),
     "ok_diagnose": json.dumps(
-        {"target_layer": "last", "strength": 0.4, "rank": 8, "quantization": "q8_0"},
+        {
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.005,
+            "lambda": "mean_eigenvalue",
+            "rank": 8,
+            "lora_scale": 1.0,
+            "quantization": "f16",
+        },
         separators=(",", ":"),
     ),
     "ok_compare": json.dumps(
@@ -55,7 +71,15 @@ MODE_CONTENT: dict[str, str] = {
         separators=(",", ":"),
     ),
     "invalid_candidate": json.dumps(
-        {"target_layer": "last", "strength": 1.5, "rank": 128, "quantization": "fp32"},
+        {
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.5,
+            "lambda": 1,
+            "rank": 128,
+            "lora_scale": 1.0,
+            "quantization": "fp32",
+        },
         separators=(",", ":"),
     ),
     "malformed_json": "{not json",

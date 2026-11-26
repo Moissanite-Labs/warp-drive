@@ -6,7 +6,7 @@ No weights, no checkpoint bytes, and no private data ever enter a prompt.
 The controller in lane 5 calls the client; the client never decides
 acceptance. Deterministic local scores stay authoritative.
 
-Prompt set version: ``cerebras-kimi-v1``.
+Prompt set version: ``cerebras-kimi-v2``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import hashlib
 import json
 from typing import Any
 
-PROMPT_SET_VERSION = "cerebras-kimi-v1"
+PROMPT_SET_VERSION = "cerebras-kimi-v2"
 
 SYSTEM_PROMPT = (
     "You are a bounded configuration proposer for a last-layer adapter "
@@ -27,9 +27,11 @@ PROPOSE_USER_TEMPLATE = (
     "Propose one candidate adapter configuration for the pinned last-layer "
     "target. Context (structured measurements only):\n{context_json}\n"
     "Reply with one JSON object with exactly these keys: "
-    "target_layer (string, must be \"last\"), strength (number, 0 exclusive "
-    "to 1 inclusive), rank (integer, one of 4, 8, 16, 32), quantization "
-    "(string, one of \"q8_0\", \"q4_0\", \"bf16\"). No other keys."
+    "target_layer (integer, must be 31), target_tensor (string, must be "
+    "\"ffn_up\"), eta (number in [0.002, 0.02]), lambda (one of 0.1, 1, 10, "
+    "\"mean_eigenvalue\"), rank (integer, must be 8), lora_scale (number, "
+    "one of 0.0 or 1.0), quantization (string, one of \"bf16\", \"f16\", "
+    "\"f32\", \"int8\", \"int4\"). No other keys."
 )
 
 DIAGNOSE_USER_TEMPLATE = (
@@ -37,9 +39,11 @@ DIAGNOSE_USER_TEMPLATE = (
     "inside the remaining repair budget. Failure report (structured "
     "measurements only):\n{report_json}\n"
     "Reply with one JSON object with exactly these keys: "
-    "target_layer (string, must be \"last\"), strength (number, 0 exclusive "
-    "to 1 inclusive), rank (integer, one of 4, 8, 16, 32), quantization "
-    "(string, one of \"q8_0\", \"q4_0\", \"bf16\"). No other keys. "
+    "target_layer (integer, must be 31), target_tensor (string, must be "
+    "\"ffn_up\"), eta (number in [0.002, 0.02]), lambda (one of 0.1, 1, 10, "
+    "\"mean_eigenvalue\"), rank (integer, must be 8), lora_scale (number, "
+    "one of 0.0 or 1.0), quantization (string, one of \"bf16\", \"f16\", "
+    "\"f32\", \"int8\", \"int4\"). No other keys. "
     "Do not repeat the failed candidate unchanged."
 )
 
@@ -90,13 +94,21 @@ def _fixture_context() -> dict[str, Any]:
     return {
         "task_summary": "fixed fixture: improve exact task score without losing retention",
         "baseline_metrics": {"task_exact": 0.61, "retention_iid": 0.88, "retention_shifted": 0.71},
-        "constraints": {"target_layer": "last", "max_repair_rounds": 3},
+        "constraints": {"target_layer": 31, "target_tensor": "ffn_up", "max_repair_rounds": 3},
     }
 
 
 def _fixture_report() -> dict[str, Any]:
     return {
-        "failed_candidate": {"target_layer": "last", "strength": 0.9, "rank": 32, "quantization": "q4_0"},
+        "failed_candidate": {
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.02,
+            "lambda": 10,
+            "rank": 8,
+            "lora_scale": 1.0,
+            "quantization": "int4",
+        },
         "failed_gate": "retention_iid",
         "measurements": {"task_exact": 0.64, "retention_iid": 0.79, "retention_shifted": 0.70},
         "rounds_used": 1,
