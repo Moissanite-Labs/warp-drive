@@ -692,6 +692,83 @@ def test_receipt_matches_frozen_schema_shape(controller):
     assert verdict.verdict == "ACCEPT"
 
 
+# --- receipt schema version is read from the schema, fail closed ------------
+
+
+def _receipt_with_schema_version_prop(contract, prop):
+    import copy
+    from dataclasses import replace
+
+    from warp_modeld.experiment import Measurements
+
+    schema = copy.deepcopy(contract.receipt_schema)
+    if prop is None:
+        schema["properties"].pop("receipt_schema_version", None)
+    else:
+        schema["properties"]["receipt_schema_version"] = prop
+    mutated = replace(contract, receipt_schema=schema)
+    candidate = propose_candidate({"eta": 0.01, "lora_scale": 1.0}, contract)
+    compile_result = FakeCompiler().compile(candidate, PARENT_SHA)
+    return build_receipt(
+        contract=mutated,
+        candidate=candidate,
+        compile_result=compile_result,
+        measurements=Measurements(**passing_measurements(contract)),
+        verdict="ACCEPT",
+        timings_ms={"compile": 12.5, "evaluate": 1.0, "deploy": 2.0},
+        environment=ENVIRONMENT,
+        repair_round=0,
+    )
+
+
+def test_build_receipt_reads_pinned_const_from_schema(contract):
+    prop = contract.receipt_schema["properties"]["receipt_schema_version"]
+    assert prop == {"const": "0.1.0"}
+    receipt = _receipt_with_schema_version_prop(contract, prop)
+    assert receipt["receipt_schema_version"] == "0.1.0"
+
+
+def test_build_receipt_reads_const_object_version(contract):
+    receipt = _receipt_with_schema_version_prop(contract, {"const": "0.2.0"})
+    assert receipt["receipt_schema_version"] == "0.2.0"
+
+
+def test_build_receipt_reads_bare_string_version(contract):
+    receipt = _receipt_with_schema_version_prop(contract, "0.2.0")
+    assert receipt["receipt_schema_version"] == "0.2.0"
+
+
+def test_build_receipt_fails_closed_when_version_missing(contract):
+    with pytest.raises(ControllerError):
+        _receipt_with_schema_version_prop(contract, None)
+
+
+def test_build_receipt_fails_closed_when_const_not_a_string(contract):
+    with pytest.raises(ControllerError):
+        _receipt_with_schema_version_prop(contract, {"const": 123})
+
+
+def test_build_receipt_fails_closed_when_properties_missing(contract):
+    from dataclasses import replace
+
+    from warp_modeld.experiment import Measurements
+
+    mutated = replace(contract, receipt_schema={"type": "object"})
+    candidate = propose_candidate({"eta": 0.01, "lora_scale": 1.0}, contract)
+    compile_result = FakeCompiler().compile(candidate, PARENT_SHA)
+    with pytest.raises(ControllerError):
+        build_receipt(
+            contract=mutated,
+            candidate=candidate,
+            compile_result=compile_result,
+            measurements=Measurements(**passing_measurements(contract)),
+            verdict="ACCEPT",
+            timings_ms={"compile": 12.5, "evaluate": 1.0, "deploy": 2.0},
+            environment=ENVIRONMENT,
+            repair_round=0,
+        )
+
+
 # --- regression tests for the orda re-review (2026-11-21) -------------------
 
 
