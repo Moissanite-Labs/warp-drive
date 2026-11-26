@@ -1,6 +1,10 @@
 """Verifier-owned SiliQuant bridge to Stage 2 fixed-radix certificates.
 
 All arithmetic is exact integer arithmetic. Floats are rejected at every input boundary.
+
+The wire contract (payload key set, optional radix_scale_exp2, codebook receipt
+keys, verifier-owned expectations, quant/arm coherence, caps and checker
+pinning) is specified in docs/siliquant-bridge-spec.md.
 """
 from __future__ import annotations
 
@@ -86,11 +90,12 @@ class SiliquantExpectations:
 
     `radix_scale_exp2` is pinned here so a payload cannot relabel its own radix
     scale; the weft body norms themselves remain self-attested until Stage 2
-    derives exact integer bounds from adapter bytes.
+    derives exact integer bounds from adapter bytes. The pin is optional and
+    defaults to DEFAULT_RADIX_EXP2: a payload that omits `radix_scale_exp2` is
+    verified at the default radix and can never pass under a non-default pin.
     """
 
     quant_dtype: str
-    radix_scale_exp2: int
     projector_epoch: int
     factor_digest: str
     weft_sha256: str
@@ -98,6 +103,7 @@ class SiliquantExpectations:
     budget: tuple[int, int]
     receipt_sha256: str
     checker_sha256: str
+    radix_scale_exp2: int = DEFAULT_RADIX_EXP2
 
     def __post_init__(self) -> None:
         if self.quant_dtype not in SILIQUANT_QUANTIZATIONS:
@@ -292,9 +298,20 @@ def _weft_body(exp2: int, frob: int, spec: int, leak: int, safety: int, epoch: i
 
 
 def weft_body_sha256(body: Mapping[str, Any]) -> str:
-    if not isinstance(body, Mapping) or set(body) != set(WEFT_BODY_FIELDS):
+    """Canonical digest of the weft body fields actually present.
+
+    Accepts exactly WEFT_BODY_FIELDS, or WEFT_BODY_FIELDS without
+    "radix_scale_exp2" for producers that never emitted the field; such a body
+    is hashed as sent, so the digest covers only the fields the producer sent.
+    """
+    if not isinstance(body, Mapping):
         raise CertificateError("weft body must contain exactly the documented body fields")
-    _exact_integer(body["radix_scale_exp2"], "radix_scale_exp2", allow_zero=False)
+    keys = set(body)
+    allowed = set(WEFT_BODY_FIELDS)
+    if keys != allowed and keys != allowed - {"radix_scale_exp2"}:
+        raise CertificateError("weft body must contain exactly the documented body fields")
+    if "radix_scale_exp2" in body:
+        _exact_integer(body["radix_scale_exp2"], "radix_scale_exp2", allow_zero=False)
     for field in (
         "frobenius_sq_scaled", "spectral_norm_sq_scaled", "leakage_energy_scaled",
         "max_safety_dot_sq_scaled", "projector_epoch",
@@ -349,7 +366,13 @@ def generate_fixed_radix_certificate(
 def ingest_weft_certificate(
     payload: Mapping[str, Any], *, expected_weft_sha256: str | None = None
 ) -> FixedRadixCertificate:
-    if not isinstance(payload, Mapping) or set(payload) != PAYLOAD_KEYS:
+    if not isinstance(payload, Mapping):
+        raise CertificateError("certificate payload has missing or unexpected fields")
+    keys = set(payload)
+    allowed = set(PAYLOAD_KEYS)
+    # radix_scale_exp2 is optional: no SiliQuant export emits it, and a payload
+    # that omits it is bound to DEFAULT_RADIX_EXP2 (see weft_body_sha256).
+    if keys != allowed and keys != allowed - {"radix_scale_exp2"}:
         raise CertificateError("certificate payload has missing or unexpected fields")
     weft_sha = _require_sha256(payload["weft_sha256"], "weft_sha256")
     if expected_weft_sha256 is not None:
@@ -359,12 +382,24 @@ def ingest_weft_certificate(
     adapter_id = _require_utf8_text(payload["adapter_id"], "adapter_id")
     _require_sha256(payload["adapter_sha256"], "adapter_sha256")
     _require_sha256(payload["base_weights_sha256"], "base_weights_sha256")
+    weft_dict = dict(payload)
+    if "radix_scale_exp2" in weft_dict:
+        expected_digest: str | None = weft_sha
+    else:
+        # The producer's digest covers only the body fields it actually sent;
+        # verify it against those fields, then ingest at the effective default
+        # radix for the Stage 2 certificate.
+        body = {field: payload[field] for field in WEFT_BODY_FIELDS if field != "radix_scale_exp2"}
+        if not hmac.compare_digest(weft_body_sha256(body), weft_sha):
+            raise CertificateError("weft digest does not match the canonical digest of the payload body fields")
+        weft_dict["radix_scale_exp2"] = DEFAULT_RADIX_EXP2
+        expected_digest = None
     return FixedRadixCertificate.from_weft_dict(
-        payload,
+        weft_dict,
         adapter_id=adapter_id,
         adapter_sha256=payload["adapter_sha256"],
         base_weights_sha256=payload["base_weights_sha256"],
-        expected_weft_sha256=weft_sha,
+        expected_weft_sha256=expected_digest,
     )
 
 
@@ -458,12 +493,14 @@ def verify_siliquant_bridge(
     cert = ingest_weft_certificate(payload, expected_weft_sha256=expected.weft_sha256)
     if cert.adapter_id != expected_adapter_id:
         raise CertificateError("weft adapter_id does not match the expected adapter")
-    body = {field: payload[field] for field in WEFT_BODY_FIELDS}
-    if body["radix_scale_exp2"] != expected.radix_scale_exp2:
+    # An omitted radix_scale_exp2 is bound to DEFAULT_RADIX_EXP2, so it can
+    # never satisfy a non-default pinned radix.
+    effective_radix = payload["radix_scale_exp2"] if "radix_scale_exp2" in payload else DEFAULT_RADIX_EXP2
+    if effective_radix != expected.radix_scale_exp2:
         raise CertificateError("weft radix_scale_exp2 does not match the verifier's pinned radix_scale_exp2")
-    if body["quant_dtype"] != expected.quant_dtype: raise CertificateError("weft quant_dtype mismatch")
-    if body["projector_epoch"] != expected.projector_epoch: raise CertificateError("weft projector_epoch mismatch")
-    if body["factor_digest"] != expected.factor_digest: raise CertificateError("weft factor_digest mismatch")
+    if payload["quant_dtype"] != expected.quant_dtype: raise CertificateError("weft quant_dtype mismatch")
+    if payload["projector_epoch"] != expected.projector_epoch: raise CertificateError("weft projector_epoch mismatch")
+    if payload["factor_digest"] != expected.factor_digest: raise CertificateError("weft factor_digest mismatch")
     stage2 = verify_division_free(cert, bounds, scale_num=scale_num, scale_den=scale_den, expected_adapter_id=expected_adapter_id, expected_adapter_sha256=expected_adapter_sha256, expected_base_weights_sha256=expected_base_weights_sha256)
     codebook = verify_codebook_pick(
         codebook_receipt, checker_path,

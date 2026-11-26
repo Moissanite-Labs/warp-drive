@@ -12,6 +12,7 @@ from pathlib import Path
 from warp_modeld.certificate import verify_division_free
 from warp_modeld.errors import CertificateError
 from warp_modeld.siliquant_bridge import (
+    DEFAULT_RADIX_EXP2,
     WEFT_BODY_FIELDS,
     CodebookPickVerification,
     SiliquantExpectations,
@@ -52,6 +53,18 @@ def _valid_payload(quant_dtype: str = QUANT) -> dict:
         factor_digest=FACTOR,
         quant_dtype=quant_dtype,
     )
+
+
+def _payload_without_radix() -> dict:
+    """A weft payload from a producer that never emitted radix_scale_exp2.
+
+    Its weft_sha256 covers exactly the body fields it sent (no radix field).
+    """
+    payload = _valid_payload()
+    body = {key: payload[key] for key in WEFT_BODY_FIELDS if key != "radix_scale_exp2"}
+    del payload["radix_scale_exp2"]
+    payload["weft_sha256"] = weft_body_sha256(body)
+    return payload
 
 
 def _stage2(payload: dict, **overrides) -> object:
@@ -112,7 +125,7 @@ def _expect(
     cert = receipt["certificate"]
     values = dict(
         quant_dtype=payload["quant_dtype"],
-        radix_scale_exp2=payload["radix_scale_exp2"],
+        radix_scale_exp2=payload.get("radix_scale_exp2", DEFAULT_RADIX_EXP2),
         projector_epoch=payload["projector_epoch"],
         factor_digest=payload["factor_digest"],
         weft_sha256=payload["weft_sha256"],
@@ -679,6 +692,58 @@ class TestWD41ReviewWitnesses(unittest.TestCase):
                 _bridge(_valid_payload(), _receipt(), checker, quant_dtype="siliquant_e8", arm="X")
 
 
+class TestOptionalRadixScaleExp2(unittest.TestCase):
+    """Owner decision A: radix_scale_exp2 is optional and defaults to DEFAULT_RADIX_EXP2."""
+
+    def test_expectations_built_without_radix_pins_default_32(self) -> None:
+        kwargs = _expectations_kwargs()
+        del kwargs["radix_scale_exp2"]
+        self.assertEqual(SiliquantExpectations(**kwargs).radix_scale_exp2, DEFAULT_RADIX_EXP2)
+        self.assertEqual(DEFAULT_RADIX_EXP2, 32)
+
+    def test_weft_body_hash_of_field_absent_body(self) -> None:
+        payload = _valid_payload()
+        body = {key: payload[key] for key in WEFT_BODY_FIELDS if key != "radix_scale_exp2"}
+        digest = weft_body_sha256(body)
+        # deterministic, and distinct from the full-body digest
+        self.assertEqual(digest, weft_body_sha256(dict(body)))
+        self.assertNotEqual(digest, weft_body_sha256(_body_of(payload)))
+        # the producer that omits the field hashes exactly what it sent
+        self.assertEqual(_payload_without_radix()["weft_sha256"], digest)
+        # a body with an unknown extra key is still rejected
+        with self.assertRaises(CertificateError):
+            weft_body_sha256(dict(body, unbound_evidence={}))
+
+    def test_omitted_radix_uses_default_for_stage2_certificate(self) -> None:
+        cert = ingest_weft_certificate(_payload_without_radix())
+        self.assertEqual(cert.radix_scale, 1 << DEFAULT_RADIX_EXP2)
+
+    def test_payload_without_radix_verifies_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            checker = _write_checker(td)
+            result = _bridge(_payload_without_radix(), _receipt(), checker)
+            self.assertTrue(result.passed)
+            self.assertEqual(result.codebook.pick, 0)
+
+    def test_payload_without_radix_fails_under_pinned_48(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            checker = _write_checker(td)
+            with self.assertRaises(CertificateError):
+                _bridge(_payload_without_radix(), _receipt(), checker, radix_scale_exp2=48)
+
+    def test_payload_without_radix_plus_unknown_key_is_rejected(self) -> None:
+        payload = _payload_without_radix()
+        payload["unbound_evidence"] = {}
+        with self.assertRaises(CertificateError):
+            ingest_weft_certificate(payload)
+
+    def test_tampered_field_in_field_absent_payload_is_rejected(self) -> None:
+        payload = _payload_without_radix()
+        payload["leakage_energy_scaled"] = 0
+        with self.assertRaises(CertificateError):
+            ingest_weft_certificate(payload)
+
+
 @unittest.skipUnless(os.environ.get("SILIQUANT_CHECKER_PATH"), "set SILIQUANT_CHECKER_PATH to run")
 class TestRealSiliquantChecker(unittest.TestCase):
     def test_real_checker_self_checks_and_synthetic_receipt(self) -> None:
@@ -702,6 +767,12 @@ class TestRealSiliquantChecker(unittest.TestCase):
                 expected_checker_sha256=checker_sha256(checker),
                 expected_receipt_sha256=codebook_receipt_sha256(receipt),
             )
+
+    def test_real_checker_accepts_payload_without_radix(self) -> None:
+        checker = Path(os.environ["SILIQUANT_CHECKER_PATH"])
+        result = _bridge(_payload_without_radix(), _receipt(), checker)
+        self.assertTrue(result.passed)
+        self.assertEqual(result.codebook.checker_sha256, checker_sha256(checker))
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ The SiliQuant bridge tests are deterministic offline tests. To include the real 
 The alpha branch includes:
 
 - Stage 4 fail-closed slot flushing. Missing `list_slots`, a non-callable `list_slots`, a dirty required bank, a dirty non-required bank, or a top-level state taint all prevent a `verified_clean` receipt.
-- A SiliQuant bridge that requires verifier-owned expectations for quant_dtype, weft digest, codebook receipt digest, checker digest, picked arm, and budget. It returns the checked pick and provenance instead of a bare boolean.
+- A SiliQuant bridge that requires verifier-owned expectations for quant_dtype, weft digest, codebook receipt digest, checker digest, picked arm, and budget. It returns the checked pick and provenance instead of a bare boolean. Its wire contract (payload key set with optional `radix_scale_exp2`, codebook receipt keys, expectations, quant/arm coherence, input caps, checker pinning) is specified in [siliquant-bridge-spec.md](siliquant-bridge-spec.md).
 - The original provider candidate schema. The model proposes configuration only. It does not supply acceptance evidence.
 
 ## Required deployment inputs
