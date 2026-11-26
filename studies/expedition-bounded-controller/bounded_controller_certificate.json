@@ -1,0 +1,158 @@
+{
+  "arm": "R6-3",
+  "audit_id": "AUDIT-063",
+  "canonical_sha256": "c418da2c433bedc4d26e91f1b5e1953a91127a2ebf8f3c65bd4364febb1c7b52",
+  "evidence_boundary_disclosure": {
+    "cerebras_transport_mode": "mock_contract",
+    "controller_runtime_mode": "logic_check_fake_runtime",
+    "hmac_key_source": "deterministic_study_fixture",
+    "ledger_hmac_scope": "tamper_evidence_only_not_external_secrecy",
+    "live_credentials_used": false,
+    "live_rtx3080_checkpoint_scored": false
+  },
+  "honest_novelty_class": "N1",
+  "interface_class": "project-specific-weight-experiment-harness",
+  "oracle_class": "exact+anchor",
+  "part1_issue4_frozen_contract": {
+    "compiler_repo": "siliconcordat/weft",
+    "family_separated_split_audit": {
+      "family_overlap_count": 0,
+      "heldout_count": 24,
+      "heldout_family_count": 6,
+      "max_pair_overlap_ratio_exact": "0",
+      "overlapping_families": [],
+      "pair_overlap_count": 0,
+      "pair_overlap_ratio_exact": "0",
+      "passed": true,
+      "prompt_overlap_count": 0,
+      "reasons": [],
+      "train_count": 50,
+      "train_family_count": 10
+    },
+    "frozen_ext_roundtrip_preserved": true,
+    "harness_label": "project-specific-weight-experiment-harness",
+    "leaky_98pct_split_audit": {
+      "family_overlap_count": 0,
+      "heldout_count": 50,
+      "heldout_family_count": 11,
+      "max_pair_overlap_ratio_exact": "0",
+      "overlapping_families": [],
+      "pair_overlap_count": 49,
+      "pair_overlap_ratio_exact": "49/50",
+      "passed": false,
+      "prompt_overlap_count": 0,
+      "reasons": [
+        "pair_overlap_exceeded:49/50>0"
+      ],
+      "train_count": 50,
+      "train_family_count": 10
+    },
+    "manifest_sha256": "18281c6db1641b3361a7d4e116331bc3cd616b6049705b2ebb9e864f1e273740",
+    "max_repair_rounds": 3,
+    "target_layer": "blk.31"
+  },
+  "part2_reconciler_and_clock_invariants": {
+    "affine_clock_pair_exact": "505",
+    "monotone_385_lattice": {
+      "all_invariants_sound": true,
+      "duplicate_terminal_notices": 0,
+      "outage_fabrications": 0,
+      "phase_regressions": 0,
+      "terminal_swaps": 0,
+      "tombstone_resolutions": 32,
+      "total_transitions": 385
+    },
+    "separated_timings": {
+      "cerebras_ms": 256,
+      "compile_ms": 2100,
+      "deploy_rollback_ms": 18,
+      "local_eval_ms": 580,
+      "timing_source": "aggregated_from_mock_ledger_receipts_not_wall_clock",
+      "total_ms": 2954
+    }
+  },
+  "part3_issue5_controller_lifecycle": {
+    "ledger_independent_verification": {
+      "count": 23,
+      "head_sha256": "e8a4085f902e6c2bad3b795ee77bb086aebda0952d228e977b76007784063d79",
+      "valid": true
+    },
+    "regressed_plausible_failures": [
+      "iid_retention_drop_exceeded",
+      "shifted_retention_drop_exceeded",
+      "goodhart_kl_latch_halted",
+      "task_exact_gain_below_threshold",
+      "logprob_margin_below_threshold",
+      "control_role_cannot_promote"
+    ],
+    "regressed_plausible_verdict": "REJECTED",
+    "round1_underfit_verdict": "REJECTED",
+    "round2_adapter_sha256": "3ce3e117fac61b176305d1792f885b8d25b39f363a96bb08ea8ea10d7a230f13",
+    "round2_post_rollback_phase": "RolledBack",
+    "round2_repaired_verdict": "PROMOTED",
+    "round2_rollback_logits_restored": true,
+    "unchanged_base_verdict": "CONTROL_BASE_PASS"
+  },
+  "part4_issue6_cerebras_kimi_boundary": {
+    "ok_receipts": 4,
+    "rejected_or_error_receipts": 3,
+    "sample_redacted_receipt": {
+      "call_kind": "compare",
+      "completion_tokens": 96,
+      "decoding_params": {
+        "max_tokens": 256,
+        "temperature_milli": 0
+      },
+      "error_code": null,
+      "latency_ms": 64,
+      "live_credentials_used": false,
+      "prompt_sha256": "681d5aee5982a78b63e1bea7d418ad0671a50b8c3113652c8389eee5fdaaafba",
+      "prompt_tokens": 240,
+      "provider": "cerebras",
+      "requested_model": "kimi-k3.1-pro",
+      "retries": 0,
+      "seed": 201,
+      "served_model": "kimi-k3.1-pro",
+      "status": "ok",
+      "timeout_ms": 10000,
+      "transport_mode": "mock_contract"
+    },
+    "total_receipts": 7
+  },
+  "part5_issue7_adversarial_matrix": {
+    "adapter_hash_drift_rejected_before_eval": "ERR_ADAPTER_HASH_DRIFT",
+    "cerebras_duplicate_json_key_rejected": "ERR_MALFORMED_ADVISORY_RESPONSE",
+    "cerebras_silent_model_substitution_rejected": "ERR_MODEL_SUBSTITUTION",
+    "cerebras_transport_timeout_recorded": "ERR_TIMEOUT",
+    "cerebras_weight_egress_blocked": "ERR_EGRESS_POLICY_VIOLATION",
+    "checkpoint_drift_rejected_before_compile": "ERR_CHECKPOINT_DRIFT",
+    "duplicate_repair_round1_replay_rejected": "ERR_REPAIR_BUDGET_EXCEEDED",
+    "egress_unbounded_int_smuggling_rejected": "ERR_EGRESS_POLICY_VIOLATION",
+    "eval_before_hash_recorded_rejected": "ERR_HASH_ORDER_VIOLATION",
+    "incomplete_multibank_lattice_flush_rejected": "ERR_STATE_FLUSH_INCOMPLETE",
+    "kv_only_rollback_omitting_checkpoint_banks_rejected": "ERR_INVALID_STATE_BANKS",
+    "missing_contract_sha256_rejected": "ERR_CONTRACT_DRIFT",
+    "nested_case_insensitive_ring0_override_rejected": "ERR_RING0_TAMPER",
+    "raw_lora_override_rejected": "ERR_RING0_TAMPER",
+    "regressed_control_passing_metrics_blocked_from_promote": "control_role_cannot_promote",
+    "repair_round_4_budget_exceeded": "ERR_REPAIR_BUDGET_EXCEEDED",
+    "ring0_threshold_mutation_rejected": "ERR_RING0_TAMPER",
+    "rollback_from_rejected_phase_rejected": "ERR_INVALID_PHASE",
+    "second_rollback_from_rolledback_rejected": "ERR_INVALID_PHASE",
+    "trailing_newline_digest_and_layer_rejected": "ERR_INVALID_SHA256",
+    "unhashed_extra_receipt_key_rejected": "ERR_LEDGER_TAMPER",
+    "unsupported_layer_blk12_rejected": "ERR_UNSUPPORTED_LAYER"
+  },
+  "part6_warp_drive_live_compatibility": {
+    "checked_live_repo": true,
+    "required_state_banks": [
+      "kv_cache",
+      "ssm_recurrent",
+      "lattice_horizontal_streams"
+    ],
+    "stage1_adapter_id": "warp-exp:cand-r2-repaired",
+    "stage1_and_stage2_passed": true,
+    "stage2_adapter_count": 1,
+    "warp_drive_source": "in_repo_src_warp_modeld"
+  }
+}

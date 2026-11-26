@@ -1,0 +1,35 @@
+{
+  "audit_version": "0.1.0",
+  "by_family": {
+    "A": {
+      "held_out_states": 32,
+      "reuse_fraction": 1.0,
+      "reusing_train_pair": 32
+    },
+    "B": {
+      "held_out_states": 16,
+      "reuse_fraction": 0.875,
+      "reusing_train_pair": 14
+    },
+    "C": {
+      "held_out_states": 32,
+      "reuse_fraction": 1.0,
+      "reusing_train_pair": 32
+    },
+    "D": {
+      "held_out_states": 32,
+      "reuse_fraction": 1.0,
+      "reusing_train_pair": 32
+    }
+  },
+  "distinct_held_out_pairs": 20,
+  "distinct_training_pairs": 46,
+  "held_out_states": 112,
+  "method": "A held-out state leaks when its exact (positive_tokens, negative_tokens) pair occurs in any training state. Computed from the published harvest states, not from prompt text, which is not published.",
+  "reuse_fraction": 0.9821,
+  "reusing_train_pair": 110,
+  "source_harvest_meta": "harvest_v1.meta.json",
+  "source_held_out_ids": "manifest.json held_out_ids",
+  "training_states": 260,
+  "verdict": "LEAKED_SPLIT: the held-out split is weak. Task scores on it measure fit to seen token pairs, not generalisation. Report the audit fraction with every task score."
+}

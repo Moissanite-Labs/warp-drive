@@ -132,6 +132,10 @@ def make_adapter_bundle_dict(
             "tokenizer_sha256": ckpt.tokenizer_sha256,
             "chat_template_sha256": ckpt.chat_template_sha256,
             "safetensors_provenance_sha256": ckpt.safetensors_provenance_sha256,
+            "has_ssm_recurrent": ckpt.has_ssm_recurrent,
+            "has_horizontal_lattice": ckpt.has_horizontal_lattice,
+            "lattice_layers": ckpt.lattice_layers,
+            "lattice_width": ckpt.lattice_width,
         },
         "source_lineage": {
             "corpus_tree_sha256": lin.corpus_tree_sha256,

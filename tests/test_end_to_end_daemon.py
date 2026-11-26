@@ -13,6 +13,7 @@ import tempfile
 import time
 import unittest
 
+from warp_modeld.fingerprint import compute_file_sha256
 from warp_modeld.server import WarpUnixRpcClient, WarpUnixRpcServer
 
 from tests.helpers import (
@@ -126,6 +127,7 @@ class TestEndToEndDaemon(unittest.TestCase):
                     cli_res = subprocess.run(
                         [
                             sys.executable,
+                            "-B",
                             "-m",
                             "warp_modeld.cli",
                             "verify-ledger",
@@ -165,6 +167,7 @@ class TestEndToEndDaemon(unittest.TestCase):
                     cert_cli = subprocess.run(
                         [
                             sys.executable,
+                            "-B",
                             "-m",
                             "warp_modeld.cli",
                             "check-certificate",
@@ -188,11 +191,15 @@ class TestEndToEndDaemon(unittest.TestCase):
             mock.stop()
 
     def test_real_subprocess_daemon_serve_command(self) -> None:
-        mock = MockLlamaServer()
-        url = mock.start()
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                tmp = Path(td)
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            adapter_gguf = tmp / "corpus-f16.gguf"
+            adapter_gguf.write_bytes(b"GGUF-END-TO-END-DAEMON-TEST-ADAPTER")
+            adapter_sha = compute_file_sha256(adapter_gguf)
+
+            mock = MockLlamaServer(adapters=[{"id": 0, "path": str(adapter_gguf), "scale": 0.0}])
+            url = mock.start()
+            try:
                 key_file = tmp / "ledger.key"
                 key_file.write_bytes(b"subprocess-test-key-32-bytes-001")
                 os.chmod(key_file, 0o600)
@@ -233,7 +240,7 @@ class TestEndToEndDaemon(unittest.TestCase):
                 env = dict(os.environ)
                 env["PYTHONPATH"] = str(REPO_ROOT / "src")
                 proc = subprocess.Popen(
-                    [sys.executable, "-m", "warp_modeld.cli", "serve", "--config", str(cfg_path)],
+                    [sys.executable, "-B", "-m", "warp_modeld.cli", "serve", "--config", str(cfg_path)],
                     env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -249,7 +256,17 @@ class TestEndToEndDaemon(unittest.TestCase):
                     st = rpc.call("wmcp_slot_status")
                     self.assertEqual(st["result"]["active_adapters"], [])
 
-                    mnt = rpc.call("wmcp_slot_mount", {"bundles": [make_adapter_bundle_dict()]})
+                    mnt = rpc.call(
+                        "wmcp_slot_mount",
+                        {
+                            "bundles": [
+                                make_adapter_bundle_dict(
+                                    adapter_path=str(adapter_gguf),
+                                    adapter_sha256=adapter_sha,
+                                )
+                            ]
+                        },
+                    )
                     self.assertEqual(len(mnt["result"]["active_adapters"]), 1)
 
                     unm = rpc.call("wmcp_slot_unmount", {"reason": "subproc_test_done"})
@@ -271,6 +288,7 @@ class TestEndToEndDaemon(unittest.TestCase):
                 verify_res = subprocess.run(
                     [
                         sys.executable,
+                        "-B",
                         "-m",
                         "warp_modeld.cli",
                         "verify-ledger",
@@ -288,8 +306,8 @@ class TestEndToEndDaemon(unittest.TestCase):
                 )
                 self.assertEqual(verify_res.returncode, 0, msg=verify_res.stderr)
                 self.assertEqual(json.loads(verify_res.stdout)["receipts_verified"], 2)
-        finally:
-            mock.stop()
+            finally:
+                mock.stop()
 
 
 if __name__ == "__main__":

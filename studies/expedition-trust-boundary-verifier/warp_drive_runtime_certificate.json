@@ -1,0 +1,46 @@
+{
+  "arm": "R6-2",
+  "audit_id": "AUDIT-062",
+  "hardened_gates": {
+    "aletheia_v14_ancestor_hardening_verified": true,
+    "issue7_evidence_contract_verified": true,
+    "wd_canary_01_boundary_token_blocked": true,
+    "wd_canary_01_unclosed_fence_blocked": true,
+    "wd_canary_02_external_bad_blocked": true,
+    "wd_canary_02_external_good_accepted": true,
+    "wd_flush_01_ssm_partial_blocked": true,
+    "wd_fp_01_lattice_width_zero_blocked": true,
+    "wd_fp_01_one_sided_weft_flags_blocked": true,
+    "wd_ledger_01_duplicate_key_blocked": true,
+    "wd_ledger_01_valid_chain_verified": true,
+    "wd_ledger_01_whitespace_wipe_blocked": true,
+    "wd_sandbox_01_missing_seccomp_blocked": true,
+    "wd_sandbox_01_path_hijack_blocked": true,
+    "wd_sandbox_01_secret_mount_blocked": true,
+    "wd_server_01_nan_temp_blocked": true,
+    "wd_server_01_redirect_blocked": true,
+    "wd_server_01_string_false_blocked": true,
+    "wd_stage1_01_decoy_swap_blocked": true,
+    "wd_stage1_01_null_path_tampered_blocked": true,
+    "wd_verifier_01_ledger_failure_quarantines": true
+  },
+  "live_read_only_anchors": {
+    "anchors": {
+      "wd_canary_01_unclosed_fence_strip": true,
+      "wd_canary_02_external_raw_json_and_float_int": true,
+      "wd_flush_01_ssm_no_missing_check": true,
+      "wd_fp_01_width_zero_and_urlopen_default": true,
+      "wd_ledger_01_raw_json_and_ws_empty": true,
+      "wd_sandbox_01_path_bwrap": true,
+      "wd_server_01_bool_coercion_and_chmod_race": true,
+      "wd_stage1_01_loaded_path_unread": true,
+      "wd_verifier_01_mount_before_ledger": true
+    },
+    "anchors_total": 9,
+    "anchors_verified": 9,
+    "mode": "live_read_only",
+    "src_bare_asserts": 0,
+    "test_bare_asserts": 3
+  },
+  "target_repo": "Moissanite-Labs/warp-drive"
+}
