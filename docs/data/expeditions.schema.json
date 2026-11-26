@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Warp expeditions data v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generated_at", "source_main_sha", "notice", "records"],
+  "properties": {
+    "generated_at": { "type": "string" },
+    "source_main_sha": { "type": "string" },
+    "notice": { "type": "string" },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "name", "audit_id_readme", "audit_id_json", "kind", "summary", "verdicts", "evidence_scope", "has_certificate", "pinned_commit", "git_last_touch", "repo_path"],
+        "properties": {
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "audit_id_readme": { "type": ["string", "null"] },
+          "audit_id_json": { "type": ["string", "null"] },
+          "kind": { "enum": ["study", "demo"] },
+          "summary": { "type": "string" },
+          "verdicts": { "type": "array", "items": { "type": "string" } },
+          "evidence_scope": { "type": ["string", "null"] },
+          "has_certificate": { "type": "boolean" },
+          "pinned_commit": { "type": ["array", "null"], "items": { "type": "string" } },
+          "git_last_touch": { "type": "string" },
+          "repo_path": { "type": "string" }
+        }
+      }
+    }
+  }
+}

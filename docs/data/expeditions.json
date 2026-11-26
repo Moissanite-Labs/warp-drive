@@ -1,0 +1,173 @@
+{
+  "generated_at": "build-time",
+  "notice": "Pinned commits are the ones each certificate declares (null when a certificate declares none); certificates pin older commits and do not certify current main. Dates are git last-touch dates on the main branch (origin/main, or HEAD when no origin remote exists), not authored expedition dates.",
+  "records": [
+    {
+      "audit_id_json": "AUDIT-062 + AUDIT-065",
+      "audit_id_readme": "AUDIT-062R + AUDIT-065",
+      "evidence_scope": "non-importing logic checks, live read-only anchors",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Trust Boundary Verifier",
+      "pinned_commit": [
+        "026b78e1",
+        "4b6b7145",
+        "52ce0178",
+        "5d7eac03",
+        "81c75240",
+        "8d9f8155",
+        "c08b9695",
+        "cb78b860",
+        "e3899d3e"
+      ],
+      "repo_path": "studies/expedition-trust-boundary-verifier",
+      "slug": "expedition-trust-boundary-verifier",
+      "summary": "Checked runtime, sandbox and cross-repo trust boundaries with two non-importing verifier suites.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": "AUDIT-073R",
+      "evidence_scope": "standalone governance gates, pinned read-only songe checkout",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Songe Distill Governance",
+      "pinned_commit": [
+        "5b7b1376"
+      ],
+      "repo_path": "studies/expedition-songe-distill-governance",
+      "slug": "expedition-songe-distill-governance",
+      "summary": "Checked songe distillation governance and security boundaries against a pinned read-only songe checkout.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-104",
+      "audit_id_readme": "AUDIT-104R4",
+      "evidence_scope": "pure-rational portal invariants, standalone and pinned live modes",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Siliconcordat D5 Audit104R4",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-siliconcordat-d5-audit104r4",
+      "slug": "expedition-siliconcordat-d5-audit104r4",
+      "summary": "Checked the siliconcordat discussion-5 portal extraction and two-zone airlock contracts with pure rational invariants.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": "AUDIT-081R",
+      "evidence_scope": "standalone exact verifier, pinned read-only external checkouts",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Reinforce Zero Tii",
+      "pinned_commit": [
+        "136aca87",
+        "a22153de"
+      ],
+      "repo_path": "studies/expedition-reinforce-zero-tii",
+      "slug": "expedition-reinforce-zero-tii",
+      "summary": "Checked REINFORCE-Zero and zero-mismatch-rl governance claims with an exact Taylor-interval verifier against pinned read-only external checkouts.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-072",
+      "audit_id_readme": "AUDIT-072R",
+      "evidence_scope": "standalone reference gates with exact arithmetic, not wired into src/",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Latent Lattice 2611 21608",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-latent-lattice-2611-21608",
+      "slug": "expedition-latent-lattice-2611-21608",
+      "summary": "Checked latent lattice language model claims and a 4-bank isolation bridge with exact rational arithmetic.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-061",
+      "audit_id_readme": "AUDIT-061R",
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Gram Cert Upgrades",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-gram-cert-upgrades",
+      "slug": "expedition-gram-cert-upgrades",
+      "summary": "Checked Stage 2 Gram certificate upgrades with exact integer arithmetic and adversarial mutation tests.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-063",
+      "audit_id_readme": "AUDIT-063R2",
+      "evidence_scope": "logic_check_fake_runtime, mock_contract",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Bounded Controller",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-bounded-controller",
+      "slug": "expedition-bounded-controller",
+      "summary": "Checked a study-only bounded experiment controller with synthetic digests and a fake runtime.",
+      "verdicts": [
+        "PROMOTED",
+        "REJECTED",
+        "CONTROL_BASE_PASS"
+      ]
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": null,
+      "evidence_scope": "preregistered thresholds, unverified live; tokenizer digest unverified",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": false,
+      "kind": "demo",
+      "name": "Demo lane 2026-11-22",
+      "pinned_commit": null,
+      "repo_path": "experiments/demo-2026-11-22",
+      "slug": "demo-2026-11-22",
+      "summary": "Demo lane contract with frozen suites and preregistered thresholds. It is not a study and has not run live. Suite cases: 112, 24, 80, 9. Split leakage: 110 of 112 task cases reuse a seen pair, 20 distinct pairs.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-064",
+      "audit_id_readme": "AUDIT-064",
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-21",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Weight Iteration Bridge",
+      "pinned_commit": [
+        "e3899d3e"
+      ],
+      "repo_path": "studies/expedition-weight-iteration-bridge",
+      "slug": "expedition-weight-iteration-bridge",
+      "summary": "Checked governed weight iteration and multi-bank state isolation with exact fractions.",
+      "verdicts": [
+        "REJECTED",
+        "CONTROL_BASE_PASS",
+        "ALL_VERIFIED",
+        "WARP_WEIGHT_ITERATION_BRIDGE_ALL_VERIFIED"
+      ]
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": null,
+      "evidence_scope": null,
+      "git_last_touch": "2026-11-21",
+      "has_certificate": false,
+      "kind": "study",
+      "name": "Bareiss Gram Cert",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-bareiss-gram-cert",
+      "slug": "expedition-bareiss-gram-cert",
+      "summary": "Checked a fraction-free Bareiss gate for stacked adapter Gram certificates with a dual oracle.",
+      "verdicts": []
+    }
+  ],
+  "source_main_sha": "47de9f2"
+}

@@ -1,0 +1,93 @@
+name: pages
+# Publish docs/ to GitHub Pages. Modelled on Foundation-0/f0 pages.yml,
+# simplified: warp has no forum, no discussions step and no deploy-time
+# prerender, so those steps are omitted.
+# Publishes only when Settings -> Pages -> Source is "GitHub Actions".
+# Set that once by hand. While Pages builds from the branch, the build job
+# says so in a notice and nothing is deployed.
+# The build job can read but not write. Only the deploy job can publish,
+# and it runs nothing but the deploy action.
+# Actions are pinned to commit SHAs (tag named in the trailing comment).
+# fetch-depth: 0 because scripts/build_expeditions.py reads git log dates.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      publish: ${{ steps.source.outputs.publish }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Does Pages publish from this workflow?
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          body=$(mktemp)
+          code=$(curl -sS -o "$body" -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/pages") || {
+            echo "::error::API call failed: could not reach api.github.com/repos/$REPO/pages (network or auth error)."
+            exit 1
+          }
+          if [ "$code" = "200" ]; then
+            type=$(python3 -I -B -c "import json; print(json.load(open('$body')).get('build_type', ''))")
+          elif [ "$code" = "404" ]; then
+            type=""
+          else
+            echo "::error::API call failed: HTTP $code from api.github.com/repos/$REPO/pages."
+            exit 1
+          fi
+          rm -f "$body"
+          if [ "$type" = "workflow" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Pages source is not GitHub Actions (build_type='$type', HTTP $code). Nothing deployed."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Site gate and data freshness
+        if: steps.source.outputs.publish == 'true'
+        run: |
+          python3 -I -B scripts/check_site.py
+          python3 -I -B scripts/build_expeditions.py --check
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        if: steps.source.outputs.publish == 'true'
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
