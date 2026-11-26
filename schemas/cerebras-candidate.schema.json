@@ -1,0 +1,70 @@
+{
+  "$id": "https://warp-drive/schemas/cerebras-candidate.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One schema-valid candidate aligned with the frozen demo-2026-11-22 experiment contract (manifest v0.1.1) and pinned Weft compiler quantizations.",
+  "properties": {
+    "eta": {
+      "description": "Adapter learning-rate / step strength within the frozen eta_range.",
+      "maximum": 0.02,
+      "minimum": 0.002,
+      "type": "number"
+    },
+    "lambda": {
+      "description": "Preconditioning ridge value from the frozen lambda_values set.",
+      "enum": [
+        0.1,
+        1,
+        10,
+        "mean_eigenvalue"
+      ]
+    },
+    "lora_scale": {
+      "description": "Adapter application scale allowed for candidates (0.0 or 1.0; -1.0 is reserved for the regressed control).",
+      "enum": [
+        0.0,
+        1.0
+      ],
+      "type": "number"
+    },
+    "quantization": {
+      "description": "Adapter quantization supported by the pinned Weft compiler (SUPPORTED_QUANT_DTYPES).",
+      "enum": [
+        "bf16",
+        "f16",
+        "f32",
+        "int8",
+        "int4"
+      ],
+      "type": "string"
+    },
+    "rank": {
+      "description": "Frozen adapter rank.",
+      "enum": [
+        8
+      ],
+      "type": "integer"
+    },
+    "target_layer": {
+      "const": 31,
+      "description": "Pinned last-layer target index.",
+      "type": "integer"
+    },
+    "target_tensor": {
+      "const": "ffn_up",
+      "description": "Pinned last-layer target tensor.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target_layer",
+    "target_tensor",
+    "eta",
+    "lambda",
+    "rank",
+    "lora_scale",
+    "quantization"
+  ],
+  "title": "Cerebras candidate configuration (frozen demo-2026-11-22 contract)",
+  "type": "object"
+}

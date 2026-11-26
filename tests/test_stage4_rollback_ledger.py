@@ -109,7 +109,8 @@ class TestStage4RollbackAndLedger(unittest.TestCase):
                 )
                 rb = modeld.update_pinned_lineage(new_lineage)
                 self.assertIsNotNone(rb)
-                assert rb is not None
+                if rb is None:
+                    self.fail("expected rollback result on stale lineage update")
                 self.assertEqual(rb.reason, "stale_lineage_auto_unload")
                 self.assertEqual(modeld.status()["active_adapters"], [])
                 self.assertFalse(mock.state.slots[0].recurrent_state_tainted)
@@ -119,7 +120,8 @@ class TestStage4RollbackAndLedger(unittest.TestCase):
                 modeld.mount_stack([bundle])
                 rb2 = modeld.set_learning_enabled(False)
                 self.assertIsNotNone(rb2)
-                assert rb2 is not None
+                if rb2 is None:
+                    self.fail("expected rollback result when learning is disabled")
                 self.assertEqual(rb2.reason, "learning_disabled")
                 with self.assertRaises(KillSwitchEngagedError):
                     modeld.mount_stack([bundle])

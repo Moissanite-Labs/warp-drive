@@ -1,0 +1,298 @@
+{
+  "anchors": {
+    "all_anchors_matched": true,
+    "anchor_mode": "live_readonly",
+    "anchors": [
+      {
+        "expected_line": 41,
+        "id": "SNG-01a",
+        "matched": true,
+        "path": "src/songe/backends/objective.py"
+      },
+      {
+        "expected_line": 38,
+        "id": "SNG-01b",
+        "matched": true,
+        "path": "src/songe/backends/reference.py"
+      },
+      {
+        "expected_line": 115,
+        "id": "SNG-01c",
+        "matched": true,
+        "path": "src/songe/config.py"
+      },
+      {
+        "expected_line": 64,
+        "id": "SNG-02a",
+        "matched": true,
+        "path": "src/songe/sleep/gate.py"
+      },
+      {
+        "expected_line": 76,
+        "id": "SNG-02b",
+        "matched": true,
+        "path": "src/songe/sleep/gate.py"
+      },
+      {
+        "expected_line": 142,
+        "id": "SNG-02c",
+        "matched": true,
+        "path": "src/songe/sleep/gate.py"
+      },
+      {
+        "expected_line": 87,
+        "id": "SNG-02d",
+        "matched": true,
+        "path": "src/songe/practice/pool.py"
+      },
+      {
+        "expected_line": 1073,
+        "id": "SNG-03",
+        "matched": true,
+        "path": "src/songe/sleep/worker.py"
+      },
+      {
+        "expected_line": 181,
+        "id": "SNG-04a",
+        "matched": true,
+        "path": "src/songe/reading/rules.py"
+      },
+      {
+        "expected_line": 226,
+        "id": "SNG-04b",
+        "matched": true,
+        "path": "src/songe/quick.py"
+      },
+      {
+        "expected_line": 471,
+        "id": "SNG-04c",
+        "matched": true,
+        "path": "src/songe/proxy.py"
+      },
+      {
+        "expected_line": 134,
+        "id": "SNG-04d",
+        "matched": true,
+        "path": "src/songe/sleep/prompts.py"
+      },
+      {
+        "expected_line": 663,
+        "id": "SNG-05a",
+        "matched": true,
+        "path": "src/songe/api.py"
+      },
+      {
+        "expected_line": 593,
+        "id": "SNG-05b",
+        "matched": true,
+        "path": "src/songe/api.py"
+      },
+      {
+        "expected_line": 643,
+        "id": "SNG-05c",
+        "matched": true,
+        "path": "src/songe/proxy.py"
+      },
+      {
+        "expected_line": 244,
+        "id": "SNG-06a",
+        "matched": true,
+        "path": "src/songe/schedule.py"
+      },
+      {
+        "expected_line": 189,
+        "id": "SNG-06b",
+        "matched": true,
+        "path": "src/songe/sleep/evaluate.py"
+      },
+      {
+        "expected_line": 444,
+        "id": "SNG-07",
+        "matched": true,
+        "path": "src/songe/log.py"
+      },
+      {
+        "expected_line": 767,
+        "id": "SNG-08a",
+        "matched": true,
+        "path": "src/songe/quick.py"
+      },
+      {
+        "expected_line": 172,
+        "id": "SNG-08b",
+        "matched": true,
+        "path": "src/songe/backends/install.py"
+      },
+      {
+        "expected_line": 287,
+        "id": "SNG-08c",
+        "matched": true,
+        "path": "src/songe/backends/mlx.py"
+      }
+    ],
+    "anchors_total": 21,
+    "anchors_verified": 21,
+    "commit_matches": true,
+    "observed_commit": "5b7b13768e1ac67e7e3284043ec51f24394a740f",
+    "pinned_commit": "5b7b13768e1ac67e7e3284043ec51f24394a740f"
+  },
+  "canonical_sha256": "1d1ef14da712e261406e5cf22818025d914c5632aa26ee6abeafe673d1b63d3c",
+  "cross_pollination_targets": [
+    "Moissanite-Labs/warp-drive",
+    "Moissanite-Labs/hillclimb#4",
+    "magnitudedev/magnitude (AUDIT-068R)"
+  ],
+  "novelty_class": "N1",
+  "pinned_commit": "5b7b13768e1ac67e7e3284043ec51f24394a740f",
+  "proofs": {
+    "sng01_clipped_kl_theorem": {
+      "bregman_clip1_q_1_128_lo": {
+        "den": 25119878672342860634345768423533802261138455523954379329717113600,
+        "num": 28876192250628737494649771482276298163730348024854015641942732389
+      },
+      "bregman_clip1_q_1_64_hi": {
+        "den": 692909060058805412352519255230030381011962890625000000,
+        "num": 793848994954841137478574406535410104034186065748825303
+      },
+      "bregman_clip1_sat_far_strictly_higher": true,
+      "clip_1_4_gibbs_violated_negative": true,
+      "default_clip_1_far_strictly_lower": true,
+      "saturated_logit_gradients_q_1_64": {
+        "bregman_dL_dz0": {
+          "den": 4096,
+          "num": -31
+        },
+        "songe_dL_dz0": {
+          "den": 128,
+          "num": 1
+        }
+      },
+      "songe_clip1_q_1_16_lo": {
+        "den": 798562891376439473014594781307916346964000,
+        "num": 547571117070140144138705091345713977584313
+      },
+      "songe_clip1_q_1_32_hi": {
+        "den": 2136068464101637338915312295721618515635508867,
+        "num": 1429672244037169441318145022030754247545187827
+      },
+      "songe_clip_1_4_q_1_32_hi": {
+        "den": 8544273856406549355661249182886474062542035468,
+        "num": -689516416156234251473356799041838556725775293
+      }
+    },
+    "sng01_to_08_governance_boundary": {
+      "hardened_admitted": true,
+      "hardened_reasons": [],
+      "legacy_risky_admitted": false,
+      "legacy_risky_reason_count": 9,
+      "legacy_risky_reasons": [
+        "CLIPPED_KL_NON_BREGMAN",
+        "FUSED_ARTIFACT_NOT_REJUDGED",
+        "PROMPT_RULE_INJECTION_UNSANITIZED",
+        "CONTROL_API_UNAUTHENTICATED",
+        "BASE_FINGERPRINT_NOT_CRYPTOGRAPHIC",
+        "BODY_SECRET_REDACTION_MISSING",
+        "JUDGE_VERDICT_REGEX_FALLBACK",
+        "UNPINNED_RUNTIME_PIP_INSTALL",
+        "EVAL_SAMPLING_NONDETERMINISTIC"
+      ]
+    },
+    "sng02_03_gate_bootstrap_vs_ville": {
+      "songe_bootstrap_n1_k2": {
+        "bootstrap_lower": {
+          "den": 1,
+          "num": 1
+        },
+        "bootstrap_zero_variance": true,
+        "multi_scale_null_fwer": {
+          "den": 4,
+          "num": 3
+        },
+        "num_scales": 2,
+        "per_scale_null_false_accept": {
+          "den": 2,
+          "num": 1
+        },
+        "songe_accepts": true,
+        "unanimous_wins": 1
+      },
+      "songe_bootstrap_n3_k2": {
+        "bootstrap_lower": {
+          "den": 1,
+          "num": 1
+        },
+        "bootstrap_zero_variance": true,
+        "multi_scale_null_fwer": {
+          "den": 64,
+          "num": 15
+        },
+        "num_scales": 2,
+        "per_scale_null_false_accept": {
+          "den": 8,
+          "num": 1
+        },
+        "songe_accepts": true,
+        "unanimous_wins": 3
+      },
+      "ville_3_moments_1_conv_unfused": {
+        "accepted": false,
+        "conversation_losses": 0,
+        "conversation_wins": 1,
+        "independent_conversations": 1,
+        "lead_ratio": {
+          "den": 2,
+          "num": 3
+        },
+        "reasons": [
+          "INSUFFICIENT_INDEPENDENT_CONVERSATIONS",
+          "FUSED_ARTIFACT_NOT_REJUDGED",
+          "SUPERMARTINGALE_THRESHOLD_NOT_MET"
+        ],
+        "threshold": {
+          "den": 1,
+          "num": 80
+        }
+      },
+      "ville_8_convs_k2_rejected": {
+        "accepted": false,
+        "conversation_losses": 0,
+        "conversation_wins": 8,
+        "independent_conversations": 8,
+        "lead_ratio": {
+          "den": 9,
+          "num": 511
+        },
+        "reasons": [
+          "SUPERMARTINGALE_THRESHOLD_NOT_MET"
+        ],
+        "threshold": {
+          "den": 1,
+          "num": 80
+        }
+      },
+      "ville_9_convs_k2_accepted": {
+        "accepted": true,
+        "conversation_losses": 0,
+        "conversation_wins": 9,
+        "independent_conversations": 9,
+        "lead_ratio": {
+          "den": 10,
+          "num": 1023
+        },
+        "reasons": [],
+        "threshold": {
+          "den": 1,
+          "num": 80
+        }
+      }
+    },
+    "sng04_07_payload_detectors": {
+      "body_secret_detected": true,
+      "hindsight_breakout_detected": true,
+      "redacted_body_clean": true
+    }
+  },
+  "schema": "expedition.round8.songe_distill_governance.v1",
+  "target_repo": "sous-labs/songe",
+  "zero_float_arithmetic": true
+}

@@ -1,0 +1,241 @@
+{
+  "audit_id": "AUDIT-065",
+  "findings_wd_x01_to_wd_x08": [
+    {
+      "anchor": "src/warp_modeld/verifier.py:234-249,269-295",
+      "id": "WD-X01",
+      "severity": "high",
+      "summary": "SSM-only hybrid rollback certifies verified_clean=True with empty banks_confirmed=[] when backend omits banks_flushed/state_banks"
+    },
+    {
+      "anchor": "src/warp_modeld/fingerprint.py:259-265,557-575 vs siliconcordat/weft/src/weft/binding.py:252-253,293-313",
+      "id": "WD-X02",
+      "severity": "high",
+      "summary": "from_weft_binding skips Hard Veto 1 plane1_hashes check, silently drops generation_config/special_tokens_map via config.json short-circuit, and leaves runtime_flags check optional"
+    },
+    {
+      "anchor": "src/warp_modeld/fingerprint.py:234-279,526-620,695-707",
+      "id": "WD-X03",
+      "severity": "medium",
+      "summary": "from_weft_binding drops has_ssm_recurrent/has_horizontal_lattice, blocking native weft mounts on hybrid SSM or Latent Lattice hosts"
+    },
+    {
+      "anchor": "src/warp_modeld/fingerprint.py:87-128 vs siliconcordat/exo/src/exo/router.py:53-128 vs siliconcordat/mde/src/zone_manifest.rs:21-40",
+      "id": "WD-X04",
+      "severity": "medium",
+      "summary": "3-way zone-manifest/v0.1 validation asymmetry: exo lacks u8<=255 & duplicate l1_bank_tag checks while warp-drive omits precedence_order & valid zone checks"
+    },
+    {
+      "anchor": "src/warp_modeld/ledger.py:125,255-327 vs server.py:21-32 & siliconcordat/exo/src/exo/ledger.py:19-78",
+      "id": "WD-X05",
+      "severity": "medium",
+      "summary": "LedgerVerifier.verify_file uses bare json.loads (accepts shadowed duplicate keys) and SignedLedger lacks pre-JSON secret redaction"
+    },
+    {
+      "anchor": "blueprints/recovery/warp-recovery.sh:40-43,54-75 & blueprints/mkosi/mkosi.conf:21 & ARCHITECTURE.md:128-133",
+      "id": "WD-X06",
+      "severity": "high",
+      "summary": "UKI rollback copies warp-current.efi (hardcoding rootflags=subvol=@) and sets bootctl oneshot without retargeting subvolume or swapping @; /var/lib/warp/snapshots omitted from persistent subvolumes"
+    },
+    {
+      "anchor": "blueprints/mkosi/harden-image-modes.sh:32-52, mkosi.postinst:21-33, blueprints/systemd/warp-modeld.service:9-15",
+      "id": "WD-X07",
+      "severity": "medium",
+      "summary": "harden-image-modes.sh omits /etc/warp parent; warp-modeld.service Group=warp-rpc + StateDirectory=warp-ledger collides with postinst warp-modeld:warp-modeld & root:warp-modeld /etc/warp/keys; mkosi lacks extra installer tree"
+    },
+    {
+      "anchor": "tests/test_stage4_rollback_ledger.py:112,122, tests/test_live_llama_smoke.py:140, tests/helpers.py:127-135",
+      "id": "WD-X08",
+      "severity": "low",
+      "summary": "3 bare asserts in test suite (blocking aletheia audit-check PASS) and make_adapter_bundle_dict omits has_ssm_recurrent/has_horizontal_lattice"
+    }
+  ],
+  "hardened_cross_org_gates": {
+    "full_config_bundle_caught_generation_config_drift": true,
+    "r3_negative_controls": {
+      "all_r3_rejected": true,
+      "count": 12,
+      "exceptions": {
+        "r3_int_bool": "TypeError",
+        "r3_int_float": "TypeError",
+        "r3_scale_float_rejected": "TypeError",
+        "r3_wd_x01_ssm_missing_bank_status": "ValueError",
+        "r3_wd_x01_ssm_unconfirmed_banks": "ValueError",
+        "r3_wd_x02a_empty_plane1_hashes": "ValueError",
+        "r3_wd_x02c_ctx_size_cross_layer_drift": "ValueError",
+        "r3_wd_x02c_omitted_runtime_flags_sha": "ValueError",
+        "r3_wd_x03_lattice_zero_layers": "ValueError",
+        "r3_wd_x04_exo_u8_overflow": "ValueError",
+        "r3_wd_x04_warp_empty_precedence": "ValueError",
+        "r3_wd_x05_ledger_duplicate_key": "ValueError"
+      }
+    },
+    "strict_ledger_dup_key_and_redaction_verified": true,
+    "strict_multibank_ssm_verified": true,
+    "strict_weft_binding_verified": true,
+    "unified_zone_manifest_id": "sha256:ff68ba3f5e83a417de903c7ff721fe04a0dd5b73b23677899f3888d7ceea1f85"
+  },
+  "honest_novelty_claim": "N1",
+  "law4_n0_quarantine": [
+    "R6-N0-01: Bareiss (1968), Haynsworth (1968), Sylvester (1852)",
+    "R6-N0-02: Linux Landlock, seccomp-bpf, bubblewrap, systemd, mkosi, btrfs, UKI",
+    "R6-N0-03: RFC 2104 HMAC-SHA256 hash-chained append-only ledgers",
+    "R6-N0-04: Existing siliconcordat/{warp,weft,mde,exo} & Moissanite-Labs/warp-drive contracts",
+    "R6-N0-05: ml-os#6 empirical measurements, Latent Lattice LM (arXiv:2611.21608), Issues #2-#7",
+    "R6-N0-06: Prior verified expedition audits AUDIT-001..060 (weft#227, weft-loom#42, scry#4, tokenpage#13, warp#17)"
+  ],
+  "live_ecosystem_audit": {
+    "blueprint_static_audit": {
+      "llama_unit_enforces_lora_init_without_apply": true,
+      "wd_x06_snapshots_subvol_declared_in_arch": false,
+      "wd_x06_uki_subvol_disconnect": true,
+      "wd_x07a_etc_warp_missing_from_harden_ancestors": true,
+      "wd_x07b_statedir_and_keys_group_collision": true,
+      "wd_x07c_binaries_installed_by_mkosi": false
+    },
+    "issue2_weft_disambiguation": {
+      "moissanite_weft_has_compiler_at_src_weft": false,
+      "moissanite_weft_has_runtime_ic_and_invariants": true,
+      "siliconcordat_weft_has_compiler": true
+    },
+    "mode": "live_anchored",
+    "pinned_head_shas": {
+      "moissanite_scry": "026b78e1cddd7c7220cc03835fcf1da2d96513aa",
+      "moissanite_tokenpage": "81c752406e170e34fc99302538c738a3af88093a",
+      "moissanite_weft": "c08b9695d9930f637b8a6fdc00af5809fb883995",
+      "moissanite_weft_loom": "4b6b714500e377db5442036364c861a11d14caec",
+      "siliconcordat_exo": "cb78b860d22504d88bfbe23a2196d1cbbba0e52d",
+      "siliconcordat_mde": "52ce0178854a67490eb718544961ba6cff710f22",
+      "siliconcordat_warp": "e3899d3e0ef7697052e74e7a4f99f510d2b63ad5",
+      "siliconcordat_weft": "5d7eac03696c2ff07ec70308b23b86a1d4088c1e",
+      "warp_drive_main": "e3899d3e0ef7697052e74e7a4f99f510d2b63ad5",
+      "warp_drive_pr1": "8d9f81557059631dfbb71eebf61988dfde5ef70a"
+    },
+    "real_mde_zone_manifest_verified": {
+      "bank_tags": {
+        "code": 1,
+        "condensed_json": 4,
+        "formal_proof": 3,
+        "prose": 0,
+        "ui_module": 2
+      },
+      "manifest_id": "sha256:4e00656cb47fce97f687ae638afba22c569b9680b3780eeb2e5ea71a62c55eca",
+      "precedence_order": [
+        "formal_proof",
+        "condensed_json",
+        "ui_module",
+        "code",
+        "prose"
+      ],
+      "scales_exact": {
+        "code": {
+          "corpus": "2/5",
+          "formal-verification": "1/2",
+          "weft-eido": "0"
+        },
+        "condensed_json": {
+          "corpus": "0",
+          "formal-verification": "0",
+          "weft-eido": "0"
+        },
+        "formal_proof": {
+          "corpus": "0",
+          "formal-verification": "1",
+          "weft-eido": "0"
+        },
+        "prose": {
+          "corpus": "1",
+          "formal-verification": "0",
+          "weft-eido": "0"
+        },
+        "ui_module": {
+          "corpus": "1/5",
+          "formal-verification": "0",
+          "weft-eido": "1"
+        }
+      }
+    },
+    "repos_inspected_read_only": 10,
+    "source_anchors_verified": {
+      "wd_x01_verifier_ssm_branch_unguarded": true,
+      "wd_x02a_from_weft_binding_ignores_plane1_hashes": true,
+      "wd_x02b_from_weft_binding_short_circuits_config_tok": true,
+      "wd_x02c_from_weft_binding_optional_runtime_flags": true,
+      "wd_x03_from_weft_binding_omits_ssm_lattice": true,
+      "wd_x04_exo_router_lacks_u8_cap_and_dup_check": true,
+      "wd_x04_warp_verify_zm_omits_precedence_order": true,
+      "wd_x05_ledger_uses_plain_json_loads": true,
+      "wd_x08_helpers_make_bundle_omits_ssm": true,
+      "wd_x08_test_bare_assert_lines": {
+        "tests/test_live_llama_smoke.py": [
+          140
+        ],
+        "tests/test_stage4_rollback_ledger.py": [
+          112,
+          122
+        ]
+      }
+    },
+    "warp_drive_equals_siliconcordat_warp_zero_diff": true,
+    "warp_drive_file_count": 45,
+    "warp_drive_pr1_study_sha256s": {
+      "README.md": "5599a8a6a73d1faf1a6de03db455ab114cad6c3d4ee6e7da8138ef53889ee73a",
+      "bareiss_gram_gate.py": "5f5e6bc030230a7c6e9163144d0a52643c725c272e8957405c7bd37b09cbb4ea",
+      "run_bareiss_warp_study.py": "6e8b010553fd7a9e14d996ec0691d5a5ebfb4fe2ba8a0dacdc6e6fe8fad7317b"
+    }
+  },
+  "oracle_class": "exact+anchor",
+  "phase3_draft_pr_blueprint": {
+    "base_branch": "main",
+    "draft_pr_stack": [
+      {
+        "arms": [
+          "Arm R6-2 (AUDIT-062)",
+          "Arm R6-5 (AUDIT-065)"
+        ],
+        "branch": "feat/hardening-trust-boundary-and-cross-org-gates",
+        "linked_issues": [
+          "#3",
+          "#7"
+        ],
+        "pr_order": 1,
+        "scope": "Fix WD-X01..WD-X08 + Arm R6-2 runtime/sandbox findings + non-importing verifier & real mde zone-manifest fixture"
+      },
+      {
+        "arms": [
+          "Arm R6-3 (AUDIT-063)"
+        ],
+        "branch": "feat/frozen-contract-and-bounded-controller",
+        "linked_issues": [
+          "#3",
+          "#4",
+          "#5",
+          "#6"
+        ],
+        "pr_order": 2,
+        "scope": "Frozen manifest + family split-leakage audit + 5-op bounded controller + redacted Kimi-on-Cerebras contract"
+      },
+      {
+        "arms": [
+          "Arm R6-1 (AUDIT-061)",
+          "Arm R6-4 (AUDIT-064)"
+        ],
+        "branch": "feat/governed-weight-iteration-and-gram-upgrades",
+        "linked_issues": [
+          "#2",
+          "#3"
+        ],
+        "pr_order": 3,
+        "scope": "Last-layer blk.31 / lattice-state isolation invariants + non-author PR #1 Gram certificate upgrades (compatible with PR #1)"
+      }
+    ],
+    "github_actions_policy": "ZERO new workflows (respects Issue #3 org billing limit)",
+    "target_repo": "Moissanite-Labs/warp-drive",
+    "untouched_branches": [
+      "main",
+      "port/bareiss-gram-stack-cert (PR #1)"
+    ]
+  },
+  "probe": "weft_cross_audit_gate",
+  "zero_floats": true
+}
