@@ -1,0 +1,953 @@
+{
+  "anchors": {
+    "all_anchors_matched": true,
+    "anchor_mode": "live_readonly",
+    "anchors": [
+      {
+        "finding_id": "RZ-01a",
+        "line": 1622,
+        "matched": true,
+        "path": "REINFORCE-Zero.txt"
+      },
+      {
+        "finding_id": "RZ-01b",
+        "line": 1625,
+        "matched": true,
+        "path": "REINFORCE-Zero.txt"
+      },
+      {
+        "finding_id": "RZ-01c",
+        "line": 1666,
+        "matched": true,
+        "path": "REINFORCE-Zero.txt"
+      },
+      {
+        "finding_id": "RZ-01d",
+        "line": 1710,
+        "matched": true,
+        "path": "REINFORCE-Zero.txt"
+      },
+      {
+        "finding_id": "RZ-01e",
+        "line": 120,
+        "matched": true,
+        "path": "REINFORCE-Zero/ALGORITHM.md"
+      },
+      {
+        "finding_id": "RZ-01f",
+        "line": 144,
+        "matched": true,
+        "path": "REINFORCE-Zero/ALGORITHM.md"
+      },
+      {
+        "finding_id": "RZ-01g",
+        "line": 33,
+        "matched": true,
+        "path": "REINFORCE-Zero/README.md"
+      },
+      {
+        "finding_id": "RZ-02a",
+        "line": 20,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/contracts.md"
+      },
+      {
+        "finding_id": "RZ-02b",
+        "line": 32,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/debugging.md"
+      },
+      {
+        "finding_id": "RZ-02c",
+        "line": 152,
+        "matched": true,
+        "path": "REINFORCE-Zero/ALGORITHM.md"
+      },
+      {
+        "finding_id": "RZ-03a",
+        "line": 59,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/SKILL.md"
+      },
+      {
+        "finding_id": "RZ-03b",
+        "line": 296,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      },
+      {
+        "finding_id": "RZ-03c",
+        "line": 356,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      },
+      {
+        "finding_id": "RZ-03d",
+        "line": 362,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      },
+      {
+        "finding_id": "RZ-04a",
+        "line": 51,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      },
+      {
+        "finding_id": "RZ-04b",
+        "line": 30,
+        "matched": true,
+        "path": "zero-mismatch-rl/cases/nemotron/reports/vllm-flashinfer-kvscale-reload-bug.md"
+      },
+      {
+        "finding_id": "RZ-05a",
+        "line": 26,
+        "matched": true,
+        "path": "zero-mismatch-rl/cases/nemotron/reports/skill-admission.md"
+      },
+      {
+        "finding_id": "RZ-05b",
+        "line": 68,
+        "matched": true,
+        "path": "zero-mismatch-rl/cases/nemotron/reports/skill-admission.md"
+      },
+      {
+        "finding_id": "RZ-05c",
+        "line": 14,
+        "matched": true,
+        "path": "zero-mismatch-rl/skill/templates/audit-verdict.yaml"
+      },
+      {
+        "finding_id": "RZ-05d",
+        "line": 123,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/debugging.md"
+      },
+      {
+        "finding_id": "RZ-05e",
+        "line": 127,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/debugging.md"
+      },
+      {
+        "finding_id": "RZ-05f",
+        "line": 130,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      },
+      {
+        "finding_id": "RZ-05g",
+        "line": 285,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/acceptance.md"
+      },
+      {
+        "finding_id": "RZ-05h",
+        "line": 319,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/acceptance.md"
+      },
+      {
+        "finding_id": "RZ-05i",
+        "line": 259,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/workflow.md"
+      },
+      {
+        "finding_id": "RZ-07",
+        "line": 156,
+        "matched": true,
+        "path": "REINFORCE-Zero/skills/train-inference-consistency/molt-integration.md"
+      }
+    ],
+    "anchors_total": 26,
+    "anchors_verified": 26,
+    "pdf_sha256_matches": true,
+    "rz_commit_observed": "a22153de4b8c4b47faf5bf88a598d6d54801bfc7",
+    "rz_commit_pinned": "a22153de4b8c4b47faf5bf88a598d6d54801bfc7",
+    "txt_sha256_matches": true,
+    "zm_commit_observed": "136aca87d8158adae94b5a272fa4a8a6d5cd6939",
+    "zm_commit_pinned": "136aca87d8158adae94b5a272fa4a8a6d5cd6939"
+  },
+  "canonical_sha256": "00e62ec8f6fbea6b1af2f7eb1322532fe456fa8e086815bd166dbdf02925bc2d",
+  "cross_pollination_targets": [
+    "magnitudedev/magnitude (AUDIT-068R MAG-01/MAG-02)",
+    "Moissanite-Labs/warp-drive#15 (Stage-1 RuntimeFlags & derived-scale flush)",
+    "loom-fun/unsloth-Inkling-2-Mini-loom (AUDIT-074R speculative/top-k truncation)",
+    "Foundation-0/aletheia v1.4.0 & LangChain Knowledge Factory (AUDIT-076R skill governance)"
+  ],
+  "novelty_class": "N1",
+  "proofs": {
+    "rz_01_gaussian_tim": {
+      "kappa_0": {
+        "A_kappa_dec": [
+          "3.000000",
+          "3.000000"
+        ],
+        "C_kappa_dec": [
+          "2.500000",
+          "2.500000"
+        ],
+        "D_kappa_dec": [
+          "0.000000",
+          "0.000000"
+        ],
+        "V_inf_dec": [
+          "0.300000",
+          "0.300000"
+        ],
+        "V_steps_persistent_neg_dec": [
+          "0.300000",
+          "0.300000"
+        ],
+        "V_steps_persistent_pos_dec": [
+          "0.300000",
+          "0.300000"
+        ],
+        "V_steps_sym_dec": [
+          "0.300000",
+          "0.300000"
+        ],
+        "batch_size": 1,
+        "c_noise_dec": [
+          "0.036000",
+          "0.036000"
+        ],
+        "eta": {
+          "den": 5,
+          "num": 3
+        },
+        "eta_max_dec": [
+          "0.666667",
+          "0.666667"
+        ],
+        "exact_zero_kappa": {
+          "V_inf": {
+            "den": 10,
+            "num": 3
+          },
+          "c_noise": {
+            "den": 250,
+            "num": 9
+          },
+          "eta_max": {
+            "den": 3,
+            "num": 2
+          },
+          "rho": {
+            "den": 25,
+            "num": 22
+          }
+        },
+        "kappa": {
+          "den": 1,
+          "num": 0
+        },
+        "persistent_pos_strictly_worse": false,
+        "rho_dec": [
+          "0.880000",
+          "0.880000"
+        ],
+        "sigma": {
+          "den": 5,
+          "num": 1
+        },
+        "stable_proven": true,
+        "step1_persistent_pos_jump_dec": [
+          "0.000000",
+          "0.000000"
+        ],
+        "steps": 200,
+        "unstable_proven": false
+      },
+      "kappa_crit_lower_stable": {
+        "A_kappa_dec": [
+          "3.333271",
+          "3.333271"
+        ],
+        "C_kappa_dec": [
+          "2.910801",
+          "2.910801"
+        ],
+        "D_kappa_dec": [
+          "2.416572",
+          "2.416572"
+        ],
+        "V_inf_dec": [
+          "1860.838592",
+          "1860.838592"
+        ],
+        "V_steps_persistent_neg_dec": [
+          "9.071157",
+          "9.071157"
+        ],
+        "V_steps_persistent_pos_dec": [
+          "9.648549",
+          "9.648549"
+        ],
+        "V_steps_sym_dec": [
+          "9.359853",
+          "9.359853"
+        ],
+        "batch_size": 1,
+        "c_noise_dec": [
+          "0.041916",
+          "0.041916"
+        ],
+        "eta": {
+          "den": 5,
+          "num": 3
+        },
+        "eta_max_dec": [
+          "0.600011",
+          "0.600011"
+        ],
+        "exact_zero_kappa": null,
+        "kappa": {
+          "den": 2500,
+          "num": 473
+        },
+        "persistent_pos_strictly_worse": true,
+        "rho_dec": [
+          "0.999977",
+          "0.999977"
+        ],
+        "sigma": {
+          "den": 5,
+          "num": 1
+        },
+        "stable_proven": true,
+        "step1_persistent_pos_jump_dec": [
+          "0.173993",
+          "0.173993"
+        ],
+        "steps": 200,
+        "unstable_proven": false
+      },
+      "kappa_crit_upper_unstable": {
+        "A_kappa_dec": [
+          "3.333635",
+          "3.333635"
+        ],
+        "C_kappa_dec": [
+          "2.911254",
+          "2.911254"
+        ],
+        "D_kappa_dec": [
+          "2.418008",
+          "2.418008"
+        ],
+        "V_inf_dec": null,
+        "V_steps_persistent_neg_dec": [
+          "9.201188",
+          "9.201188"
+        ],
+        "V_steps_persistent_pos_dec": [
+          "9.794150",
+          "9.794150"
+        ],
+        "V_steps_sym_dec": [
+          "9.497669",
+          "9.497669"
+        ],
+        "batch_size": 1,
+        "c_noise_dec": [
+          "0.041922",
+          "0.041922"
+        ],
+        "eta": {
+          "den": 5,
+          "num": 3
+        },
+        "eta_max_dec": [
+          "0.599946",
+          "0.599946"
+        ],
+        "exact_zero_kappa": null,
+        "kappa": {
+          "den": 10000,
+          "num": 1893
+        },
+        "persistent_pos_strictly_worse": true,
+        "rho_dec": [
+          "1.000109",
+          "1.000109"
+        ],
+        "sigma": {
+          "den": 5,
+          "num": 1
+        },
+        "stable_proven": false,
+        "step1_persistent_pos_jump_dec": [
+          "0.174097",
+          "0.174097"
+        ],
+        "steps": 200,
+        "unstable_proven": true
+      },
+      "kappa_one_fifth": {
+        "A_kappa_dec": [
+          "3.373892",
+          "3.373892"
+        ],
+        "C_kappa_dec": [
+          "2.961331",
+          "2.961331"
+        ],
+        "D_kappa_dec": [
+          "2.573217",
+          "2.573217"
+        ],
+        "V_inf_dec": null,
+        "V_steps_persistent_neg_dec": [
+          "62.795538",
+          "62.795538"
+        ],
+        "V_steps_persistent_pos_dec": [
+          "73.743150",
+          "73.743150"
+        ],
+        "V_steps_sym_dec": [
+          "68.269344",
+          "68.269344"
+        ],
+        "batch_size": 1,
+        "c_noise_dec": [
+          "0.042643",
+          "0.042643"
+        ],
+        "eta": {
+          "den": 5,
+          "num": 3
+        },
+        "eta_max_dec": [
+          "0.592787",
+          "0.592787"
+        ],
+        "exact_zero_kappa": null,
+        "kappa": {
+          "den": 5,
+          "num": 1
+        },
+        "persistent_pos_strictly_worse": true,
+        "rho_dec": [
+          "1.014601",
+          "1.014601"
+        ],
+        "sigma": {
+          "den": 5,
+          "num": 1
+        },
+        "stable_proven": false,
+        "step1_persistent_pos_jump_dec": [
+          "0.185272",
+          "0.185272"
+        ],
+        "steps": 200,
+        "unstable_proven": true
+      },
+      "variance_mismatch": {
+        "gamma_sq_1": {
+          "A_gamma_dec": [
+            "3.000000",
+            "3.000000"
+          ],
+          "A_gamma_sq": {
+            "den": 1,
+            "num": 9
+          },
+          "batch_size": 1,
+          "eta": {
+            "den": 5,
+            "num": 3
+          },
+          "eta_max_dec": [
+            "0.666667",
+            "0.666667"
+          ],
+          "gamma_sq": {
+            "den": 1,
+            "num": 1
+          },
+          "infinite_variance": false,
+          "stable_proven": true,
+          "unstable_proven": false
+        },
+        "gamma_sq_49_100_subcritical_infinite": {
+          "A_gamma_sq": null,
+          "batch_size": 1,
+          "eta": {
+            "den": 100,
+            "num": 1
+          },
+          "eta_max_dec": [
+            "0.000000",
+            "0.000000"
+          ],
+          "gamma_sq": {
+            "den": 100,
+            "num": 49
+          },
+          "infinite_variance": true,
+          "stable_proven": false,
+          "unstable_proven": true
+        },
+        "gamma_sq_81_100": {
+          "A_gamma_dec": [
+            "5.267410",
+            "5.267410"
+          ],
+          "A_gamma_sq": {
+            "den": 91613283200,
+            "num": 2541865828329
+          },
+          "batch_size": 1,
+          "eta": {
+            "den": 5,
+            "num": 3
+          },
+          "eta_max_dec": [
+            "0.379693",
+            "0.379693"
+          ],
+          "gamma_sq": {
+            "den": 100,
+            "num": 81
+          },
+          "infinite_variance": false,
+          "stable_proven": false,
+          "unstable_proven": true
+        },
+        "gamma_sq_9_16": {
+          "A_gamma_dec": [
+            "96.652658",
+            "96.652658"
+          ],
+          "A_gamma_sq": {
+            "den": 512,
+            "num": 4782969
+          },
+          "batch_size": 1,
+          "eta": {
+            "den": 5,
+            "num": 3
+          },
+          "eta_max_dec": [
+            "0.020693",
+            "0.020693"
+          ],
+          "gamma_sq": {
+            "den": 16,
+            "num": 9
+          },
+          "infinite_variance": false,
+          "stable_proven": false,
+          "unstable_proven": true
+        },
+        "gamma_sq_half_critical_infinite": {
+          "A_gamma_sq": null,
+          "batch_size": 1,
+          "eta": {
+            "den": 100,
+            "num": 1
+          },
+          "eta_max_dec": [
+            "0.000000",
+            "0.000000"
+          ],
+          "gamma_sq": {
+            "den": 2,
+            "num": 1
+          },
+          "infinite_variance": true,
+          "stable_proven": false,
+          "unstable_proven": true
+        }
+      }
+    },
+    "rz_02_discrete_is_vs_sc": {
+      "full_support_sc_sign_reversal": {
+        "e_q_As": {
+          "den": 10,
+          "num": -13
+        },
+        "e_q_ws": {
+          "den": 1,
+          "num": 0
+        },
+        "g_is": {
+          "den": 1,
+          "num": 4
+        },
+        "g_sc": {
+          "den": 5,
+          "num": -13
+        },
+        "g_star": {
+          "den": 1,
+          "num": 4
+        },
+        "is_bias": {
+          "den": 1,
+          "num": 0
+        },
+        "is_unbiased": true,
+        "sc_covariance_bias": {
+          "den": 5,
+          "num": -33
+        },
+        "sc_sign_reversed": true,
+        "score_mean_drift": {
+          "den": 10,
+          "num": 13
+        },
+        "support_complete": true,
+        "var_on_policy": {
+          "den": 1,
+          "num": 38
+        },
+        "var_unclipped_is": {
+          "den": 9,
+          "num": 4376
+        }
+      },
+      "truncated_support_is_breaks": {
+        "e_q_As": {
+          "den": 19,
+          "num": -36
+        },
+        "e_q_ws": {
+          "den": 2,
+          "num": -1
+        },
+        "g_is": {
+          "den": 1,
+          "num": -1
+        },
+        "g_sc": {
+          "den": 361,
+          "num": -1440
+        },
+        "g_star": {
+          "den": 1,
+          "num": 4
+        },
+        "is_bias": {
+          "den": 1,
+          "num": -5
+        },
+        "is_unbiased": false,
+        "sc_covariance_bias": {
+          "den": 361,
+          "num": -2884
+        },
+        "sc_sign_reversed": true,
+        "score_mean_drift": {
+          "den": 361,
+          "num": 756
+        },
+        "support_complete": false,
+        "var_on_policy": {
+          "den": 1,
+          "num": 38
+        },
+        "var_unclipped_is": {
+          "den": 9,
+          "num": 10
+        }
+      }
+    },
+    "rz_03_to_07_governance_boundary": {
+      "hardened_admitted": {
+        "admitted": true,
+        "reasons": []
+      },
+      "unhardened_rejected": {
+        "admitted": false,
+        "reasons": [
+          "KERNEL_EXECUTION_NOT_PINNED",
+          "CUDAGRAPH_DELIVERY_CLOSURE_INVALID",
+          "DERIVED_SCALE_CACHE_STALE",
+          "SSM_STATE_PRECISION_DEGRADED",
+          "LORA_MERGE_ROUNDING_MISMATCH",
+          "SPECULATIVE_MTP_UNVERIFIED",
+          "SUPPORT_TRUNCATION_BREAKS_IS",
+          "BITWISE_FALSE_GREEN_OR_NONZERO_MISMATCH",
+          "INSECURE_PICKLE_SERIALIZATION_ENABLED",
+          "VERIFIER_BARE_ASSERT_O_STRIPPING_HAZARD",
+          "CHECKPOINT_RESUME_UNVERIFIED",
+          "AGENT_SELF_APPROVAL_OR_ROLE_COLLAPSE",
+          "AUDIT_VERDICT_OR_PLANTED_ERROR_INVALID",
+          "ROLLOUT_THROUGHPUT_BUDGET_EXCEEDED"
+        ]
+      }
+    },
+    "rz_06_paper_tables_exact": {
+      "table1": [
+        {
+          "diff": {
+            "den": 100,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 25,
+            "num": 1007
+          },
+          "recipe": "Base R1-Distill-1.5B",
+          "reported_macro": {
+            "den": 100,
+            "num": 4029
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 1,
+            "num": 0
+          },
+          "exact_macro": {
+            "den": 100,
+            "num": 4891
+          },
+          "recipe": "Sync TII (6k)",
+          "reported_macro": {
+            "den": 100,
+            "num": 4891
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 250,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 250,
+            "num": 11329
+          },
+          "recipe": "Async IS (6k)",
+          "reported_macro": {
+            "den": 25,
+            "num": 1133
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 250,
+            "num": 1
+          },
+          "exact_macro": {
+            "den": 500,
+            "num": 23397
+          },
+          "recipe": "Async IS + Seq gate (6k)",
+          "reported_macro": {
+            "den": 100,
+            "num": 4679
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 250,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 500,
+            "num": 22293
+          },
+          "recipe": "Async IS + Token gate (6k)",
+          "reported_macro": {
+            "den": 100,
+            "num": 4459
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 500,
+            "num": 1
+          },
+          "exact_macro": {
+            "den": 500,
+            "num": 23751
+          },
+          "recipe": "SC (TII) (6k)",
+          "reported_macro": {
+            "den": 2,
+            "num": 95
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 500,
+            "num": 3
+          },
+          "exact_macro": {
+            "den": 500,
+            "num": 24403
+          },
+          "recipe": "REINFORCE Zero lag 2 (6k)",
+          "reported_macro": {
+            "den": 5,
+            "num": 244
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 500,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 125,
+            "num": 6066
+          },
+          "recipe": "REINFORCE Zero lag 8 (6k)",
+          "reported_macro": {
+            "den": 100,
+            "num": 4853
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 500,
+            "num": 1
+          },
+          "exact_macro": {
+            "den": 500,
+            "num": 25551
+          },
+          "recipe": "REINFORCE Zero lag 2 (20k)",
+          "reported_macro": {
+            "den": 10,
+            "num": 511
+          },
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 500,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 125,
+            "num": 6366
+          },
+          "recipe": "REINFORCE Zero lag 8 (20k)",
+          "reported_macro": {
+            "den": 100,
+            "num": 5093
+          },
+          "within_display_rounding": true
+        }
+      ],
+      "table1_all_within_0_01": true,
+      "table1_rows_verified": 10,
+      "table3": [
+        {
+          "diff": {
+            "den": 400,
+            "num": 1
+          },
+          "exact_macro": {
+            "den": 400,
+            "num": 12517
+          },
+          "reported_macro": {
+            "den": 100,
+            "num": 3129
+          },
+          "stage": "Before RL (16K)",
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 1,
+            "num": 0
+          },
+          "exact_macro": {
+            "den": 50,
+            "num": 3289
+          },
+          "reported_macro": {
+            "den": 50,
+            "num": 3289
+          },
+          "stage": "Update 500 (16K)",
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 200,
+            "num": -1
+          },
+          "exact_macro": {
+            "den": 200,
+            "num": 14309
+          },
+          "reported_macro": {
+            "den": 20,
+            "num": 1431
+          },
+          "stage": "Update 3000 (16K)",
+          "within_display_rounding": true
+        },
+        {
+          "diff": {
+            "den": 400,
+            "num": 1
+          },
+          "exact_macro": {
+            "den": 400,
+            "num": 29057
+          },
+          "reported_macro": {
+            "den": 25,
+            "num": 1816
+          },
+          "stage": "Final (32K)",
+          "within_display_rounding": true
+        }
+      ],
+      "table3_all_within_0_005": true,
+      "table3_rows_verified": 4,
+      "table4_osworld_gain": {
+        "den": 100,
+        "num": 519
+      },
+      "table5_rz_sec_per_update": {
+        "den": 200,
+        "num": 4113
+      },
+      "table5_speedup_dec": "2.4036",
+      "table5_speedup_exact": {
+        "den": 6855,
+        "num": 16477
+      },
+      "table5_sync_sec_per_update": {
+        "den": 1000,
+        "num": 49431
+      },
+      "table6_osworld_step_overhead": {
+        "den": 88417,
+        "num": 6008
+      },
+      "table6_osworld_step_overhead_dec": "0.0680",
+      "zero_mismatch_ds_v4_flash_loss": {
+        "den": 379,
+        "num": 33
+      },
+      "zero_mismatch_ds_v4_flash_loss_dec": "0.0871"
+    }
+  },
+  "schema": "reinforce-zero-tii-audit.v1",
+  "targets": [
+    "hijkzzz/REINFORCE-Zero@a22153de4b8c4b47faf5bf88a598d6d54801bfc7",
+    "Inferact/zero-mismatch-rl@136aca87d8158adae94b5a272fa4a8a6d5cd6939"
+  ],
+  "zero_float_arithmetic": true
+}
