@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Six site checks adapted from f0. Stdlib only.
-1 expeditions JSON shape  2 links and anchors resolve  3 meta and OG rules
-4 no third-party scripts  5 cross-page number consistency  6 forbidden strings."""
+"""Six site checks. Stdlib only.
+1 expeditions JSON shape, matching studies/ on the tree
+2 links and anchors resolve  3 meta and OG rules
+4 no third-party scripts  5 static counts match the tree (modules, lines,
+test files, studies, canaries, blueprints, baked expedition cards) and agree
+across pages  6 forbidden strings."""
 import json, re, sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -12,15 +15,31 @@ SITE = "https://moissanite-labs.github.io/warp-drive/"
 errors = []
 def fail(msg): errors.append(msg)
 
+# Tree-derived counts: the static site copy must match these exactly.
+MODS = {p.name: p.read_bytes().count(b"\n") for p in sorted((ROOT / "src" / "warp_modeld").glob("*.py"))}
+TEST_FILES = sorted((ROOT / "tests").glob("test_*"))
+STUDIES = sorted(d.name for d in (ROOT / "studies").iterdir() if d.is_dir())
+_canaries = json.loads((ROOT / "schemas" / "verifier-canaries.json").read_text())
+N_CANARIES = len(_canaries["canaries"] if isinstance(_canaries, dict) else _canaries)
+BLUEPRINTS = {str(p.relative_to(ROOT)): p.stat().st_size
+              for p in sorted((ROOT / "blueprints").rglob("*")) if p.is_file()}
+
 # 1. Expeditions data shape (hand check of the draft-07 schema fields).
 data = json.loads((DOCS / "data/expeditions.json").read_text())
 slugs = [r["slug"] for r in data["records"]]
 if slugs != sorted(set(slugs), key=slugs.index) or len(slugs) != len(set(slugs)):
     fail("expeditions slugs not unique")
 for r in data["records"]:
-    for k in ("slug", "name", "kind", "summary", "verdicts", "has_certificate", "git_last_touch", "repo_path"):
+    for k in ("slug", "name", "kind", "summary", "verdicts", "has_certificate", "pinned_commit", "git_last_touch", "repo_path"):
         if k not in r: fail(f"record {r.get('slug')} missing {k}")
     if r.get("kind") not in ("study", "demo"): fail(f"bad kind {r.get('slug')}")
+    pc = r.get("pinned_commit")
+    if pc is not None and (not isinstance(pc, list) or not all(isinstance(x, str) and x for x in pc)):
+        fail(f"record {r.get('slug')} pinned_commit must be null or a list of strings")
+    if not (ROOT / r["repo_path"]).exists(): fail(f"record {r.get('slug')} repo_path not on tree: {r['repo_path']}")
+study_slugs = sorted(r["slug"] for r in data["records"] if r["kind"] == "study")
+if study_slugs != STUDIES:
+    fail(f"expeditions.json studies {study_slugs} != studies/ dirs {STUDIES}")
 
 class Page(HTMLParser):
     def __init__(self):
@@ -79,12 +98,73 @@ for p in pages:
     # 4. No third-party scripts.
     for s in pg.scripts:
         if s.startswith("http"): fail(f"{rel} third-party script {s}")
-# 5 and 6. Consistency and forbidden strings across copy.
+# 5. Static counts must match the tree and agree across pages.
 all_text = "\n".join(p.read_text() for p in pages)
+home = (DOCS / "index.html").read_text()
+arch = (DOCS / "architecture" / "index.html").read_text()
+ver = (DOCS / "verifier" / "index.html").read_text()
+exp = (DOCS / "expeditions" / "index.html").read_text()
+bp = (DOCS / "blueprints" / "index.html").read_text()
+mmap = (DOCS / "assets" / "module-map.js").read_text()
+
+n_mod, total_lines = len(MODS), sum(MODS.values())
+rows = {k: int(v) for k, v in re.findall(r'<th scope="row"><code>([^<]+)</code></th><td>(\d+)</td>', arch)}
+if rows != MODS: fail("architecture module table drifted from src/warp_modeld")
+if f"Total: {total_lines} lines" not in arch: fail(f"architecture total line drifted (want {total_lines})")
+if f"Exact: {n_mod} modules, {total_lines} lines" not in arch: fail("architecture chip drifted from tree")
+if f"All {n_mod} modules in src/warp_modeld." not in arch: fail("architecture heading drifted from tree")
+if f"all {n_mod} modules" not in arch: fail("architecture meta description drifted from tree")
+js_mods = {k: int(v) for k, v in re.findall(r'\["([^"]+)", (\d+),', mmap)}
+if js_mods != MODS: fail("module-map.js MODULES drifted from src/warp_modeld")
+big = max(MODS, key=MODS.get)
+if f"Map of the {n_mod} modules" not in mmap or f"{big} at {MODS[big]} lines" not in mmap:
+    fail("module-map.js aria-label drifted from tree")
+
+m = re.search(r"counted at main ([0-9a-f]+): (\d+) modules · (\d+) test files · pytest (\d+) passed, (\d+) skipped · (\d+) canaries", home)
+if not m:
+    fail("home count line missing or malformed")
+else:
+    if (int(m.group(2)), int(m.group(3)), int(m.group(6))) != (n_mod, len(TEST_FILES), N_CANARIES):
+        fail("home count line drifted from tree")
+    pt_pass, pt_skip = m.group(4), m.group(5)
+if f"pytest {pt_pass} passed and {pt_skip} skipped" not in ver:
+    fail("verifier pytest line disagrees with home")
+mu = re.search(r"unittest (\d+) ran and (\d+) skipped", ver)
+if not mu: fail("verifier unittest line missing")
+elif f"unittest alone runs {mu.group(1)} and skips {mu.group(2)}" not in home:
+    fail("home unittest line disagrees with verifier")
+if f"inside the {pt_pass} passed count" not in bp: fail("blueprints pytest reference disagrees with home")
+if f"{N_CANARIES} canaries" not in ver or f"{N_CANARIES} canaries" not in home: fail("canary count drifted from schema")
+cb = len(re.findall(r"def test_", (ROOT / "tests" / "test_cerebras_client.py").read_text()))
+if f"{cb} tests in tests/test_cerebras_client.py" not in ver: fail("cerebras test count drifted from tree")
+nb = len(re.findall(r"def test_", (ROOT / "tests" / "test_blueprints.py").read_text()))
+if f"{nb} passing tests" not in bp or f"{nb} blueprint tests" not in bp: fail("blueprint test count drifted from tree")
+if (f"the {len(BLUEPRINTS)} blueprint files" not in bp or f"The {len(BLUEPRINTS)} blueprint files." not in bp
+        or f"Exact: {len(BLUEPRINTS)} files" not in bp or f"The {len(BLUEPRINTS)} blueprint files" not in bp):
+    fail("blueprints page file count drifted from tree")
+lis = re.findall(r"<li>(.*?)</li>", bp, re.S)
+for path, size in BLUEPRINTS.items():
+    li = next((x for x in lis if path in x), None)
+    if li is None or f"{size} bytes" not in li: fail(f"blueprints page entry drifted for {path} ({size} bytes)")
+if f"{len(STUDIES)} dated studies" not in exp: fail("expeditions meta description count drifted from tree")
+cnt = re.search(r'<span data-expeditions-count>([^<]+)</span>', exp)
+if not cnt or cnt.group(1) != f"{len(STUDIES)} studies and 1 demo lane":
+    fail("expeditions count fallback drifted from tree")
+for r in data["records"]:
+    pins = r.get("pinned_commit")
+    want = "Pinned commits: " + (", ".join(pins) if pins else "not declared")
+    card = re.search(r'<article class="card" data-slug="' + re.escape(r["slug"]) + r'">(.*?)</article>', exp, re.S)
+    if not card: fail(f"baked card missing for {r['slug']}")
+    elif want not in card.group(1): fail(f"baked card pinned-commits line drifted for {r['slug']}")
+if f"{len(STUDIES)} studies checked parts of the checker" not in home: fail("home expeditions count drifted from tree")
+shas = set(re.findall(r"This site cites main at ([0-9a-f]+)", all_text))
+if len(shas) != 1: fail(f"footer main sha inconsistent across pages: {sorted(shas)}")
+if m and shas and m.group(1) not in shas: fail("home counted-at sha differs from footer sha")
+
+# 6. Forbidden strings across copy.
 if "53-test" in all_text or "53 passing" in all_text: fail("stale 53-test claim present")
 if "—" in all_text: fail("em dash present in HTML copy")
-for needle in ("218 passed", "pytest"):
-    if needle not in all_text: fail(f"missing site-safe count text: {needle}")
+if "pytest" not in all_text: fail("missing runner-named pytest line")
 if "110 of 112" not in all_text: fail("missing demo leakage line")
 
 if errors:

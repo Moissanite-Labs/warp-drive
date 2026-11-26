@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Build docs/data/expeditions.json from studies/ and the demo manifest.
 Stdlib only. Deterministic: indent 2, sort_keys, trailing newline, tmp file
-plus os.replace. generated_at is the only time-varying field; --check
-compares with generated_at ignored so CI proves freshness without churn."""
+plus os.replace. generated_at and source_main_sha are build-time metadata;
+--check ignores both so CI proves freshness without gating on unrelated
+commits to main (source_main_sha changes on every main commit). Dates come
+from git log on origin/main, falling back to HEAD when no origin remote (or
+no resolvable origin/main) exists."""
 import json, os, re, subprocess, sys
 from pathlib import Path
 
@@ -20,19 +23,66 @@ SUMMARIES = {
     "expedition-bareiss-gram-cert": "Checked a fraction-free Bareiss gate for stacked adapter Gram certificates with a dual oracle.",
     # studies/expedition-weight-iteration-bridge/README.md title line 1.
     "expedition-weight-iteration-bridge": "Checked governed weight iteration and multi-bank state isolation with exact fractions.",
+    # studies/expedition-latent-lattice-2611-21608/README.md title line 1.
+    "expedition-latent-lattice-2611-21608": "Checked latent lattice language model claims and a 4-bank isolation bridge with exact rational arithmetic.",
+    # studies/expedition-reinforce-zero-tii/README.md title line 1.
+    "expedition-reinforce-zero-tii": "Checked REINFORCE-Zero and zero-mismatch-rl governance claims with an exact Taylor-interval verifier against pinned read-only external checkouts.",
+    # studies/expedition-siliconcordat-d5-audit104r4/README.md title line 1.
+    "expedition-siliconcordat-d5-audit104r4": "Checked the siliconcordat discussion-5 portal extraction and two-zone airlock contracts with pure rational invariants.",
+    # studies/expedition-songe-distill-governance/README.md title line 1.
+    "expedition-songe-distill-governance": "Checked songe distillation governance and security boundaries against a pinned read-only songe checkout.",
     # experiments/demo-2026-11-22/manifest.json suites block.
     "demo-2026-11-22": "Demo lane contract with frozen suites and preregistered thresholds. It is not a study and has not run live.",
 }
 SCOPES = {
     "expedition-bounded-controller": "logic_check_fake_runtime, mock_contract",
     "expedition-trust-boundary-verifier": "non-importing logic checks, live read-only anchors",
+    "expedition-latent-lattice-2611-21608": "standalone reference gates with exact arithmetic, not wired into src/",
+    "expedition-reinforce-zero-tii": "standalone exact verifier, pinned read-only external checkouts",
+    "expedition-siliconcordat-d5-audit104r4": "pure-rational portal invariants, standalone and pinned live modes",
+    "expedition-songe-distill-governance": "standalone governance gates, pinned read-only songe checkout",
 }
 
 def git(*args):
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout.strip()
 
+def choose_ref(remotes, origin_main_exists):
+    # Main-branch ref for dates and the footer sha. Falls back to HEAD when
+    # no origin remote exists or origin/main does not resolve (shallow or
+    # differently named remote), so nothing depends on a hardcoded sha.
+    if "origin" in remotes.split() and origin_main_exists:
+        return "origin/main"
+    return "HEAD"
+
+def main_ref():
+    return choose_ref(git("remote"), bool(git("rev-parse", "--verify", "--quiet", "origin/main")))
+
 def last_touch(path):
-    return git("log", "-1", "--format=%cs", "origin/main", "--", path) or "unknown"
+    return git("log", "-1", "--format=%cs", main_ref(), "--", path) or "unknown"
+
+COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+
+def pinned_commits(certs):
+    """Pinned commit shas declared by the certificate files themselves.
+    Any key containing "pinned" whose value is a 40-hex commit sha (or a
+    dict of them, e.g. pinned_head_shas / pinned_read_only_anchors) counts;
+    sha256 digests of files are not commits and are skipped. Returns the
+    sorted unique 8-char prefixes, or None when nothing is declared."""
+    found = set()
+    def walk(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if "pinned" in k.lower():
+                    for x in (v.values() if isinstance(v, dict) else [v]):
+                        if isinstance(x, str) and COMMIT_RE.fullmatch(x):
+                            found.add(x[:8])
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    for c in certs:
+        walk(json.loads(c.read_text()))
+    return sorted(found) or None
 
 def audit_ids(readme, certs):
     text = readme.read_text(errors="replace") if readme.exists() else ""
@@ -79,7 +129,7 @@ def build():
             "verdicts": verdict_words(certs),
             "evidence_scope": SCOPES.get(folder.name),
             "has_certificate": bool(certs),
-            "pinned_commit": "e3899d3e" if certs else None,
+            "pinned_commit": pinned_commits(certs),
             "git_last_touch": last_touch(rel),
             "repo_path": rel,
         })
@@ -103,10 +153,20 @@ def build():
     records.sort(key=lambda r: (r["git_last_touch"], r["slug"]), reverse=True)
     return {
         "generated_at": "build-time",
-        "source_main_sha": git("rev-parse", "origin/main")[:7] or "063aaee",
-        "notice": "Certificates pin older commits (e3899d3e or 8d9f815) and do not certify current main. Dates are git last-touch dates on origin/main, not authored expedition dates.",
+        "source_main_sha": git("rev-parse", main_ref())[:7] or "unknown",
+        "notice": "Pinned commits are the ones each certificate declares (null when a certificate declares none); certificates pin older commits and do not certify current main. Dates are git last-touch dates on the main branch (origin/main, or HEAD when no origin remote exists), not authored expedition dates.",
         "records": records,
     }
+
+def fresh(old, new):
+    """--check comparison. generated_at and source_main_sha are build-time
+    metadata and are excluded, so --check stays independent of unrelated
+    commits to main."""
+    a, b = dict(old), dict(new)
+    for d in (a, b):
+        d.pop("generated_at", None)
+        d.pop("source_main_sha", None)
+    return a == b
 
 def main():
     data = build()
@@ -115,9 +175,7 @@ def main():
         if not OUT.exists():
             print("expeditions.json missing"); return 1
         old = json.loads(OUT.read_text())
-        old.pop("generated_at", None)
-        new = dict(data); new.pop("generated_at", None)
-        if old != new:
+        if not fresh(old, data):
             print("expeditions.json is stale; run scripts/build_expeditions.py"); return 1
         print("expeditions data is fresh"); return 0
     OUT.parent.mkdir(parents=True, exist_ok=True)

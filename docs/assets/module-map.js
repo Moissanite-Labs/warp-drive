@@ -14,16 +14,16 @@ const MODULES = [
   ["server.py", 379, "Unix socket JSON-RPC server"],
   ["cli.py", 192, "Command line entry points"],
   ["errors.py", 119, "Typed fail-closed errors"],
-  ["experiment.py", 1462, "Bounded demo controller"],
-  ["cerebras_client.py", 684, "Cerebras client, mocked tests only"],
-  ["cerebras_prompts.py", 118, "Fixed Cerebras prompt fixtures"],
+  ["experiment.py", 1679, "Bounded demo controller"],
+  ["cerebras_client.py", 756, "Cerebras client, mocked tests only"],
+  ["cerebras_prompts.py", 130, "Fixed Cerebras prompt fixtures"],
 ];
 const host = document.querySelector("[data-module-map]");
 if (host) {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Map of the 14 modules in src/warp_modeld. Cell area is proportional to source lines. The largest cell is experiment.py at 1462 lines. The full list is in the table below.");
+  svg.setAttribute("aria-label", "Map of the 14 modules in src/warp_modeld. Cell area is proportional to source lines. The largest cell is experiment.py at 1679 lines. The full list is in the table below.");
   host.append(svg);
   const stageOf = (n) => n === "fingerprint.py" ? "s1" : n === "certificate.py" ? "s2"
     : n === "canary.py" || n === "llama_client.py" ? "s3" : "other";

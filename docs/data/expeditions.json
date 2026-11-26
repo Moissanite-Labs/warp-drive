@@ -1,6 +1,6 @@
 {
   "generated_at": "build-time",
-  "notice": "Certificates pin older commits (e3899d3e or 8d9f815) and do not certify current main. Dates are git last-touch dates on origin/main, not authored expedition dates.",
+  "notice": "Pinned commits are the ones each certificate declares (null when a certificate declares none); certificates pin older commits and do not certify current main. Dates are git last-touch dates on the main branch (origin/main, or HEAD when no origin remote exists), not authored expedition dates.",
   "records": [
     {
       "audit_id_json": "AUDIT-062 + AUDIT-065",
@@ -10,10 +10,81 @@
       "has_certificate": true,
       "kind": "study",
       "name": "Trust Boundary Verifier",
-      "pinned_commit": "e3899d3e",
+      "pinned_commit": [
+        "026b78e1",
+        "4b6b7145",
+        "52ce0178",
+        "5d7eac03",
+        "81c75240",
+        "8d9f8155",
+        "c08b9695",
+        "cb78b860",
+        "e3899d3e"
+      ],
       "repo_path": "studies/expedition-trust-boundary-verifier",
       "slug": "expedition-trust-boundary-verifier",
       "summary": "Checked runtime, sandbox and cross-repo trust boundaries with two non-importing verifier suites.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": "AUDIT-073R",
+      "evidence_scope": "standalone governance gates, pinned read-only songe checkout",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Songe Distill Governance",
+      "pinned_commit": [
+        "5b7b1376"
+      ],
+      "repo_path": "studies/expedition-songe-distill-governance",
+      "slug": "expedition-songe-distill-governance",
+      "summary": "Checked songe distillation governance and security boundaries against a pinned read-only songe checkout.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-104",
+      "audit_id_readme": "AUDIT-104R4",
+      "evidence_scope": "pure-rational portal invariants, standalone and pinned live modes",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Siliconcordat D5 Audit104R4",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-siliconcordat-d5-audit104r4",
+      "slug": "expedition-siliconcordat-d5-audit104r4",
+      "summary": "Checked the siliconcordat discussion-5 portal extraction and two-zone airlock contracts with pure rational invariants.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": null,
+      "audit_id_readme": "AUDIT-081R",
+      "evidence_scope": "standalone exact verifier, pinned read-only external checkouts",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Reinforce Zero Tii",
+      "pinned_commit": [
+        "136aca87",
+        "a22153de"
+      ],
+      "repo_path": "studies/expedition-reinforce-zero-tii",
+      "slug": "expedition-reinforce-zero-tii",
+      "summary": "Checked REINFORCE-Zero and zero-mismatch-rl governance claims with an exact Taylor-interval verifier against pinned read-only external checkouts.",
+      "verdicts": []
+    },
+    {
+      "audit_id_json": "AUDIT-072",
+      "audit_id_readme": "AUDIT-072R",
+      "evidence_scope": "standalone reference gates with exact arithmetic, not wired into src/",
+      "git_last_touch": "2026-11-22",
+      "has_certificate": true,
+      "kind": "study",
+      "name": "Latent Lattice 2611 21608",
+      "pinned_commit": null,
+      "repo_path": "studies/expedition-latent-lattice-2611-21608",
+      "slug": "expedition-latent-lattice-2611-21608",
+      "summary": "Checked latent lattice language model claims and a 4-bank isolation bridge with exact rational arithmetic.",
       "verdicts": []
     },
     {
@@ -24,7 +95,7 @@
       "has_certificate": true,
       "kind": "study",
       "name": "Gram Cert Upgrades",
-      "pinned_commit": "e3899d3e",
+      "pinned_commit": null,
       "repo_path": "studies/expedition-gram-cert-upgrades",
       "slug": "expedition-gram-cert-upgrades",
       "summary": "Checked Stage 2 Gram certificate upgrades with exact integer arithmetic and adversarial mutation tests.",
@@ -38,7 +109,7 @@
       "has_certificate": true,
       "kind": "study",
       "name": "Bounded Controller",
-      "pinned_commit": "e3899d3e",
+      "pinned_commit": null,
       "repo_path": "studies/expedition-bounded-controller",
       "slug": "expedition-bounded-controller",
       "summary": "Checked a study-only bounded experiment controller with synthetic digests and a fake runtime.",
@@ -70,7 +141,9 @@
       "has_certificate": true,
       "kind": "study",
       "name": "Weight Iteration Bridge",
-      "pinned_commit": "e3899d3e",
+      "pinned_commit": [
+        "e3899d3e"
+      ],
       "repo_path": "studies/expedition-weight-iteration-bridge",
       "slug": "expedition-weight-iteration-bridge",
       "summary": "Checked governed weight iteration and multi-bank state isolation with exact fractions.",
@@ -96,5 +169,5 @@
       "verdicts": []
     }
   ],
-  "source_main_sha": "063aaee"
+  "source_main_sha": "3a458ac"
 }

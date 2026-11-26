@@ -24,7 +24,7 @@
           "verdicts": { "type": "array", "items": { "type": "string" } },
           "evidence_scope": { "type": ["string", "null"] },
           "has_certificate": { "type": "boolean" },
-          "pinned_commit": { "type": ["string", "null"] },
+          "pinned_commit": { "type": ["array", "null"], "items": { "type": "string" } },
           "git_last_touch": { "type": "string" },
           "repo_path": { "type": "string" }
         }

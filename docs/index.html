@@ -50,7 +50,7 @@
 <h1 id="hero-h">Load model adapters only after they pass checks you can replay.</h1>
 <p class="dek">Warp Drive is an open-source verifier for people who run open-weight models on their own machines. It checks an adapter before load, tests it in shadow, records what happened, and can roll it back. The operating system layer around it adds sandboxed tools and recoverable Linux images.</p>
 <p><a class="btn primary" href="verifier/">Read the verifier</a> <a class="btn" href="https://github.com/Moissanite-Labs/warp-drive">Open the repo</a></p>
-<p class="meta">Exact, counted at main 063aaee: 14 modules · 15 test files · pytest 218 passed, 2 skipped · 9 canaries</p>
+<p class="meta">Exact, counted at main 3a458ac: 14 modules · 17 test files · pytest 271 passed, 2 skipped · 9 canaries</p>
 </div></section>
 <section class="sec alt" id="problem" data-index data-num="02" aria-labelledby="problem-h"><div class="wrap read">
 <div class="sec-head"><span class="sec-label"><b>02</b> // The problem</span><span class="chip">Documented: README</span></div>
@@ -76,12 +76,12 @@
 <p>The daemon is called warp-modeld. Around it, the repo carries blueprints for sandboxed tools and for Linux images that recover in one reboot. The image build, the boot test and the three-machine rollout are planned work. They have not run yet. <a href="architecture/">See the architecture</a> and <a href="blueprints/">the blueprint list</a>.</p>
 </div></section>
 <section class="sec" id="proof" data-index data-num="05" aria-labelledby="proof-h"><div class="wrap">
-<div class="sec-head"><span class="sec-label"><b>05</b> // Proof so far</span><span class="chip">Exact: counted at main 063aaee</span></div>
+<div class="sec-head"><span class="sec-label"><b>05</b> // Proof so far</span><span class="chip">Exact: counted at main 3a458ac</span></div>
 <h2 id="proof-h">What is proven today, with the runner named.</h2>
 <div class="grid">
-<article class="card"><h3>Tests</h3><p>pytest: 218 passed, 2 skipped, 220 collected. unittest alone runs 128 and skips 2, and misses two pytest-only files. Always name the runner.</p></article>
+<article class="card"><h3>Tests</h3><p>pytest: 271 passed, 2 skipped, 273 collected. unittest alone runs 154 and skips 2, and misses two pytest-only files. Always name the runner.</p></article>
 <article class="card"><h3>Demo digests</h3><p>Demo suites hold 112, 24, 80 and 9 cases. Their digests were re-verified against the manifest. Note the limit: 110 of 112 task cases reuse a seen pair, 20 distinct pairs.</p></article>
-<article class="card"><h3>Expeditions</h3><p>Five studies checked parts of the checker itself. Certificates pin older commits and do not certify current main. <a href="expeditions/">Read the records</a>.</p></article>
+<article class="card"><h3>Expeditions</h3><p>9 studies checked parts of the checker itself. Certificates pin the commits each certificate declares and do not certify current main. <a href="expeditions/">Read the records</a>.</p></article>
 </div>
 <div class="card">
 <h3>Steer the style</h3>
@@ -117,7 +117,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v</code></pre>
 <details><summary>Style</summary><p>Use the style pad in Proof so far. Scroll sets speed. The pad steers style only.</p></details>
 </div>
 <footer class="site-foot"><div class="wrap">
-<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 063aaee.</p>
+<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 3a458ac.</p>
 <div class="foot-cols">
 <div>Record<ul><li><a href="expeditions/">Expeditions</a></li><li><a href="verifier/">Verifier</a></li></ul></div>
 <div>Work<ul><li><a href="architecture/">Architecture</a></li><li><a href="blueprints/">Blueprints</a></li></ul></div>

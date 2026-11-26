@@ -73,9 +73,9 @@
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m warp_modeld.cli verify-ledger
 PYTHONPATH=src python3 -m warp_modeld.cli check-certificate</code></pre>
-<p>unittest alone misses two pytest files. Counts: pytest 218 passed and 2 skipped. unittest 128 ran and 2 skipped. Opt-in live tests need WARP_LIVE_LLAMA_TEST or WARP_LIVE_CEREBRAS_TEST plus credentials or model files. Live status is unverified.</p>
+<p>unittest alone misses two pytest files. Counts: pytest 271 passed and 2 skipped. unittest 154 ran and 2 skipped. Opt-in live tests need WARP_LIVE_LLAMA_TEST or WARP_LIVE_CEREBRAS_TEST plus credentials or model files. Live status is unverified.</p>
 <p>Schemas in the repo: adapter bundle, Cerebras candidate (provisional, pending a lane freeze), and the canary suite. The modeld config file is an example, not a schema.</p>
-<div class="card"><h3>Cerebras, stated plainly</h3><p>The client targets a Kimi model id on Cerebras. Live status is unverified. Only mocked contract tests pass: 46 tests in tests/test_cerebras_client.py, counted from source. A dedicated endpoint may be required. This site makes no live Cerebras speed claim.</p></div>
+<div class="card"><h3>Cerebras, stated plainly</h3><p>The client targets a Kimi model id on Cerebras. Live status is unverified. Only mocked contract tests pass: 48 tests in tests/test_cerebras_client.py, counted from source. A dedicated endpoint may be required. This site makes no live Cerebras speed claim.</p></div>
 </div></section>
 <div class="wrap"><nav class="prevnext" aria-label="Page"><a href="../architecture/">Back: Architecture</a><a href="../expeditions/">Next: Expeditions</a></nav></div>
 </main>
@@ -86,7 +86,7 @@ PYTHONPATH=src python3 -m warp_modeld.cli check-certificate</code></pre>
 <span class="sr-only" data-hud-live aria-live="polite"></span>
 </div>
 <footer class="site-foot"><div class="wrap">
-<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 063aaee.</p>
+<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 3a458ac.</p>
 <div class="foot-cols">
 <div>Record<ul><li><a href="../expeditions/">Expeditions</a></li><li><a href="../verifier/">Verifier</a></li></ul></div>
 <div>Work<ul><li><a href="../architecture/">Architecture</a></li><li><a href="../blueprints/">Blueprints</a></li></ul></div>
