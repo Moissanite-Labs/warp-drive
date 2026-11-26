@@ -45,3 +45,14 @@ E4 held. `PYTHONPATH=src python3 -m pytest -q` gave 302 passed, 2 skipped, and 1
 The audit checker copy needed a local guard at its F3 probe because merged PR 59 now raises ControllerError on NaN gates. That guard changed only the checker copy in a temporary tree, not product code.
 
 No live endpoint, GPU, paid provider, or network backend was used. These are local control-flow checks only.
+
+## Post-review addendum (2026-11-26)
+
+Review `abu-aska` on PR #63 (`CHANGES_REQUESTED` pinned to `1a2c0547`) raised two blocking findings and two non-blocking notes. All four are addressed in this tree:
+
+1. In `compile_and_bind`, the `adapter_mounted` receipt is now appended before `self._bound_candidate`, `self._bound_compile`, and `self._deploy_ms` are assigned, so an `append` failure on `adapter_mounted` leaves the controller unbound and `evaluate()` refuses to run. Covered by `test_mounted_receipt_append_failure_leaves_no_binding`.
+2. `deploy_ms` returned by `runtime.mount_adapter` is now validated with `_require_number` (rejects non-numbers, bools, NaN, and infinities) and rejected when negative, raising `ControllerError` before any receipt append or binding. Covered by `test_compile_rejects_invalid_deploy_ms` with `nan`, `inf`, `-1.5`, and `True`.
+3. `compile_and_bind` clears `_bound_candidate`, `_bound_compile`, and `_deploy_ms` on entry, so a failed second run cannot leave a stale binding. Covered by `test_failed_second_compile_clears_stale_binding`.
+4. Scope note: the Scope section above lists only `src/warp_modeld/experiment.py` and `tests/test_experiment_controller.py`; the preregistration file itself (`audits/digest-before-mount-2026-11-22.md`) is also part of this branch and is omitted from that list.
+
+Observed after the fix, run in this tree with `PYTHONPATH=src python3 -B -m pytest -q tests/`: 263 passed, 2 skipped, 263 subtests passed. `PYTHONPATH=src python3 -B -m unittest discover -s tests`: Ran 139 tests, OK (skipped=2). The 2 skips are the opt-in live smoke tests (`tests/test_live_cerebras_smoke.py`, `tests/test_live_llama_smoke.py`). No live endpoint, GPU, paid provider, or network backend was used; these are local control-flow checks only.

@@ -719,6 +719,91 @@ def test_digest_is_recorded_before_the_mount_event(controller):
     assert events.index("candidate_digest_recorded") < events.index("adapter_mounted")
 
 
+# --- regression tests for the PR #63 review findings (2026-11-26) ----------
+
+
+def test_mounted_receipt_append_failure_leaves_no_binding(contract, tmp_path):
+    class FailingAppendLog(ReceiptLog):
+        def append(self, event, **fields):
+            if event == "adapter_mounted":
+                raise ControllerError("mock adapter_mounted append failure")
+            return super().append(event, **fields)
+
+    ctl = ExperimentController(
+        contract=contract,
+        compiler=FakeCompiler(),
+        runtime=FakeRuntime(),
+        lifecycle=FakeLifecycle(),
+        receipts=FailingAppendLog(tmp_path / "receipts.jsonl"),
+        environment=ENVIRONMENT,
+    )
+    candidate = ctl.propose({"eta": 0.01, "lora_scale": 1.0})
+    with pytest.raises(ControllerError, match="adapter_mounted"):
+        ctl.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
+    assert ctl._bound_candidate is None
+    assert ctl._bound_compile is None
+    events = [e["event"] for e in ctl.receipts.read_all()]
+    assert "candidate_digest_recorded" in events
+    assert "adapter_mounted" not in events
+    with pytest.raises(ControllerError, match="no bound candidate"):
+        ctl.evaluate()
+
+
+@pytest.mark.parametrize("bad_deploy_ms", (float("nan"), float("inf"), -1.5, True))
+def test_compile_rejects_invalid_deploy_ms(contract, tmp_path, bad_deploy_ms):
+    class BadDeployRuntime(FakeRuntime):
+        def mount_adapter(self, adapter_sha256, lora_scale):
+            self.calls.append(("mount", adapter_sha256))
+            return bad_deploy_ms
+
+    ctl = ExperimentController(
+        contract=contract,
+        compiler=FakeCompiler(),
+        runtime=BadDeployRuntime(),
+        lifecycle=FakeLifecycle(),
+        receipts=ReceiptLog(tmp_path / "receipts.jsonl"),
+        environment=ENVIRONMENT,
+    )
+    candidate = ctl.propose({"eta": 0.01, "lora_scale": 1.0})
+    with pytest.raises(ControllerError, match="deploy_ms"):
+        ctl.compile_and_bind(candidate, actual_parent_sha256=PARENT_SHA)
+    assert ctl._bound_candidate is None
+    assert ctl._bound_compile is None
+    events = [e["event"] for e in ctl.receipts.read_all()]
+    assert "candidate_digest_recorded" in events
+    assert "adapter_mounted" not in events
+    with pytest.raises(ControllerError, match="no bound candidate"):
+        ctl.evaluate()
+
+
+def test_failed_second_compile_clears_stale_binding(contract, tmp_path):
+    class FailingMountRuntime(FakeRuntime):
+        def mount_adapter(self, adapter_sha256, lora_scale):
+            raise ControllerError("mock mount failed")
+
+    ctl = ExperimentController(
+        contract=contract,
+        compiler=FakeCompiler(),
+        runtime=FakeRuntime(),
+        lifecycle=FakeLifecycle(),
+        receipts=ReceiptLog(tmp_path / "receipts.jsonl"),
+        environment=ENVIRONMENT,
+    )
+    first = ctl.propose({"eta": 0.01, "lora_scale": 1.0})
+    ctl.compile_and_bind(first, actual_parent_sha256=PARENT_SHA)
+    assert ctl._bound_candidate is first
+
+    ctl.runtime = FailingMountRuntime()
+    second = ctl.propose({"eta": 0.01, "lora_scale": 1.0}, candidate_id="second")
+    with pytest.raises(ControllerError, match="mock mount failed"):
+        ctl.compile_and_bind(second, actual_parent_sha256=PARENT_SHA)
+    assert ctl._bound_candidate is None
+    assert ctl._bound_compile is None
+    assert ctl._deploy_ms == 0.0
+    with pytest.raises(ControllerError, match="no bound candidate"):
+        ctl.evaluate()
+
+
 def test_scoring_failure_rolls_back_and_emits_no_success(controller):
     class FailingScoreRuntime(FakeRuntime):
         def score_suite(self, suite_name, cases):

@@ -1337,7 +1337,12 @@ class ExperimentController:
         Checkpoint drift is rejected before the compiler is called. The
         compiled adapter digest is written to the receipt log before this
         method returns, so no behavioral evaluation can precede it.
+        Any previous binding is cleared on entry, so a failed re-run
+        cannot leave a stale bound candidate behind.
         """
+        self._bound_candidate = None
+        self._bound_compile = None
+        self._deploy_ms = 0.0
         if not hmac_compare(actual_parent_sha256, self.contract.parent_sha256):
             reason = (
                 "checkpoint drift: actual parent digest does not match "
@@ -1379,15 +1384,21 @@ class ExperimentController:
         deploy_ms = self.runtime.mount_adapter(
             result.adapter_sha256, candidate.lora_scale
         )
-        self._bound_candidate = candidate
-        self._bound_compile = result
-        self._deploy_ms = deploy_ms
+        deploy_ms = _require_number(deploy_ms, "deploy_ms")
+        if deploy_ms < 0:
+            raise ControllerError(f"deploy_ms must be non-negative, got {deploy_ms!r}")
+        # The mount receipt is appended before the candidate is bound: if
+        # the append fails, the controller stays unbound and evaluate()
+        # refuses to run.
         self.receipts.append(
             "adapter_mounted",
             candidate_id=candidate.candidate_id,
             adapter_sha256=result.adapter_sha256,
             deploy_ms=deploy_ms,
         )
+        self._bound_candidate = candidate
+        self._bound_compile = result
+        self._deploy_ms = deploy_ms
         return result
 
     def evaluate(self) -> Measurements:
