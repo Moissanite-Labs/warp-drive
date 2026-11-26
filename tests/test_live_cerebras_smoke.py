@@ -31,7 +31,8 @@ class TestLiveCerebrasSmoke(unittest.TestCase):
                 "baseline_metrics": {"task_exact": 0.61, "retention_iid": 0.88},
             }
         )
-        self.assertEqual(candidate.target_layer, "last")
+        self.assertEqual(candidate.target_layer, 31)
+        self.assertEqual(candidate.target_tensor, "ffn_up")
         self.assertEqual(receipt.provider, "cerebras")
         self.assertEqual(receipt.requested_model, client.model_id)
         # The receipt is the record. If the served id differs, the live

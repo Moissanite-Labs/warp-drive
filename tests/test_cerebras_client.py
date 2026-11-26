@@ -41,7 +41,15 @@ API_KEY = "test-key-that-is-not-real"
 
 
 def valid_candidate() -> dict[str, object]:
-    return {"target_layer": "last", "strength": 0.5, "rank": 16, "quantization": "q8_0"}
+    return {
+        "target_layer": 31,
+        "target_tensor": "ffn_up",
+        "eta": 0.01,
+        "lambda": 1,
+        "rank": 8,
+        "lora_scale": 1.0,
+        "quantization": "bf16",
+    }
 
 
 def valid_context() -> dict[str, object]:
@@ -53,7 +61,15 @@ def valid_context() -> dict[str, object]:
 
 def valid_report() -> dict[str, object]:
     return {
-        "failed_candidate": {"target_layer": "last", "strength": 0.9, "rank": 32, "quantization": "q4_0"},
+        "failed_candidate": {
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.02,
+            "lambda": 10,
+            "rank": 8,
+            "lora_scale": 1.0,
+            "quantization": "int4",
+        },
         "failed_gate": "retention_iid",
         "measurements": {"task_exact": 0.64, "retention_iid": 0.79},
         "rounds_used": 1,
@@ -87,7 +103,7 @@ def propose_with_served_model(served_model: object, **client_kwargs: object) -> 
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": '{"target_layer":"last","strength":0.5,"rank":8,"quantization":"q8_0"}',
+                        "content": json.dumps(valid_candidate(), separators=(",", ":")),
                     },
                     "finish_reason": "stop",
                 }
@@ -115,34 +131,67 @@ class TestCandidateSchema(unittest.TestCase):
     def test_valid_candidate(self) -> None:
         cfg = validate_candidate(valid_candidate())
         self.assertEqual(cfg.to_dict(), valid_candidate())
+        self.assertEqual(cfg.to_controller_dict()["quant"], "bf16")
 
-    def test_strength_bounds(self) -> None:
-        for bad in (0, 0.0, -0.1, 1.01, 1.5, "0.5", None, True):
+    def test_eta_bounds(self) -> None:
+        for bad in (0, 0.0, -0.01, 0.0019, 0.0201, 1.0, "0.01", None, True, float("nan"), float("inf")):
             with self.subTest(bad=bad):
                 payload = valid_candidate()
-                payload["strength"] = bad
+                payload["eta"] = bad
                 with self.assertRaises(CerebrasSchemaError):
                     validate_candidate(payload)
-        self.assertEqual(validate_candidate({**valid_candidate(), "strength": 1}).strength, 1.0)
+        self.assertEqual(validate_candidate({**valid_candidate(), "eta": 0.002}).eta, 0.002)
+        self.assertEqual(validate_candidate({**valid_candidate(), "eta": 0.02}).eta, 0.02)
 
-    def test_rank_must_be_an_allowed_int(self) -> None:
-        for bad in (3, 5, 64, 128, 16.0, "16", True, None):
+    def test_lambda_allowlist(self) -> None:
+        for good, expected in ((0.1, 0.1), (1, 1), (1.0, 1), (10, 10), (10.0, 10), ("mean_eigenvalue", "mean_eigenvalue")):
+            with self.subTest(good=good):
+                self.assertEqual(validate_candidate({**valid_candidate(), "lambda": good}).lam, expected)
+        for bad in (0, 0.5, 7, -1, "median", "1", None, True, False, float("nan"), float("inf")):
+            with self.subTest(bad=bad):
+                payload = valid_candidate()
+                payload["lambda"] = bad
+                with self.assertRaises(CerebrasSchemaError):
+                    validate_candidate(payload)
+
+    def test_lora_scale_allowlist(self) -> None:
+        for good in (0, 0.0, 1, 1.0):
+            with self.subTest(good=good):
+                self.assertEqual(validate_candidate({**valid_candidate(), "lora_scale": good}).lora_scale, float(good))
+        for bad in (-1.0, 0.5, 2.0, "1.0", None, True, False, float("nan"), float("inf")):
+            with self.subTest(bad=bad):
+                payload = valid_candidate()
+                payload["lora_scale"] = bad
+                with self.assertRaises(CerebrasSchemaError):
+                    validate_candidate(payload)
+
+    def test_rank_must_be_frozen_rank_8(self) -> None:
+        for bad in (3, 4, 16, 32, 64, 128, 8.0, "8", True, None):
             with self.subTest(bad=bad):
                 payload = valid_candidate()
                 payload["rank"] = bad
                 with self.assertRaises(CerebrasSchemaError):
                     validate_candidate(payload)
 
-    def test_target_layer_is_pinned_to_last(self) -> None:
-        for bad in ("first", "all", "", None, 0):
+    def test_target_layer_and_tensor_are_pinned(self) -> None:
+        for bad in ("last", "first", "all", "", None, 0, 30, 31.0, True):
             with self.subTest(bad=bad):
                 payload = valid_candidate()
                 payload["target_layer"] = bad
                 with self.assertRaises(CerebrasSchemaError):
                     validate_candidate(payload)
+        for bad in ("ffn_down", "attn_q", "", None, 31):
+            with self.subTest(bad=bad):
+                payload = valid_candidate()
+                payload["target_tensor"] = bad
+                with self.assertRaises(CerebrasSchemaError):
+                    validate_candidate(payload)
 
     def test_quantization_allowlist(self) -> None:
-        for bad in ("fp32", "q4_k_m", "Q8_0", "", None):
+        for good in ("bf16", "f16", "f32", "int8", "int4"):
+            with self.subTest(good=good):
+                self.assertEqual(validate_candidate({**valid_candidate(), "quantization": good}).quantization, good)
+        for bad in ("q8_0", "q4_0", "fp32", "q4_k_m", "BF16", "", None, 16):
             with self.subTest(bad=bad):
                 payload = valid_candidate()
                 payload["quantization"] = bad
@@ -151,7 +200,7 @@ class TestCandidateSchema(unittest.TestCase):
 
     def test_extra_or_missing_keys_rejected(self) -> None:
         payload = valid_candidate()
-        payload["scale"] = 0.5
+        payload["strength"] = 0.5
         with self.assertRaises(CerebrasSchemaError):
             validate_candidate(payload)
         payload = valid_candidate()
@@ -219,7 +268,15 @@ class TestProposeDiagnoseCompare(unittest.TestCase):
             candidate, receipt = client.propose_candidate(valid_context())
         self.assertEqual(
             candidate.to_dict(),
-            {"target_layer": "last", "strength": 0.5, "rank": 16, "quantization": "q8_0"},
+            {
+                "target_layer": 31,
+                "target_tensor": "ffn_up",
+                "eta": 0.01,
+                "lambda": 1,
+                "rank": 8,
+                "lora_scale": 1.0,
+                "quantization": "bf16",
+            },
         )
         self.assertEqual(receipt.call_kind, "propose")
         self.assertEqual(receipt.provider, "cerebras")
@@ -242,7 +299,15 @@ class TestProposeDiagnoseCompare(unittest.TestCase):
             repair, receipt = client.diagnose_failure(valid_report())
         self.assertEqual(
             repair.to_dict(),
-            {"target_layer": "last", "strength": 0.4, "rank": 8, "quantization": "q8_0"},
+            {
+                "target_layer": 31,
+                "target_tensor": "ffn_up",
+                "eta": 0.005,
+                "lambda": "mean_eigenvalue",
+                "rank": 8,
+                "lora_scale": 1.0,
+                "quantization": "f16",
+            },
         )
         self.assertEqual(receipt.call_kind, "diagnose")
         self.assertNotEqual(repair.to_dict(), valid_report()["failed_candidate"])
@@ -250,10 +315,13 @@ class TestProposeDiagnoseCompare(unittest.TestCase):
     def test_diagnose_rejects_repair_that_repeats_failed_candidate(self) -> None:
         report = valid_report()
         report["failed_candidate"] = {
-            "target_layer": "last",
-            "strength": 0.4,
+            "target_layer": 31,
+            "target_tensor": "ffn_up",
+            "eta": 0.005,
+            "lambda": "mean_eigenvalue",
             "rank": 8,
-            "quantization": "q8_0",
+            "lora_scale": 1.0,
+            "quantization": "f16",
         }
         with MockCerebrasServer("ok_diagnose") as server:
             client = make_client(server)
@@ -310,7 +378,7 @@ class TestTransportFailures(unittest.TestCase):
         with MockCerebrasServer("http429_then_ok") as server:
             client = make_client(server, max_retries=2)
             candidate, receipt = client.propose_candidate(valid_context())
-        self.assertEqual(candidate.rank, 16)
+        self.assertEqual(candidate.rank, 8)
         self.assertEqual(receipt.retries, 1)
         self.assertEqual(len(receipt.failures), 1)
         self.assertIn("429", receipt.failures[0])
@@ -371,16 +439,13 @@ class TestTransportFailures(unittest.TestCase):
 
     def test_oversized_integer_is_schema_error_not_numeric_crash(self) -> None:
         huge = 10**10000
-        with self.assertRaises(CerebrasSchemaError) as ctx:
-            validate_candidate(
-                {"target_layer": "last", "strength": huge, "rank": 16, "quantization": "q8_0"}
-            )
-        self.assertLess(len(str(ctx.exception)), 500)
-        with self.assertRaises(CerebrasSchemaError) as ctx:
-            validate_candidate(
-                {"target_layer": "last", "strength": 0.5, "rank": huge, "quantization": "q8_0"}
-            )
-        self.assertLess(len(str(ctx.exception)), 500)
+        for field_name in ("target_layer", "eta", "lambda", "rank", "lora_scale"):
+            with self.subTest(field_name=field_name):
+                payload = valid_candidate()
+                payload[field_name] = huge
+                with self.assertRaises(CerebrasSchemaError) as ctx:
+                    validate_candidate(payload)
+                self.assertLess(len(str(ctx.exception)), 500)
 
 
 class TestReceiptHonesty(unittest.TestCase):
@@ -415,7 +480,7 @@ class TestReceiptHonesty(unittest.TestCase):
                             "index": 0,
                             "message": {
                                 "role": "assistant",
-                                "content": '{"target_layer":"last","strength":0.5,"rank":8,"quantization":"q8_0"}',
+                                "content": json.dumps(valid_candidate(), separators=(",", ":")),
                             },
                             "finish_reason": "stop",
                         }
