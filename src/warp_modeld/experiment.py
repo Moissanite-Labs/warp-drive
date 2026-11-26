@@ -1164,6 +1164,35 @@ class RollbackReport:
     required_banks: tuple[str, ...] = ALL_STATE_BANKS
 
 
+def _receipt_schema_version(receipt_schema: Mapping[str, Any]) -> str:
+    """Read the pinned receipt schema version from the schema itself.
+
+    The schema pins the version as a const object
+    (``{"const": "0.1.0"}``); a bare string is also accepted. Anything
+    else is refused with ControllerError, never defaulted.
+    """
+    properties = (
+        receipt_schema.get("properties")
+        if isinstance(receipt_schema, Mapping)
+        else None
+    )
+    if not isinstance(properties, Mapping):
+        raise ControllerError("receipt schema has no properties mapping")
+    prop = properties.get("receipt_schema_version")
+    if isinstance(prop, Mapping):
+        const = prop.get("const")
+        if isinstance(const, str):
+            return const
+        raise ControllerError(
+            "receipt schema receipt_schema_version const is not a string"
+        )
+    if isinstance(prop, str):
+        return prop
+    raise ControllerError(
+        "receipt schema receipt_schema_version is neither a const object nor a string"
+    )
+
+
 def build_receipt(
     *,
     contract: FrozenContract,
@@ -1194,9 +1223,7 @@ def build_receipt(
     if measurements.margin_threshold != contract.margin_threshold:
         raise ControllerError("receipt margin threshold does not match the frozen threshold")
     return {
-        "receipt_schema_version": contract.receipt_schema.get(
-            "receipt_schema_version", "0.1.0"
-        ),
+        "receipt_schema_version": _receipt_schema_version(contract.receipt_schema),
         "manifest_sha256": contract.manifest_sha256,
         "suite_sha256": contract.combined_suite_sha256,
         "candidate": {

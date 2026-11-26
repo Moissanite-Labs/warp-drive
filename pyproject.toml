@@ -11,6 +11,9 @@ license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["pytest", "jsonschema"]
+
 [project.scripts]
 warp-modeld = "warp_modeld.cli:main"
 
