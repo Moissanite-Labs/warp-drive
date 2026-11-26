@@ -86,6 +86,31 @@ class LlamaSlotInfo:
     state_banks: dict[str, StateBankStatus] = field(default_factory=dict)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Fail-closed HTTP redirect blocker preventing localhost SSRF pivots."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        raise urllib.error.HTTPError(
+            req.full_url,
+            code,
+            f"HTTP redirect ({code}) refused by fail-closed LlamaServerClient",
+            headers,
+            fp,
+        )
+
+
+def _reject_nonfinite_json(token: str) -> Any:
+    raise ValueError(f"non-finite JSON constant from llama-server rejected: {token!r}")
+
+
 class LlamaServerClient:
     """HTTP client targeting a local llama-server started with --lora-init-without-apply."""
 
@@ -105,29 +130,42 @@ class LlamaServerClient:
             )
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.require_localhost = bool(require_localhost)
+        handlers: list[urllib.request.BaseHandler] = [_NoRedirectHandler()]
+        if self.require_localhost:
+            handlers.insert(0, urllib.request.ProxyHandler({}))
+        self._opener = urllib.request.build_opener(*handlers)
 
     def _request(self, method: str, path: str, body: Any | None = None) -> Any:
         url = f"{self.base_url}{path}"
         data: bytes | None = None
         headers = {"Accept": "application/json"}
         if body is not None:
-            data = json.dumps(body, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            try:
+                data = json.dumps(
+                    body,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise LlamaClientError(f"invalid JSON payload for {method} {path}: {exc}") from exc
             headers["Content-Type"] = "application/json"
 
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with self._opener.open(req, timeout=self.timeout_seconds) as resp:
                 raw = resp.read()
                 if not raw:
                     return {}
-                return json.loads(raw.decode("utf-8"))
+                return json.loads(raw.decode("utf-8"), parse_constant=_reject_nonfinite_json)
         except urllib.error.HTTPError as exc:
             try:
                 detail = exc.read().decode("utf-8", errors="replace")
             finally:
                 exc.close()
             raise LlamaClientError(f"llama-server HTTP {exc.code} on {method} {path}: {detail}") from exc
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
             raise LlamaClientError(f"llama-server request failed on {method} {path}: {exc}") from exc
 
     def health(self) -> dict[str, Any]:

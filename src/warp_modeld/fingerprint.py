@@ -20,10 +20,11 @@ from .errors import (
 )
 from .state_banks import STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM
 
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
-ZONE_MANIFEST_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+COMMIT_RE = re.compile(r"\A[0-9a-f]{7,64}\Z")
+ZONE_MANIFEST_ID_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 ZONE_MANIFEST_SCHEMA = "zone-manifest/v0.1"
+KNOWN_ZONES = frozenset({"formal_proof", "condensed_json", "ui_module", "code", "prose"})
 WEFT_BINDING_SCHEMA = "weft-binding/v0.1"
 WEFT_CLASS_1 = "class1_rederivable"
 WEFT_CLASS_2 = "class2_open_recipe_base"
@@ -116,6 +117,8 @@ def verify_zone_manifest_dict(manifest: Mapping[str, Any]) -> tuple[str, dict[st
         tag = entry.get("l1_bank_tag")
         if not isinstance(zone_name, str) or not zone_name.strip():
             raise ZoneManifestDriftError("zone manifest entry missing valid 'zone' name")
+        if zone_name not in KNOWN_ZONES:
+            raise ZoneManifestDriftError(f"unknown zone '{zone_name}' in zone manifest")
         if zone_name in bank_tags:
             raise ZoneManifestDriftError(f"duplicate zone '{zone_name}' in zone manifest")
         if type(tag) is not int or tag < 0 or tag > 255:
@@ -124,6 +127,14 @@ def verify_zone_manifest_dict(manifest: Mapping[str, Any]) -> tuple[str, dict[st
             raise ZoneManifestDriftError(f"duplicate l1_bank_tag {tag} in zone manifest")
         seen_tags.add(tag)
         bank_tags[zone_name] = tag
+
+    precedence = manifest.get("precedence_order")
+    if not isinstance(precedence, list) or not precedence:
+        raise ZoneManifestDriftError("zone manifest must define a non-empty 'precedence_order' list")
+    if any(not isinstance(z, str) for z in precedence) or len(set(precedence)) != len(precedence):
+        raise ZoneManifestDriftError("zone manifest 'precedence_order' must contain unique zone names")
+    if set(precedence) != set(bank_tags.keys()):
+        raise ZoneManifestDriftError("zone manifest 'precedence_order' must match defined zones exactly")
 
     return stored_id, bank_tags
 
@@ -166,8 +177,10 @@ class CheckpointFingerprint:
         width = _require_strict_int(self.lattice_width, "lattice_width", CheckpointMismatchError)
         if layers < 0 or width < 0:
             raise CheckpointMismatchError("lattice_layers and lattice_width must be non-negative")
-        if self.has_horizontal_lattice and layers <= 0:
-            raise CheckpointMismatchError("lattice_layers must be positive when has_horizontal_lattice is true")
+        if self.has_horizontal_lattice and (layers <= 0 or width <= 0):
+            raise CheckpointMismatchError(
+                "lattice_layers and lattice_width must both be positive when has_horizontal_lattice is true"
+            )
         if not self.has_horizontal_lattice and (layers != 0 or width != 0):
             raise CheckpointMismatchError("lattice_layers and lattice_width must be 0 when has_horizontal_lattice is false")
 
@@ -231,7 +244,16 @@ class CheckpointFingerprint:
             raise CheckpointMismatchError(f"missing checkpoint fingerprint field: {exc}") from exc
 
     @classmethod
-    def from_weft_binding(cls, weft_manifest: Mapping[str, Any], *, model_id: str) -> CheckpointFingerprint:
+    def from_weft_binding(
+        cls,
+        weft_manifest: Mapping[str, Any],
+        *,
+        model_id: str,
+        has_ssm_recurrent: bool | None = None,
+        has_horizontal_lattice: bool | None = None,
+        lattice_layers: int | None = None,
+        lattice_width: int | None = None,
+    ) -> CheckpointFingerprint:
         """Build a CheckpointFingerprint natively from an L2 weft BindingManifest dict."""
         if not isinstance(weft_manifest, Mapping):
             raise CheckpointMismatchError("weft_manifest must be a mapping")
@@ -256,8 +278,24 @@ class CheckpointFingerprint:
         for k, v in raw_tok.items():
             tokenizer_hashes[str(k)] = _validate_sha256(v, f"tokenizer_hashes[{k}]", CheckpointMismatchError)
 
-        config_sha = config_hashes.get("config.json") or sha256_json(config_hashes)
-        tokenizer_sha = tokenizer_hashes.get("tokenizer.json") or sha256_json(tokenizer_hashes)
+        if not config_hashes:
+            raise CheckpointMismatchError("weft_manifest config_hashes must be non-empty")
+        if set(config_hashes.keys()) == {"config.json"}:
+            config_sha = config_hashes["config.json"]
+        else:
+            config_sha = sha256_json(config_hashes)
+
+        non_template_toks = {
+            k: v for k, v in tokenizer_hashes.items() if k not in ("chat_template.jinja", "chat_template.json")
+        }
+        if not non_template_toks:
+            raise CheckpointMismatchError(
+                "weft_manifest tokenizer_hashes must contain at least one non-template tokenizer artifact"
+            )
+        if set(non_template_toks.keys()) == {"tokenizer.json"}:
+            tokenizer_sha = non_template_toks["tokenizer.json"]
+        else:
+            tokenizer_sha = sha256_json(non_template_toks)
         chat_template_sha = (
             tokenizer_hashes.get("chat_template.jinja")
             or tokenizer_hashes.get("chat_template.json")
@@ -268,6 +306,14 @@ class CheckpointFingerprint:
             "checkpoint_fingerprint",
             CheckpointMismatchError,
         )
+        ssm_flag = weft_manifest.get("has_ssm_recurrent", False) if has_ssm_recurrent is None else has_ssm_recurrent
+        lat_flag = (
+            weft_manifest.get("has_horizontal_lattice", False)
+            if has_horizontal_lattice is None
+            else has_horizontal_lattice
+        )
+        lat_layers = weft_manifest.get("lattice_layers", 0) if lattice_layers is None else lattice_layers
+        lat_width = weft_manifest.get("lattice_width", 0) if lattice_width is None else lattice_width
         return cls(
             model_id=model_id,
             layout_sha256=weft_manifest["layout_sha256"],
@@ -276,6 +322,10 @@ class CheckpointFingerprint:
             tokenizer_sha256=tokenizer_sha,
             chat_template_sha256=chat_template_sha,
             safetensors_provenance_sha256=weights_sha,
+            has_ssm_recurrent=ssm_flag,
+            has_horizontal_lattice=lat_flag,
+            lattice_layers=lat_layers,
+            lattice_width=lat_width,
         )
 
 
@@ -539,6 +589,11 @@ class AdapterBundle:
         scale_den: int = 1000,
         adapter_path: str | None = None,
         zone_manifest_id: str | None = None,
+        live_runtime_flags: RuntimeFlags | None = None,
+        has_ssm_recurrent: bool | None = None,
+        has_horizontal_lattice: bool | None = None,
+        lattice_layers: int | None = None,
+        lattice_width: int | None = None,
     ) -> AdapterBundle:
         """Construct a verified AdapterBundle directly from L2 weft BindingManifest + certificate."""
         from .canary import reject_adapter_supplied_canaries
@@ -560,21 +615,48 @@ class AdapterBundle:
                 raise CheckpointMismatchError(
                     "Hard Veto 1: class1_rederivable weft manifest requires a non-empty derivation_recipe"
                 )
+            p1_hashes = weft_manifest.get("plane1_hashes")
+            if not isinstance(p1_hashes, Mapping) or not p1_hashes:
+                raise CheckpointMismatchError(
+                    "Hard Veto 1: class1_rederivable weft manifest requires non-empty plane1_hashes"
+                )
+            for p_name, p_sha in p1_hashes.items():
+                _validate_sha256(p_sha, f"plane1_hashes[{p_name}]", CheckpointMismatchError)
 
-        # Verify internal weft runtime_flags match weft runtime_flags_sha256 (fail closed on internal tamper).
-        if "runtime_flags" in weft_manifest and "runtime_flags_sha256" in weft_manifest:
-            wf_flags = weft_manifest["runtime_flags"]
+        # Verify internal weft runtime_flags match weft runtime_flags_sha256 (fail closed on one-sided/tamper).
+        has_wf_flags = "runtime_flags" in weft_manifest
+        has_wf_sha = "runtime_flags_sha256" in weft_manifest
+        if has_wf_flags and not has_wf_sha:
+            raise RuntimeFlagDriftError(
+                "weft_manifest supplies runtime_flags without required runtime_flags_sha256"
+            )
+        if has_wf_sha:
             wf_flags_sha = _validate_sha256(
                 weft_manifest["runtime_flags_sha256"],
                 "weft_manifest.runtime_flags_sha256",
                 RuntimeFlagDriftError,
             )
-            if not isinstance(wf_flags, Mapping) or not hmac.compare_digest(sha256_json(dict(wf_flags)), wf_flags_sha):
-                raise RuntimeFlagDriftError(
-                    "weft_manifest runtime_flags does not match its declared runtime_flags_sha256"
-                )
+            if has_wf_flags:
+                wf_flags = weft_manifest["runtime_flags"]
+                if not isinstance(wf_flags, Mapping) or not hmac.compare_digest(sha256_json(dict(wf_flags)), wf_flags_sha):
+                    raise RuntimeFlagDriftError(
+                        "weft_manifest runtime_flags does not match its declared runtime_flags_sha256"
+                    )
+                if live_runtime_flags is not None and "ctx_size" in wf_flags:
+                    wf_ctx = _require_strict_int(wf_flags["ctx_size"], "weft_manifest.runtime_flags.ctx_size", RuntimeFlagDriftError)
+                    if wf_ctx != live_runtime_flags.ctx_size:
+                        raise RuntimeFlagDriftError(
+                            f"weft_manifest ctx_size ({wf_ctx}) != live runtime ctx_size ({live_runtime_flags.ctx_size})"
+                        )
 
-        checkpoint = CheckpointFingerprint.from_weft_binding(weft_manifest, model_id=model_id)
+        checkpoint = CheckpointFingerprint.from_weft_binding(
+            weft_manifest,
+            model_id=model_id,
+            has_ssm_recurrent=has_ssm_recurrent,
+            has_horizontal_lattice=has_horizontal_lattice,
+            lattice_layers=lattice_layers,
+            lattice_width=lattice_width,
+        )
 
         expected_cert_sha = weft_manifest.get("certificate_sha256")
         if expected_cert_sha is None:

@@ -89,6 +89,16 @@ class LedgerTamperError(WarpError):
     stage = "stage4_ledger"
 
 
+class ControllerError(WarpError):
+    code = "ERR_EXPERIMENT_CONTROLLER"
+    stage = "experiment_controller"
+
+
+class ContractDriftError(WarpError):
+    code = "ERR_CONTRACT_DRIFT"
+    stage = "experiment_contract"
+
+
 class CerebrasClientError(WarpError):
     code = "ERR_CEREBRAS_CLIENT"
     stage = "lane6_cerebras"
