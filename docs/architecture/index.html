@@ -43,7 +43,7 @@
 <p class="kicker">Architecture</p>
 <h1>Where warp sits, and what it trusts.</h1>
 <p class="dek">Warp is Layer 3 of a five-layer stack described in the README. It sits between the agent loop above it and the model server below it, and it trusts neither side without checks.</p>
-<div class="meta-row"><span class="chip">Exact: 14 modules, 7690 lines</span><span class="chip">Documented: stack and trust path</span><span class="chip">Planned: machines and boot</span></div>
+<div class="meta-row"><span class="chip">Exact: 14 modules, 7728 lines</span><span class="chip">Documented: stack and trust path</span><span class="chip">Planned: machines and boot</span></div>
 </div></div>
 <section class="sec" id="stack" data-index data-num="01" data-dimension="2" aria-labelledby="stack-h"><div class="wrap read">
 <div class="sec-head"><span class="sec-label"><b>01</b> // Five layers</span><span class="chip">Documented: README claim</span></div>
@@ -68,14 +68,14 @@
 </tbody></table>
 </div></section>
 <section class="sec alt" id="modules" data-index data-num="02" aria-labelledby="modules-h"><div class="wrap">
-<div class="sec-head"><span class="sec-label"><b>02</b> // Module map</span><span class="chip">Exact: line counts at 3a458ac</span></div>
+<div class="sec-head"><span class="sec-label"><b>02</b> // Module map</span><span class="chip">Exact: line counts at 47de9f2</span></div>
 <h2 id="modules-h">All 14 modules in src/warp_modeld.</h2>
 <p class="lede">The README layout lists 11 modules. The full set has 14. This page lists all of them, including __init__.py, errors.py and experiment.py.</p>
 <p class="fig-note">How to read: cell area is proportional to source lines. Nothing else. Threads join modules in the same verifier stage. Source: line counts in the table, exact.</p>
 <div data-module-map><noscript><p>The map needs JavaScript. The table below holds the same numbers. Data file: <a href="../data/expeditions.json">expeditions.json</a> covers studies, not modules.</p></noscript></div>
 <table class="tbl"><caption>Modules, source lines and one-line roles</caption>
-<thead><tr><th scope="col">Module</th><th scope="col">Lines</th><th scope="col">Role</th></tr></thead><tbody><tr><th scope="row"><code>__init__.py</code></th><td>196</td><td>Package marker and re-exports</td></tr><tr><th scope="row"><code>fingerprint.py</code></th><td>864</td><td>Stage 1 checkpoint fingerprints</td></tr><tr><th scope="row"><code>certificate.py</code></th><td>583</td><td>Stage 2 exact integer certificates</td></tr><tr><th scope="row"><code>canary.py</code></th><td>1019</td><td>Stage 3 shadow-load canaries</td></tr><tr><th scope="row"><code>llama_client.py</code></th><td>345</td><td>llama-server HTTP client</td></tr><tr><th scope="row"><code>state_banks.py</code></th><td>131</td><td>Three state bank model</td></tr><tr><th scope="row"><code>ledger.py</code></th><td>483</td><td>Stage 4 signed hash-chained ledger</td></tr><tr><th scope="row"><code>verifier.py</code></th><td>814</td><td>Stage 1 to 4 orchestrator</td></tr><tr><th scope="row"><code>server.py</code></th><td>379</td><td>Unix socket JSON-RPC server</td></tr><tr><th scope="row"><code>cli.py</code></th><td>192</td><td>Command line entry points</td></tr><tr><th scope="row"><code>errors.py</code></th><td>119</td><td>Typed fail-closed errors</td></tr><tr><th scope="row"><code>experiment.py</code></th><td>1679</td><td>Bounded demo controller</td></tr><tr><th scope="row"><code>cerebras_client.py</code></th><td>756</td><td>Cerebras client, mocked tests only</td></tr><tr><th scope="row"><code>cerebras_prompts.py</code></th><td>130</td><td>Fixed Cerebras prompt fixtures</td></tr></tbody></table>
-<p class="fig-note">Total: 7690 lines. Counted with wc -l on src/warp_modeld at main 3a458ac.</p>
+<thead><tr><th scope="col">Module</th><th scope="col">Lines</th><th scope="col">Role</th></tr></thead><tbody><tr><th scope="row"><code>__init__.py</code></th><td>196</td><td>Package marker and re-exports</td></tr><tr><th scope="row"><code>fingerprint.py</code></th><td>864</td><td>Stage 1 checkpoint fingerprints</td></tr><tr><th scope="row"><code>certificate.py</code></th><td>583</td><td>Stage 2 exact integer certificates</td></tr><tr><th scope="row"><code>canary.py</code></th><td>1019</td><td>Stage 3 shadow-load canaries</td></tr><tr><th scope="row"><code>llama_client.py</code></th><td>345</td><td>llama-server HTTP client</td></tr><tr><th scope="row"><code>state_banks.py</code></th><td>131</td><td>Three state bank model</td></tr><tr><th scope="row"><code>ledger.py</code></th><td>483</td><td>Stage 4 signed hash-chained ledger</td></tr><tr><th scope="row"><code>verifier.py</code></th><td>852</td><td>Stage 1 to 4 orchestrator</td></tr><tr><th scope="row"><code>server.py</code></th><td>379</td><td>Unix socket JSON-RPC server</td></tr><tr><th scope="row"><code>cli.py</code></th><td>192</td><td>Command line entry points</td></tr><tr><th scope="row"><code>errors.py</code></th><td>119</td><td>Typed fail-closed errors</td></tr><tr><th scope="row"><code>experiment.py</code></th><td>1679</td><td>Bounded demo controller</td></tr><tr><th scope="row"><code>cerebras_client.py</code></th><td>756</td><td>Cerebras client, mocked tests only</td></tr><tr><th scope="row"><code>cerebras_prompts.py</code></th><td>130</td><td>Fixed Cerebras prompt fixtures</td></tr></tbody></table>
+<p class="fig-note">Total: 7728 lines. Counted with wc -l on src/warp_modeld at main 47de9f2.</p>
 </div></section>
 <section class="sec" id="machines" data-index data-num="03" aria-labelledby="machines-h"><div class="wrap read">
 <div class="sec-head"><span class="sec-label"><b>03</b> // Machines and images</span><span class="chip">Planned: PLAN.md</span></div>
@@ -92,7 +92,7 @@
 <span class="sr-only" data-hud-live aria-live="polite"></span>
 </div>
 <footer class="site-foot"><div class="wrap">
-<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 3a458ac.</p>
+<p><strong>Warp Drive</strong> · Apache-2.0 for code. This site cites main at 47de9f2.</p>
 <div class="foot-cols">
 <div>Record<ul><li><a href="../expeditions/">Expeditions</a></li><li><a href="../verifier/">Verifier</a></li></ul></div>
 <div>Work<ul><li><a href="../architecture/">Architecture</a></li><li><a href="../blueprints/">Blueprints</a></li></ul></div>

@@ -10,7 +10,7 @@ const MODULES = [
   ["llama_client.py", 345, "llama-server HTTP client"],
   ["state_banks.py", 131, "Three state bank model"],
   ["ledger.py", 483, "Stage 4 signed hash-chained ledger"],
-  ["verifier.py", 814, "Stage 1 to 4 orchestrator"],
+  ["verifier.py", 852, "Stage 1 to 4 orchestrator"],
   ["server.py", 379, "Unix socket JSON-RPC server"],
   ["cli.py", 192, "Command line entry points"],
   ["errors.py", 119, "Typed fail-closed errors"],

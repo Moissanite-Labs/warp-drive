@@ -47,7 +47,7 @@ in warp.css are first-pass values. Re-measure before launch.
 ## Truth labels
 
 Exact means recomputed with a named command at the commit the label names
-(main 3a458ac or this branch head). Documented
+(main 47de9f2 or this branch head). Documented
 means stated in repo docs, not re-run. Planned means PLAN milestones 3
 and 4. Never upgrade a label. Test counts always name the runner. The
 demo leakage line (110 of 112) sits next to any task count.
