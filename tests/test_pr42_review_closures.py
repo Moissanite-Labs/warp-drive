@@ -11,6 +11,9 @@ Each test fails on the unfixed code:
   run the Python checks as python3 -I -B.
 - WD42-04: the static site counts must match the tree (scripts/check_site.py
   fails otherwise) and every page footer must cite the same main sha.
+- BLOCKING 1 (test-count relabel): no page may put "counted at main" next
+  to a test-runner total, and home plus verifier must carry the branch-head
+  label with the pytest command and main 3a458ac's own figures (256/2, 139/2).
 - Vendor LICENSE carries no extra leading blank line.
 """
 
@@ -172,6 +175,22 @@ class WD42_04_SiteCountsMatchTree(unittest.TestCase):
             self.assertIsNotNone(m, f"{p} footer missing main sha")
             shas.add(m.group(1))
         self.assertEqual(shas, {"3a458ac"})
+
+    def test_runner_totals_labelled_by_commit_not_main(self):
+        runner = re.compile(r"pytest|unittest|test files")
+        for p in sorted(DOCS.rglob("*.html")):
+            for line in p.read_text().splitlines():
+                if "counted at main" in line and runner.search(line):
+                    self.fail(f"{p.name} labels a test-runner total as counted at main: {line.strip()}")
+        home = (DOCS / "index.html").read_text()
+        ver = (DOCS / "verifier" / "index.html").read_text()
+        for text, name in ((home, "home"), (ver, "verifier")):
+            self.assertIn("counted on this branch head (main 3a458ac plus PR 42's test file)", text, name)
+            self.assertIn("PYTHONPATH=src python3 -B -m pytest -q tests/", text, name)
+            self.assertIn(
+                "At main 3a458ac itself: pytest 256 passed, 2 skipped; unittest 139 ran, 2 skipped",
+                text, name,
+            )
 
 
 class VendorLicenseLeadingBlankLine(unittest.TestCase):

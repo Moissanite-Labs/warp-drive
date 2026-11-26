@@ -120,20 +120,55 @@ big = max(MODS, key=MODS.get)
 if f"Map of the {n_mod} modules" not in mmap or f"{big} at {MODS[big]} lines" not in mmap:
     fail("module-map.js aria-label drifted from tree")
 
-m = re.search(r"counted at main ([0-9a-f]+): (\d+) modules · (\d+) test files · pytest (\d+) passed, (\d+) skipped · (\d+) canaries", home)
-if not m:
-    fail("home count line missing or malformed")
+# Home meta splits by commit: main-true counts carry the main label, runner
+# totals carry the branch-head label and name the command that produced them.
+pt_pass = pt_skip = None
+m_main = re.search(r"counted at main ([0-9a-f]+): (\d+) modules · (\d+) canaries", home)
+if not m_main:
+    fail("home main-count line missing or malformed")
+elif (int(m_main.group(2)), int(m_main.group(3))) != (n_mod, N_CANARIES):
+    fail("home main-count line drifted from tree")
+m_br = re.search(r"counted on this branch head \(main ([0-9a-f]+) plus PR 42's test file\): (\d+) test files\b.*?pytest (\d+) passed, (\d+) skipped", home)
+if not m_br:
+    fail("home branch-count line missing or malformed")
 else:
-    if (int(m.group(2)), int(m.group(3)), int(m.group(6))) != (n_mod, len(TEST_FILES), N_CANARIES):
-        fail("home count line drifted from tree")
-    pt_pass, pt_skip = m.group(4), m.group(5)
-if f"pytest {pt_pass} passed and {pt_skip} skipped" not in ver:
-    fail("verifier pytest line disagrees with home")
+    if int(m_br.group(2)) != len(TEST_FILES):
+        fail("home branch test-file count drifted from tree")
+    pt_pass, pt_skip = m_br.group(3), m_br.group(4)
+if m_main and m_br and m_main.group(1) != m_br.group(1):
+    fail("home branch label names a different main sha than the main-count line")
+for cmd in ("PYTHONPATH=src python3 -B -m pytest -q tests/",
+            "PYTHONPATH=src python3 -B -m unittest discover -s tests",
+            "ls tests/test_*.py | wc -l"):
+    if cmd not in home: fail(f"home branch counts do not name the command: {cmd}")
+if pt_pass is not None:
+    if f"pytest {pt_pass} passed and {pt_skip} skipped" not in ver:
+        fail("verifier pytest line disagrees with home")
+    if "counted on this branch head" not in ver:
+        fail("verifier runner totals not labelled as counted on this branch head")
+for cmd in ("PYTHONPATH=src python3 -B -m pytest -q tests/",
+            "PYTHONPATH=src python3 -B -m unittest discover -s tests"):
+    if cmd not in ver: fail(f"verifier counts do not name the command: {cmd}")
 mu = re.search(r"unittest (\d+) ran and (\d+) skipped", ver)
 if not mu: fail("verifier unittest line missing")
 elif f"unittest alone runs {mu.group(1)} and skips {mu.group(2)}" not in home:
     fail("home unittest line disagrees with verifier")
-if f"inside the {pt_pass} passed count" not in bp: fail("blueprints pytest reference disagrees with home")
+if pt_pass is not None and f"inside the {pt_pass} passed count" not in bp:
+    fail("blueprints pytest reference disagrees with home")
+if "counted on this branch head" not in bp:
+    fail("blueprints runner reference not labelled as counted on this branch head")
+mc = re.search(r"pytest (\d+) passed, (\d+) skipped, (\d+) collected", home)
+if not mc: fail("home tests card missing the pytest collected figure")
+elif pt_pass is not None and (mc.group(1), mc.group(2)) != (pt_pass, pt_skip):
+    fail("home tests card pytest figures disagree with the home meta line")
+elif int(mc.group(3)) != int(mc.group(1)) + int(mc.group(2)):
+    fail("home collected figure != passed + skipped")
+mm_home = re.search(r"At main ([0-9a-f]+) itself: pytest (\d+) passed, (\d+) skipped; unittest (\d+) ran, (\d+) skipped", home)
+mm_ver = re.search(r"At main ([0-9a-f]+) itself: pytest (\d+) passed, (\d+) skipped; unittest (\d+) ran, (\d+) skipped", ver)
+if not mm_home: fail("home missing the 'At main itself' figures")
+if not mm_ver: fail("verifier missing the 'At main itself' figures")
+if mm_home and mm_ver and mm_home.groups() != mm_ver.groups():
+    fail("home and verifier 'At main itself' figures disagree")
 if f"{N_CANARIES} canaries" not in ver or f"{N_CANARIES} canaries" not in home: fail("canary count drifted from schema")
 cb = len(re.findall(r"def test_", (ROOT / "tests" / "test_cerebras_client.py").read_text()))
 if f"{cb} tests in tests/test_cerebras_client.py" not in ver: fail("cerebras test count drifted from tree")
@@ -159,13 +194,18 @@ for r in data["records"]:
 if f"{len(STUDIES)} studies checked parts of the checker" not in home: fail("home expeditions count drifted from tree")
 shas = set(re.findall(r"This site cites main at ([0-9a-f]+)", all_text))
 if len(shas) != 1: fail(f"footer main sha inconsistent across pages: {sorted(shas)}")
-if m and shas and m.group(1) not in shas: fail("home counted-at sha differs from footer sha")
+for m in (m_main, m_br, mm_home, mm_ver):
+    if m and shas and m.group(1) not in shas:
+        fail("a labelled main sha differs from the footer sha")
 
 # 6. Forbidden strings across copy.
 if "53-test" in all_text or "53 passing" in all_text: fail("stale 53-test claim present")
 if "—" in all_text: fail("em dash present in HTML copy")
 if "pytest" not in all_text: fail("missing runner-named pytest line")
 if "110 of 112" not in all_text: fail("missing demo leakage line")
+for line in all_text.splitlines():
+    if "counted at main" in line and re.search(r"pytest|unittest|test files", line):
+        fail("a test-runner total is labelled 'counted at main'")
 
 if errors:
     print("site gate: FAIL")

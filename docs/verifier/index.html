@@ -73,7 +73,7 @@
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 PYTHONPATH=src python3 -m warp_modeld.cli verify-ledger
 PYTHONPATH=src python3 -m warp_modeld.cli check-certificate</code></pre>
-<p>unittest alone misses two pytest files. Counts: pytest 271 passed and 2 skipped. unittest 154 ran and 2 skipped. Opt-in live tests need WARP_LIVE_LLAMA_TEST or WARP_LIVE_CEREBRAS_TEST plus credentials or model files. Live status is unverified.</p>
+<p>unittest alone misses two pytest files. Runner totals counted on this branch head (main 3a458ac plus PR 42's test file), by PYTHONPATH=src python3 -B -m pytest -q tests/ and PYTHONPATH=src python3 -B -m unittest discover -s tests: pytest 272 passed and 2 skipped. unittest 155 ran and 2 skipped. At main 3a458ac itself: pytest 256 passed, 2 skipped; unittest 139 ran, 2 skipped. Opt-in live tests need WARP_LIVE_LLAMA_TEST or WARP_LIVE_CEREBRAS_TEST plus credentials or model files. Live status is unverified.</p>
 <p>Schemas in the repo: adapter bundle, Cerebras candidate (provisional, pending a lane freeze), and the canary suite. The modeld config file is an example, not a schema.</p>
 <div class="card"><h3>Cerebras, stated plainly</h3><p>The client targets a Kimi model id on Cerebras. Live status is unverified. Only mocked contract tests pass: 48 tests in tests/test_cerebras_client.py, counted from source. A dedicated endpoint may be required. This site makes no live Cerebras speed claim.</p></div>
 </div></section>
