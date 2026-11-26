@@ -41,7 +41,7 @@ from .fingerprint import (
 )
 from .ledger import LedgerReceipt, SignedLedger
 from .llama_client import LlamaClientError, LlamaServerClient
-from .state_banks import BankFlushReceipt, STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM
+from .state_banks import BankFlushReceipt, STATE_BANK_KV, STATE_BANK_LATTICE, STATE_BANK_SSM, StateBankStatus
 
 
 @dataclass(frozen=True)
@@ -263,6 +263,10 @@ class WarpModeld:
         needs_ssm = STATE_BANK_SSM in required_banks
         req_banks_arg = required_banks if len(required_banks) > 1 else None
 
+        if not callable(getattr(self.llama_client, "list_slots", None)):
+            err_cls = LatticeFlushError if needs_lattice else StateFlushError
+            raise err_cls("llama client has no callable list_slots; refusing unverified slot flush")
+
         try:
             slots = self.llama_client.list_slots()
             if not slots:
@@ -320,6 +324,9 @@ class WarpModeld:
 
             receipts: list[BankFlushReceipt] = []
             for slot in after:
+                if not isinstance(slot.state_banks, dict):
+                    err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                    raise err_cls(f"slot {slot.id} reported non-mapping state bank status")
                 if slot.is_processing:
                     err_cls = LatticeFlushError if needs_lattice else StateFlushError
                     raise err_cls(f"slot {slot.id} is still processing after erase")
@@ -328,22 +335,21 @@ class WarpModeld:
                     if (
                         slot.lattice_state_tainted
                         or slot.lattice_layers_tainted > 0
-                        or lattice_bank is None
-                        or not lattice_bank.is_clean
+                        or getattr(lattice_bank, "is_clean", False) is not True
                     ):
                         raise LatticeFlushError(
                             f"slot {slot.id} retained horizontal lattice state after erase "
                             f"(lattice_tainted={slot.lattice_state_tainted}, "
                             f"layers_tainted={slot.lattice_layers_tainted}, "
-                            f"bank={lattice_bank.to_dict() if lattice_bank else None})"
+                            f"bank={lattice_bank.to_dict() if isinstance(lattice_bank, StateBankStatus) else None})"
                         )
                 if needs_ssm:
                     ssm_bank = slot.state_banks.get(STATE_BANK_SSM)
-                    if slot.ssm_state_tainted or ssm_bank is None or not ssm_bank.is_clean:
+                    if slot.ssm_state_tainted or getattr(ssm_bank, "is_clean", False) is not True:
                         raise StateFlushError(
                             f"slot {slot.id} retained or failed to confirm clean SSM recurrent state after erase "
                             f"(ssm_tainted={slot.ssm_state_tainted}, "
-                            f"bank={ssm_bank.to_dict() if ssm_bank else None})"
+                            f"bank={ssm_bank.to_dict() if isinstance(ssm_bank, StateBankStatus) else None})"
                         )
                 if (
                     slot.recurrent_state_tainted
@@ -358,7 +364,7 @@ class WarpModeld:
                     )
                 for req_bank in required_banks:
                     bank_status = slot.state_banks.get(req_bank)
-                    if bank_status is None or not bank_status.is_clean:
+                    if getattr(bank_status, "is_clean", False) is not True:
                         err_cls = (
                             LatticeFlushError
                             if req_bank == STATE_BANK_LATTICE
@@ -367,11 +373,8 @@ class WarpModeld:
                         raise err_cls(
                             f"slot {slot.id} retained or failed to confirm clean "
                             f"{req_bank} state after erase "
-                            f"(bank={bank_status.to_dict() if bank_status else None})"
+                            f"(bank={bank_status.to_dict() if isinstance(bank_status, StateBankStatus) else None})"
                         )
-                reported_banks = slot.state_banks
-                if not isinstance(reported_banks, dict):
-                    raise StateFlushError(f"slot {slot.id} reported non-mapping state bank status")
                 if slot.lattice_state_tainted or slot.lattice_layers_tainted > 0:
                     raise LatticeFlushError(
                         f"slot {slot.id} retained horizontal lattice taint after erase "
@@ -383,13 +386,13 @@ class WarpModeld:
                         f"slot {slot.id} retained SSM taint after erase "
                         f"(ssm_tainted={slot.ssm_state_tainted})"
                     )
-                for bank_name, bank_status in reported_banks.items():
-                    if bank_status.is_clean:
+                for bank_name, bank_status in slot.state_banks.items():
+                    if getattr(bank_status, "is_clean", False) is True:
                         continue
                     err_cls = LatticeFlushError if bank_name == STATE_BANK_LATTICE else StateFlushError
                     raise err_cls(
                         f"slot {slot.id} reported a dirty non-required state bank {bank_name} after erase "
-                        f"(bank={bank_status.to_dict()})"
+                        f"(bank={bank_status.to_dict() if isinstance(bank_status, StateBankStatus) else None})"
                     )
                 receipts.append(
                     BankFlushReceipt(

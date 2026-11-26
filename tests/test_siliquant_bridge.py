@@ -12,6 +12,7 @@ from pathlib import Path
 from warp_modeld.certificate import verify_division_free
 from warp_modeld.errors import CertificateError
 from warp_modeld.siliquant_bridge import (
+    WEFT_BODY_FIELDS,
     CodebookPickVerification,
     SiliquantExpectations,
     checker_sha256,
@@ -111,6 +112,7 @@ def _expect(
     cert = receipt["certificate"]
     values = dict(
         quant_dtype=payload["quant_dtype"],
+        radix_scale_exp2=payload["radix_scale_exp2"],
         projector_epoch=payload["projector_epoch"],
         factor_digest=payload["factor_digest"],
         weft_sha256=payload["weft_sha256"],
@@ -433,6 +435,248 @@ class TestFormatAndPayloadBinding(unittest.TestCase):
             checker = _write_checker(td)
             with self.assertRaises(CertificateError):
                 _bridge(_valid_payload(), _receipt(), checker, weft_sha256=fake_sha("other-weft"))
+
+
+def _body_of(payload: dict) -> dict:
+    return {key: payload[key] for key in WEFT_BODY_FIELDS}
+
+
+def _expectations_kwargs(**overrides) -> dict:
+    base = dict(
+        quant_dtype=QUANT,
+        radix_scale_exp2=32,
+        projector_epoch=EPOCH,
+        factor_digest=FACTOR,
+        weft_sha256=fake_sha("weft"),
+        arm=ARM,
+        budget=BUDGET,
+        receipt_sha256=fake_sha("receipt"),
+        checker_sha256=fake_sha("checker"),
+    )
+    base.update(overrides)
+    return base
+
+
+class TestWD41ReviewWitnesses(unittest.TestCase):
+    """Regression tests for the blocking WD41-01..WD41-06 witnesses from review abu-aska."""
+
+    # --- WD41-01: weft_sha256 is mandatory and validated on the default path ---
+
+    def test_weft_sha256_none_fails_closed_on_default_path(self) -> None:
+        payload = _valid_payload()
+        payload["weft_sha256"] = None
+        with self.assertRaises(CertificateError):
+            ingest_weft_certificate(payload)
+
+    def test_tampered_metrics_with_none_weft_sha_fail_closed(self) -> None:
+        # Review witness: frobenius inflated and leakage zeroed with weft_sha256=None
+        # used to return a valid certificate (fail-open).
+        payload = _valid_payload()
+        payload["frobenius_sq_scaled"] = 999 * RADIX
+        payload["leakage_energy_scaled"] = 0
+        payload["weft_sha256"] = None
+        with self.assertRaises(CertificateError):
+            ingest_weft_certificate(payload)
+
+    def test_malformed_weft_sha256_raises_certificate_error_not_typeerror(self) -> None:
+        for bad in (None, 123, "é" * 64, "\ud800" * 64):
+            with self.subTest(bad=ascii(bad)[:24]):
+                payload = _valid_payload()
+                payload["weft_sha256"] = bad
+                with self.assertRaises(CertificateError):
+                    ingest_weft_certificate(payload)
+                with self.assertRaises(CertificateError):
+                    ingest_weft_certificate(payload, expected_weft_sha256=fake_sha("expected"))
+
+    # --- WD41-02: checker self-checks and findings are strictly typed ---
+
+    @staticmethod
+    def _checker_body(check_return: str, identities: str = "True", pi: str = "True") -> str:
+        return (
+            "def identities():\n    return " + identities + "\n\n"
+            "def pi_bounds_hold():\n    return " + pi + "\n\n"
+            "def check(cert):\n    return " + check_return + "\n"
+        )
+
+    def _pick(self, checker: Path) -> None:
+        receipt = _receipt()
+        verify_codebook_pick(
+            receipt,
+            checker,
+            expected_checker_sha256=checker_sha256(checker),
+            expected_receipt_sha256=codebook_receipt_sha256(receipt),
+        )
+
+    def test_falsy_check_findings_fail_closed(self) -> None:
+        for ret in ("None", "0", "False", '""'):
+            with self.subTest(check_return=ret):
+                with tempfile.TemporaryDirectory() as td:
+                    checker = _write_checker(td, self._checker_body(ret))
+                    with self.assertRaises(CertificateError):
+                        self._pick(checker)
+
+    def test_truthy_non_bool_self_checks_fail_closed(self) -> None:
+        for identities, pi in (('"FAIL"', "True"), ("True", '"NO"')):
+            with self.subTest(identities=identities, pi=pi):
+                with tempfile.TemporaryDirectory() as td:
+                    checker = _write_checker(td, self._checker_body("[]", identities, pi))
+                    with self.assertRaises(CertificateError):
+                        self._pick(checker)
+
+    def test_non_sliceable_findings_raise_certificate_error_not_typeerror(self) -> None:
+        for ret in ("{'bad'}", "1"):
+            with self.subTest(check_return=ret):
+                with tempfile.TemporaryDirectory() as td:
+                    checker = _write_checker(td, self._checker_body(ret))
+                    with self.assertRaises(CertificateError):
+                        self._pick(checker)
+
+    # --- WD41-03: checker path is pinned, symlink-free and type-validated ---
+
+    def test_unpinned_checker_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            checker = _write_checker(td)
+            with self.assertRaises(CertificateError):
+                load_siliquant_checker(checker)
+
+    def test_symlinked_checker_is_never_executed(self) -> None:
+        marker_body = (
+            FAKE_CHECKER_OK
+            + "\nfrom pathlib import Path as _P\n_P(__file__).with_name('EXECUTED').write_text('yes')\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            real = _write_checker(td, marker_body)
+            link = Path(td) / "link_checker.py"
+            link.symlink_to(real)
+            # Even with the digest pinned to the symlink target, the symlink is refused.
+            with self.assertRaises(CertificateError):
+                load_siliquant_checker(link, expected_checker_sha256=checker_sha256(real))
+            self.assertFalse((Path(td) / "EXECUTED").exists())
+
+    def test_symlinked_ancestor_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            real_dir = Path(td) / "real"
+            real_dir.mkdir()
+            real = _write_checker(str(real_dir))
+            link_dir = Path(td) / "linkdir"
+            link_dir.symlink_to(real_dir, target_is_directory=True)
+            with self.assertRaises(CertificateError):
+                load_siliquant_checker(
+                    link_dir / "check_certificate.py",
+                    expected_checker_sha256=checker_sha256(real),
+                )
+
+    def test_non_path_checker_inputs_raise_certificate_error(self) -> None:
+        for bad in (123, None, b"/tmp/checker.py", "/tmp/\ud800.py", "/tmp/a\x00b.py"):
+            with self.subTest(bad=ascii(bad)[:24]):
+                with self.assertRaises(CertificateError):
+                    load_siliquant_checker(bad, expected_checker_sha256=fake_sha("c"))  # type: ignore[arg-type]
+                with self.assertRaises(CertificateError):
+                    checker_sha256(bad)  # type: ignore[arg-type]
+
+    # --- WD41-05: digit caps, NaN rejection, lone-surrogate rejection ---
+
+    def test_huge_decimal_strings_and_ints_raise_certificate_error(self) -> None:
+        receipt = _receipt()
+        receipt["certificate"]["candidates"][0]["terms"]["sum_sq"] = "9" * 4301
+        with self.assertRaises(CertificateError):
+            codebook_receipt_sha256(receipt)
+        receipt = _receipt()
+        receipt["certificate"]["candidates"][0]["terms"]["sum_sq"] = 10 ** 5000
+        with self.assertRaises(CertificateError):
+            codebook_receipt_sha256(receipt)
+        receipt = _receipt()
+        receipt["certificate"]["budget"] = [10 ** 5000, 1]
+        with self.assertRaises(CertificateError):
+            codebook_receipt_sha256(receipt)
+
+    def test_generate_rejects_huge_radix_and_norms_with_certificate_error(self) -> None:
+        with self.assertRaises(CertificateError):
+            generate_fixed_radix_certificate(
+                ADAPTER, ADAPTER_SHA, BASE_SHA,
+                frobenius_sq=RADIX, spectral_norm_sq=RADIX // 4,
+                leakage_energy=0, max_safety_dot_sq=0,
+                radix_scale_exp2=10 ** 5000,
+                projector_epoch=EPOCH, factor_digest=FACTOR, quant_dtype=QUANT,
+            )
+        with self.assertRaises(CertificateError):
+            generate_fixed_radix_certificate(
+                ADAPTER, ADAPTER_SHA, BASE_SHA,
+                frobenius_sq=10 ** 5000, spectral_norm_sq=10 ** 5000,
+                leakage_energy=0, max_safety_dot_sq=0,
+                projector_epoch=EPOCH, factor_digest=FACTOR, quant_dtype=QUANT,
+            )
+
+    def test_weft_body_sha256_rejects_nan_and_huge_ints(self) -> None:
+        body = _body_of(_valid_payload())
+        body["frobenius_sq_scaled"] = float("nan")
+        with self.assertRaises(CertificateError):
+            weft_body_sha256(body)
+        body = _body_of(_valid_payload())
+        body["frobenius_sq_scaled"] = 10 ** 5000
+        with self.assertRaises(CertificateError):
+            weft_body_sha256(body)
+
+    def test_lone_surrogate_adapter_id_rejected(self) -> None:
+        with self.assertRaises(CertificateError):
+            generate_fixed_radix_certificate(
+                "mde:\ud800", ADAPTER_SHA, BASE_SHA,
+                frobenius_sq=RADIX, spectral_norm_sq=RADIX // 4,
+                leakage_energy=RADIX // 1000, max_safety_dot_sq=RADIX // 10000,
+                projector_epoch=EPOCH, factor_digest=FACTOR, quant_dtype=QUANT,
+            )
+        payload = _valid_payload()
+        payload["adapter_id"] = "mde:\ud800"
+        with self.assertRaises(CertificateError):
+            ingest_weft_certificate(payload)
+
+    # --- WD41-06: quant/arm coherence, positive budget, pinned radix_scale_exp2 ---
+
+    def test_expectations_reject_incoherent_quant_dtype_and_arm(self) -> None:
+        SiliquantExpectations(**_expectations_kwargs())
+        SiliquantExpectations(**_expectations_kwargs(quant_dtype="siliquant_e8", arm="E8:p1"))
+        for arm in ("X", "Z8:p1", "Z8:p2"):
+            with self.subTest(arm=arm):
+                with self.assertRaises(CertificateError):
+                    SiliquantExpectations(**_expectations_kwargs(quant_dtype="siliquant_e8", arm=arm))
+
+    def test_expectations_reject_non_positive_budget_and_bad_radix(self) -> None:
+        for bad in ((-5, 1), (0, 1), (1, 0), (-1, -1)):
+            with self.subTest(budget=bad):
+                with self.assertRaises(CertificateError):
+                    SiliquantExpectations(**_expectations_kwargs(budget=bad))
+                receipt = _receipt()
+                receipt["certificate"]["budget"] = list(bad)
+                with self.assertRaises(CertificateError):
+                    codebook_receipt_sha256(receipt)
+        for bad_exp2 in (0, 7, 49, "32", True):
+            with self.subTest(radix_scale_exp2=bad_exp2):
+                with self.assertRaises(CertificateError):
+                    SiliquantExpectations(**_expectations_kwargs(radix_scale_exp2=bad_exp2))
+
+    def test_radix_scale_exp2_pinning_rejects_relabeled_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            checker = _write_checker(td)
+            # Inflated frobenius that the 5.0 bound rejects at exp2=32 but that would
+            # pass if the payload could relabel its own radix scale to 48.
+            relabeled = generate_fixed_radix_certificate(
+                ADAPTER, ADAPTER_SHA, BASE_SHA,
+                frobenius_sq=100 * (1 << 32), spectral_norm_sq=(1 << 32) // 4,
+                leakage_energy=0, max_safety_dot_sq=0,
+                radix_scale_exp2=48,
+                projector_epoch=EPOCH, factor_digest=FACTOR, quant_dtype=QUANT,
+            )
+            with self.assertRaises(CertificateError):
+                _bridge(relabeled, _receipt(), checker, radix_scale_exp2=32)
+            # Control: only an explicitly pinned exp2=48 gets past the radix pin.
+            result = _bridge(relabeled, _receipt(), checker, radix_scale_exp2=48)
+            self.assertTrue(result.passed)
+
+    def test_bridge_rejects_incoherent_expectations_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            checker = _write_checker(td)
+            with self.assertRaises(CertificateError):
+                _bridge(_valid_payload(), _receipt(), checker, quant_dtype="siliquant_e8", arm="X")
 
 
 @unittest.skipUnless(os.environ.get("SILIQUANT_CHECKER_PATH"), "set SILIQUANT_CHECKER_PATH to run")

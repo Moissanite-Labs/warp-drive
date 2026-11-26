@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import types
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -27,6 +28,31 @@ from .errors import CertificateError
 DEFAULT_RADIX_EXP2 = 32
 SILIQUANT_QUANTIZATIONS = frozenset(("siliquant_4_5", "siliquant_e8", "siliquant_ballpack"))
 SILIQUANT_ARMS = frozenset(("X", "Z8:p1", "Z8:p2", "E8:p1", "E8:p2"))
+
+# Input-size caps: str()/json.dumps raise ValueError above ~4300 digits, so
+# decimal strings and integers are bounded before any conversion or formatting.
+_MAX_DECIMAL_DIGITS = 1024
+_MAX_INT_BITS = 1024
+
+
+def _derive_quant_arm_prefixes() -> dict[str, str]:
+    """quant_dtype -> required arm prefix, derived only from the sets this module defines.
+
+    A quantization whose name embeds an arm root of SILIQUANT_ARMS (only
+    "siliquant_e8" embeds "E8") may only pick an arm with that root; a
+    quantization without an embedded arm root accepts any arm in SILIQUANT_ARMS.
+    """
+    table: dict[str, str] = {}
+    for quant in SILIQUANT_QUANTIZATIONS:
+        suffix = quant[len("siliquant_"):].upper()
+        for arm in SILIQUANT_ARMS:
+            root = arm.split(":", 1)[0]
+            if suffix == root.upper():
+                table[quant] = root + ":"
+    return table
+
+
+QUANT_ARM_PREFIXES = _derive_quant_arm_prefixes()
 WEFT_BODY_FIELDS = (
     "radix_scale_exp2", "frobenius_sq_scaled", "spectral_norm_sq_scaled",
     "leakage_energy_scaled", "max_safety_dot_sq_scaled", "projector_epoch",
@@ -56,7 +82,15 @@ class CodebookPickVerification:
 
 @dataclass(frozen=True)
 class SiliquantExpectations:
+    """Verifier-owned expectations for one SiliQuant bridge verification.
+
+    `radix_scale_exp2` is pinned here so a payload cannot relabel its own radix
+    scale; the weft body norms themselves remain self-attested until Stage 2
+    derives exact integer bounds from adapter bytes.
+    """
+
     quant_dtype: str
+    radix_scale_exp2: int
     projector_epoch: int
     factor_digest: str
     weft_sha256: str
@@ -68,6 +102,12 @@ class SiliquantExpectations:
     def __post_init__(self) -> None:
         if self.quant_dtype not in SILIQUANT_QUANTIZATIONS:
             raise CertificateError(f"unsupported SiliQuant quantization: {self.quant_dtype!r}")
+        _require_exact_int(self.radix_scale_exp2, "expected_radix_scale_exp2", allow_zero=False)
+        if not (WEFT_RADIX_EXP2_MIN <= self.radix_scale_exp2 <= WEFT_RADIX_EXP2_MAX):
+            raise CertificateError(
+                f"expected radix_scale_exp2 must be in "
+                f"[{WEFT_RADIX_EXP2_MIN}, {WEFT_RADIX_EXP2_MAX}] (got {_fmt_int(self.radix_scale_exp2)})"
+            )
         _require_exact_int(self.projector_epoch, "projector_epoch", allow_zero=True)
         for name, value in (
             ("factor_digest", self.factor_digest),
@@ -78,6 +118,12 @@ class SiliquantExpectations:
             _require_sha256(value, f"expected_{name}")
         if self.arm not in SILIQUANT_ARMS:
             raise CertificateError(f"unsupported SiliQuant arm: {self.arm!r}")
+        arm_prefix = QUANT_ARM_PREFIXES.get(self.quant_dtype)
+        if arm_prefix is not None and not self.arm.startswith(arm_prefix):
+            raise CertificateError(
+                f"quant_dtype {self.quant_dtype!r} is incompatible with arm {self.arm!r}: "
+                f"it requires an arm starting with {arm_prefix!r}"
+            )
         _validate_budget(self.budget, "expected_budget")
 
 
@@ -95,16 +141,39 @@ class SiliquantBridgeVerification:
         return self.stage2.passed
 
 
+def _fmt_int(value: int) -> str:
+    """Format an int for error messages without hitting the 4300-digit str() limit."""
+    if value.bit_length() <= _MAX_INT_BITS:
+        return str(value)
+    return f"int with {value.bit_length()} bits"
+
+
 def _require_sha256(value: Any, name: str) -> str:
     if not isinstance(value, str) or not SHA256_RE.match(value):
         raise CertificateError(f"{name} must be a 64-char lowercase hex digest")
     return value
 
 
+def _require_utf8_text(value: Any, name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise CertificateError(f"{name} must be a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CertificateError(f"{name} must be UTF-8 encodable (lone surrogates are rejected)") from exc
+    return value
+
+
 def _exact_integer(value: Any, name: str, *, allow_zero: bool = True) -> int:
     if type(value) is int:
         number = value
+        if number.bit_length() > _MAX_INT_BITS:
+            raise CertificateError(
+                f"{name} is an integer with too many bits ({number.bit_length()} > {_MAX_INT_BITS})"
+            )
     elif isinstance(value, str) and value.isascii() and value.isdecimal() and (value == "0" or not value.startswith("0")):
+        if len(value) > _MAX_DECIMAL_DIGITS:
+            raise CertificateError(f"{name} decimal string exceeds {_MAX_DECIMAL_DIGITS} digits")
         number = int(value)
     else:
         raise CertificateError(f"{name} must be an exact integer or canonical decimal string")
@@ -117,8 +186,17 @@ def _validate_budget(budget: Any, name: str) -> tuple[int, int]:
     if not isinstance(budget, (list, tuple)) or len(budget) != 2:
         raise CertificateError(f"{name} must be a numerator/denominator pair")
     numerator, denominator = budget
-    if type(numerator) is not int or type(denominator) is not int or denominator <= 0:
-        raise CertificateError(f"{name} must contain exact integers with a positive denominator")
+    if (
+        type(numerator) is not int
+        or type(denominator) is not int
+        or numerator.bit_length() > _MAX_INT_BITS
+        or denominator.bit_length() > _MAX_INT_BITS
+        or numerator <= 0
+        or denominator <= 0
+    ):
+        raise CertificateError(
+            f"{name} must contain exact integers with a positive numerator and denominator"
+        )
     return numerator, denominator
 
 
@@ -159,12 +237,41 @@ def _validate_receipt(receipt: Any) -> dict[str, Any]:
 
 def codebook_receipt_sha256(receipt: Any) -> str:
     cert = _validate_receipt(receipt)
-    raw = json.dumps(cert, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    try:
+        raw = json.dumps(cert, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise CertificateError(f"codebook receipt is not canonical-JSON serializable: {exc}") from exc
     return hashlib.sha256(raw).hexdigest()
 
 
+def _validate_checker_path(checker_path: Any) -> Path:
+    """Validate a checker path without ever following a symlink to another target."""
+    if isinstance(checker_path, bytes) or not isinstance(checker_path, (str, Path)):
+        raise CertificateError("SiliQuant checker path must be a str or pathlib.Path")
+    text = os.fspath(checker_path)
+    if not isinstance(text, str):
+        raise CertificateError("SiliQuant checker path must be a str or pathlib.Path, not bytes")
+    if "\x00" in text:
+        raise CertificateError("SiliQuant checker path must not contain NUL bytes")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CertificateError(
+            "SiliQuant checker path must be UTF-8 encodable (lone surrogates are rejected)"
+        ) from exc
+    path = Path(text)
+    if path.is_symlink():
+        raise CertificateError(f"SiliQuant checker path must not be a symlink: {path}")
+    for ancestor in path.absolute().parents:
+        if ancestor.is_symlink():
+            raise CertificateError(
+                f"SiliQuant checker path must not live under a symlinked directory: {ancestor}"
+            )
+    return path
+
+
 def checker_sha256(checker_path: str | Path) -> str:
-    path = Path(checker_path)
+    path = _validate_checker_path(checker_path)
     if not path.is_file():
         raise CertificateError(f"SiliQuant checker not found: {path}")
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -187,7 +294,19 @@ def _weft_body(exp2: int, frob: int, spec: int, leak: int, safety: int, epoch: i
 def weft_body_sha256(body: Mapping[str, Any]) -> str:
     if not isinstance(body, Mapping) or set(body) != set(WEFT_BODY_FIELDS):
         raise CertificateError("weft body must contain exactly the documented body fields")
-    raw = json.dumps(dict(body), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    _exact_integer(body["radix_scale_exp2"], "radix_scale_exp2", allow_zero=False)
+    for field in (
+        "frobenius_sq_scaled", "spectral_norm_sq_scaled", "leakage_energy_scaled",
+        "max_safety_dot_sq_scaled", "projector_epoch",
+    ):
+        _exact_integer(body[field], field, allow_zero=True)
+    _require_sha256(body["factor_digest"], "factor_digest")
+    if not isinstance(body["quant_dtype"], str) or not body["quant_dtype"].strip():
+        raise CertificateError("weft body quant_dtype must be a non-empty string")
+    try:
+        raw = json.dumps(dict(body), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise CertificateError(f"weft body is not canonical-JSON serializable: {exc}") from exc
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -200,19 +319,22 @@ def generate_fixed_radix_certificate(
     exp2 = _require_exact_int(radix_scale_exp2, "radix_scale_exp2", allow_zero=False)
     if not (WEFT_RADIX_EXP2_MIN <= exp2 <= WEFT_RADIX_EXP2_MAX):
         raise CertificateError(
-            f"radix_scale_exp2 must be in [{WEFT_RADIX_EXP2_MIN}, {WEFT_RADIX_EXP2_MAX}] (got {exp2})"
+            f"radix_scale_exp2 must be in [{WEFT_RADIX_EXP2_MIN}, {WEFT_RADIX_EXP2_MAX}] (got {_fmt_int(exp2)})"
         )
-    frob = _require_exact_int(frobenius_sq, "frobenius_sq", allow_zero=True)
-    spec = _require_exact_int(spectral_norm_sq, "spectral_norm_sq", allow_zero=True)
-    leak = _require_exact_int(leakage_energy, "leakage_energy", allow_zero=True)
-    safety = _require_exact_int(max_safety_dot_sq, "max_safety_dot_sq", allow_zero=True)
-    epoch = _require_exact_int(projector_epoch, "projector_epoch", allow_zero=True)
+    frob = _exact_integer(frobenius_sq, "frobenius_sq", allow_zero=True)
+    spec = _exact_integer(spectral_norm_sq, "spectral_norm_sq", allow_zero=True)
+    leak = _exact_integer(leakage_energy, "leakage_energy", allow_zero=True)
+    safety = _exact_integer(max_safety_dot_sq, "max_safety_dot_sq", allow_zero=True)
+    epoch = _exact_integer(projector_epoch, "projector_epoch", allow_zero=True)
     if spec > frob:
         raise CertificateError(
-            f"spectral_norm_sq ({spec}) > frobenius_sq ({frob}) is impossible for a real matrix"
+            f"spectral_norm_sq ({_fmt_int(spec)}) > frobenius_sq ({_fmt_int(frob)}) is impossible for a real matrix"
         )
     if quant_dtype not in SILIQUANT_QUANTIZATIONS:
         raise CertificateError(f"unsupported SiliQuant quantization: {quant_dtype!r}")
+    adapter_id = _require_utf8_text(adapter_id, "adapter_id")
+    _require_sha256(adapter_sha256, "adapter_sha256")
+    _require_sha256(base_weights_sha256, "base_weights_sha256")
     _require_sha256(factor_digest, "factor_digest")
     body = _weft_body(exp2, frob, spec, leak, safety, epoch, factor_digest, quant_dtype)
     payload: dict[str, Any] = dict(body)
@@ -229,31 +351,44 @@ def ingest_weft_certificate(
 ) -> FixedRadixCertificate:
     if not isinstance(payload, Mapping) or set(payload) != PAYLOAD_KEYS:
         raise CertificateError("certificate payload has missing or unexpected fields")
+    weft_sha = _require_sha256(payload["weft_sha256"], "weft_sha256")
     if expected_weft_sha256 is not None:
         _require_sha256(expected_weft_sha256, "expected_weft_sha256")
-        if not hmac.compare_digest(payload["weft_sha256"], expected_weft_sha256):
+        if not hmac.compare_digest(weft_sha, expected_weft_sha256):
             raise CertificateError("weft digest does not match the verifier's expected digest")
+    adapter_id = _require_utf8_text(payload["adapter_id"], "adapter_id")
+    _require_sha256(payload["adapter_sha256"], "adapter_sha256")
+    _require_sha256(payload["base_weights_sha256"], "base_weights_sha256")
     return FixedRadixCertificate.from_weft_dict(
         payload,
-        adapter_id=payload["adapter_id"],
+        adapter_id=adapter_id,
         adapter_sha256=payload["adapter_sha256"],
         base_weights_sha256=payload["base_weights_sha256"],
-        expected_weft_sha256=payload["weft_sha256"],
+        expected_weft_sha256=weft_sha,
     )
 
 
 def load_siliquant_checker(
     checker_path: str | Path, *, expected_checker_sha256: str | None = None
 ) -> tuple[Any, str]:
-    path = Path(checker_path)
+    """Load the pinned SiliQuant checker. Symlinks are never followed or executed."""
+    path = _validate_checker_path(checker_path)
     if not path.is_file():
         raise CertificateError(f"SiliQuant checker not found: {path}")
-    source = path.read_bytes()
+    if expected_checker_sha256 is None:
+        raise CertificateError(
+            "expected_checker_sha256 is required: the SiliQuant checker must be digest-pinned before execution"
+        )
+    _require_sha256(expected_checker_sha256, "expected_checker_sha256")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        raise CertificateError(f"SiliQuant checker cannot be opened without following symlinks: {exc}") from exc
+    with os.fdopen(fd, "rb") as handle:
+        source = handle.read()
     digest = hashlib.sha256(source).hexdigest()
-    if expected_checker_sha256 is not None:
-        _require_sha256(expected_checker_sha256, "expected_checker_sha256")
-        if not hmac.compare_digest(digest, expected_checker_sha256):
-            raise CertificateError(f"SiliQuant checker digest mismatch: computed {digest}")
+    if not hmac.compare_digest(digest, expected_checker_sha256):
+        raise CertificateError(f"SiliQuant checker digest mismatch: computed {digest}")
     module = types.ModuleType("siliquant_check_certificate")
     module.__file__ = str(path)
     try:
@@ -280,15 +415,17 @@ def verify_codebook_pick(
         checker_path, expected_checker_sha256=expected_checker_sha256
     )
     try:
-        if not checker.identities():
+        if checker.identities() is not True:
             raise CertificateError("SiliQuant identities do not hold")
-        if not checker.pi_bounds_hold():
+        if checker.pi_bounds_hold() is not True:
             raise CertificateError("SiliQuant pi bounds do not hold")
         findings = checker.check(cert)
     except CertificateError:
         raise
     except Exception as exc:
         raise CertificateError(f"SiliQuant checker error: {exc}") from exc
+    if type(findings) not in (list, tuple):
+        raise CertificateError("SiliQuant checker must return a list or tuple of findings")
     if findings:
         raise CertificateError("SiliQuant codebook pick rejected: " + "; ".join(str(x) for x in findings[:4]))
     pick = cert["pick"]
@@ -322,6 +459,8 @@ def verify_siliquant_bridge(
     if cert.adapter_id != expected_adapter_id:
         raise CertificateError("weft adapter_id does not match the expected adapter")
     body = {field: payload[field] for field in WEFT_BODY_FIELDS}
+    if body["radix_scale_exp2"] != expected.radix_scale_exp2:
+        raise CertificateError("weft radix_scale_exp2 does not match the verifier's pinned radix_scale_exp2")
     if body["quant_dtype"] != expected.quant_dtype: raise CertificateError("weft quant_dtype mismatch")
     if body["projector_epoch"] != expected.projector_epoch: raise CertificateError("weft projector_epoch mismatch")
     if body["factor_digest"] != expected.factor_digest: raise CertificateError("weft factor_digest mismatch")

@@ -111,7 +111,7 @@ def _sample_bundle() -> AdapterBundle:
     return AdapterBundle.from_dict(make_adapter_bundle_dict())
 
 
-def _build_modeld(td: str, client: Any, *, has_ssm: bool = False) -> WarpModeld:
+def _build_modeld(td: str, client: Any, *, has_ssm: bool = False, has_lattice: bool = False) -> WarpModeld:
     base = make_checkpoint()
     ckpt = CheckpointFingerprint(
         model_id=base.model_id,
@@ -122,7 +122,9 @@ def _build_modeld(td: str, client: Any, *, has_ssm: bool = False) -> WarpModeld:
         chat_template_sha256=base.chat_template_sha256,
         safetensors_provenance_sha256=base.safetensors_provenance_sha256,
         has_ssm_recurrent=has_ssm,
-        has_horizontal_lattice=False,
+        has_horizontal_lattice=has_lattice,
+        lattice_layers=4 if has_lattice else 0,
+        lattice_width=8 if has_lattice else 0,
     )
     signer = HmacSha256Signer(b"residuals-test-key-32-bytes-0001", key_id="k1")
     return WarpModeld(
@@ -435,6 +437,106 @@ class TestResidualFailOpens(unittest.TestCase):
 
         client = _NoneListSlotsClient()
         self.assertFalse(_is_slot_clean_for_banks(client, 0, (STATE_BANK_KV,)))  # type: ignore[arg-type]
+
+
+class TestWD41FlushFailClosedWitnesses(unittest.TestCase):
+    """WD41-04 witnesses: _flush_all_slots must fail closed with its own error types."""
+
+    def test_flush_all_slots_with_list_slots_none_raises_flush_error(self) -> None:
+        class _NoneListSlots:
+            list_slots = None
+
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, _NoneListSlots())
+            with self.assertRaises(StateFlushError):
+                modeld._flush_all_slots()
+
+    def test_flush_all_slots_without_list_slots_attribute_raises_flush_error(self) -> None:
+        class _NoListSlots:
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, _NoListSlots())
+            with self.assertRaises(StateFlushError):
+                modeld._flush_all_slots()
+
+    def test_flush_all_slots_lattice_without_list_slots_raises_lattice_error(self) -> None:
+        class _NoListSlots:
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV, STATE_BANK_LATTICE]}
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, _NoListSlots(), has_lattice=True)
+            with self.assertRaises(LatticeFlushError):
+                modeld._flush_all_slots()
+
+    def test_flush_all_slots_with_state_banks_none_raises_flush_error(self) -> None:
+        class _Client:
+            def list_slots(self) -> list[Any]:
+                slot = _clean_slot(0)
+                slot.state_banks = None
+                return [slot]
+
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, _Client())
+            with self.assertRaises(StateFlushError):
+                modeld._flush_all_slots()
+
+    def test_flush_all_slots_with_none_bank_entry_raises_flush_error(self) -> None:
+        clean_kv = StateBankStatus(bank=STATE_BANK_KV, tainted=False)
+
+        class _Client:
+            def list_slots(self) -> list[Any]:
+                slot = _clean_slot(0)
+                slot.state_banks = {STATE_BANK_KV: clean_kv, STATE_BANK_SSM: None}
+                return [slot]
+
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+        with tempfile.TemporaryDirectory() as td:
+            modeld = _build_modeld(td, _Client())
+            with self.assertRaises(StateFlushError):
+                modeld._flush_all_slots()
+
+    def test_is_slot_clean_for_banks_with_none_bank_entry_returns_false(self) -> None:
+        class _Client:
+            def list_slots(self) -> list[Any]:
+                slot = _clean_slot(0)
+                slot.state_banks = {
+                    STATE_BANK_KV: StateBankStatus(bank=STATE_BANK_KV, tainted=False),
+                    STATE_BANK_SSM: None,
+                }
+                return [slot]
+
+        self.assertFalse(_is_slot_clean_for_banks(_Client(), 0, (STATE_BANK_KV,)))  # type: ignore[arg-type]
+
+    def test_canary_runner_with_list_slots_none_fails_closed(self) -> None:
+        class _NoneListSlotsClient:
+            list_slots = None
+
+            def list_lora_adapters(self) -> list[Any]:
+                return [SimpleNamespace(id=0, path="/nonexistent/adapter.gguf", scale=0.0)]
+
+            def erase_slot(self, slot_id: int, banks: Any = None) -> dict[str, Any]:
+                return {"banks_flushed": [STATE_BANK_KV]}
+
+            def chat_completion(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, Any]:
+                return {"choices": [{"message": {"content": "OK_CANARY_PASS"}}]}
+
+        with tempfile.TemporaryDirectory() as td:
+            client = _NoneListSlotsClient()
+            with self.assertRaises(CanaryFailedError):
+                CanaryRunner(client, _tiny_suite()).run(  # type: ignore[arg-type]
+                    [_sample_bundle()], required_state_banks=(STATE_BANK_KV,)
+                )
 
 
 if __name__ == "__main__":
