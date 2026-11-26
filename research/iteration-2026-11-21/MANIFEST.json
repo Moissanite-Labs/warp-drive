@@ -407,8 +407,8 @@
     },
     {
       "path": "receipts/iteration-summary.json",
-      "bytes": 2732,
-      "sha256": "a2b08863017ee628454cd733f4d21e89ed9d2f12cf2ece1ac904835d7f98d2e4"
+      "bytes": 2730,
+      "sha256": "e4e3b98a176f994a384bc290498dde94b481e3e434dd9027016366871fb7c217"
     },
     {
       "path": "receipts/lane7-order-verdict.json",
