@@ -1,0 +1,2 @@
+c3bf68d0f3171d48b17eff57a386de996835cf10e8c807f7d0470f540c5b6757  research/iteration-2026-11-21/MANIFEST.json
+85bd519d784380a684bf033d3c879f1938277f1b38df065f41db19ae8916184c  research/iteration-2026-11-21/t4-tokenpage/AUDIT_LOG.md

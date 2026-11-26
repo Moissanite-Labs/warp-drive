@@ -1,0 +1,21 @@
+TEST K4 - transfer
+SIZE SMOKE (one twentieth of the plan's seeds, at least 10; NOT a result)
+python 3.14.6 numpy 2.5.4
+master seed 20261121 | seed rule: first 16 hex digits of SHA-256 of 20261121|<instrument>|<split>|<net>|<segment>|<purpose>|<index>
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] of 10 (the plan has 10 seeds, so the smoke size equals the full seed count)
+seed  tau0 A/B/C/A'/S/Sr   shifts   A>B p arrow (native, placement)   A>B p profile      A>C arrow adverse S_A (native, placement)   A>C profile p   A>Ap min p over runs arrow/profile   blind S>Sr, Sr>S arrow p
+ 0  7/5/7/7/5/5  3/2/3/3/2/2  AB 6.80e-04 5.60e-04 | 5.50e-04 6.10e-04  AC True True | prof p 1.00e-05 1.00e-05  Ap 8.64e-01/3.12e-01  blind 0.884 0.483  [m AB 8, floor False]
+ 1  7/5.5/7/7/5/5  3/2/3/3/2/2  AB 4.00e-05 4.00e-05 | 4.00e-04 6.00e-04  AC True True | prof p 1.00e-05 1.00e-05  Ap 4.26e-02/3.10e-02  blind 0.105 0.510  [m AB 8, floor False]
+ 2  7/5/7/7/5/5  3/2/3/3/2/2  AB 9.44e-03 7.45e-03 | 6.50e-04 7.30e-04  AC True True | prof p 1.00e-05 1.00e-05  Ap 4.39e-01/4.38e-01  blind 0.696 0.187  [m AB 8, floor False]
+ 3  7/5.5/7/7/5/5  3/2/3/3/2/2  AB 1.30e-04 1.40e-04 | 6.50e-04 5.80e-04  AC True True | prof p 1.00e-05 1.00e-05  Ap 2.58e-02/4.68e-01  blind 0.787 0.334  [m AB 8, floor False]
+ 4  7/6/7/7/5/5  3/3/3/3/2/2  AB 3.40e-04 4.20e-04 | 1.00e-05 1.00e-05  AC True True | prof p 1.00e-05 1.00e-05  Ap 5.63e-01/8.61e-01  blind 0.218 0.390  [m AB 9, floor False]
+ 5  7/6/7/7/5/5  3/3/3/3/2/2  AB 4.00e-05 2.00e-05 | 1.00e-05 2.00e-05  AC True True | prof p 1.00e-05 1.00e-05  Ap 4.71e-01/8.41e-01  blind 0.974 0.105  [m AB 9, floor False]
+ 6  7/5.5/7/7/5/5  3/2/3/3/2/2  AB 4.40e-04 6.50e-04 | 8.00e-04 7.50e-04  AC True True | prof p 1.00e-05 2.00e-05  Ap 1.07e-01/2.54e-01  blind 0.666 0.128  [m AB 8, floor False]
+ 7  7/5/7/7/5/5  3/2/3/3/2/2  AB 6.30e-04 5.90e-04 | 8.70e-04 6.90e-04  AC True True | prof p 1.00e-05 1.00e-05  Ap 7.34e-01/2.99e-01  blind 0.118 0.219  [m AB 8, floor False]
+ 8  7/6/7/7/5/5  3/3/3/3/2/2  AB 6.00e-04 3.70e-04 | 1.00e-05 1.00e-05  AC True True | prof p 1.00e-05 2.00e-05  Ap 6.43e-01/1.46e-01  blind 0.530 0.419  [m AB 9, floor False]
+ 9  7/6/7/7/5/5  3/3/3/3/2/2  AB 8.20e-04 6.80e-04 | 1.00e-05 1.00e-05  AC True True | prof p 1.00e-05 1.00e-05  Ap 1.84e-02/6.07e-01  blind 0.840 0.419  [m AB 9, floor False]
+A to B passes (arrow and profile p <= 0.001 in every run): 9 of 10 seeds (need 9)
+A to C arrow adverse in every run: 10 of 10 seeds (need 9)
+must-fail control A to A' reaches p <= 0.01 in any run: arrow in 0, profile in 0 of 10 seeds (allowed at most 1 each)
+blind spot (reported): arrow transfer rejects (p <= 0.01) in 0 of 20 seed-directions
+SUMMARY K4 SMOKE PASS | A>B 9/10, A>C 10/10, control arrow 0 profile 0 (cap 1)

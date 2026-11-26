@@ -1,0 +1,1 @@
+{"case":"G11","error_type":null,"mode":"optimized","outcome":"kill","output":{"admitted":false,"reasons":["BASE_FINGERPRINT_NOT_CRYPTOGRAPHIC"]},"returncode":0,"schema":"warp-drive.ratchet-001.observation.v1","timed_out":false}

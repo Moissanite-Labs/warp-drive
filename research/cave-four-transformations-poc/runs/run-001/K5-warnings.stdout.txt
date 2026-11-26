@@ -1,0 +1,5 @@
+TEST K5 - scale flow
+SIZE SMOKE (one twentieth of the plan's seeds, at least 10; NOT a result)
+python 3.14.6 numpy 2.5.4
+master seed 20261121 | seed rule: first 16 hex digits of SHA-256 of 20261121|<instrument>|<split>|<net>|<segment>|<purpose>|<index>
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] of 10 (the plan has 10 seeds, so the smoke size equals the full seed count)

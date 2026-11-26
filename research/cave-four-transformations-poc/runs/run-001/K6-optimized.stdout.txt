@@ -1,0 +1,14 @@
+TEST K6 - gate checks: explicit refusals and must-fail inputs
+SIZE SMOKE (one twentieth of the plan's seeds, at least 10; NOT a result)
+python 3.14.6 numpy 2.5.4
+master seed 20261121 | seed rule: first 16 hex digits of SHA-256 of 20261121|<instrument>|<split>|<net>|<segment>|<purpose>|<index>
+all refusals active: 0 failures
+--- delete each refusal from a copy of the source in turn; the suite must then fail (7 mutants, 6 codes)
+  without the refusal at line 23 (GATE_NUMERIC)   suite failures 1: FLAGGED
+  without the refusal at line 25 (GATE_NUMERIC)   suite failures 3: FLAGGED
+  without the refusal at line 28 (GATE_SHAPE)     suite failures 1: FLAGGED
+  without the refusal at line 30 (GATE_EMPTY)     suite failures 1: FLAGGED
+  without the refusal at line 32 (GATE_SHORT)     suite failures 1: FLAGGED
+  without the refusal at line 34 (GATE_MISSING)   suite failures 1: FLAGGED
+  without the refusal at line 36 (GATE_CONSTANT)  suite failures 1: FLAGGED
+SUMMARY K6 SMOKE PASS | 6 refusal codes, 7 deletion mutants; each refusal fired on its must-fail input; every deletion flagged: yes

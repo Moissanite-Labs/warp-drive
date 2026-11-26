@@ -1,0 +1,102 @@
+{
+  "schema": "warp-drive.cave-four-transformations.cases.v1",
+  "target": {
+    "repository": "https://github.com/Foundation-0/cave-expedition",
+    "commit": "a714ef7981421266bea78e8357d61f3586f0eda0",
+    "root": "verification/outside/continuum-four-transformations"
+  },
+  "aletheia": {
+    "repository": "https://github.com/Foundation-0/aletheia",
+    "pull_request": 1,
+    "commit": "7227bcc5dadb0f1b275a4ae9e7695b4323384f06"
+  },
+  "python": "3.14.6",
+  "numpy": "2.5.4",
+  "modes": {
+    "plain": ["-I", "-B"],
+    "optimized": ["-I", "-O", "-B"],
+    "warnings": ["-I", "-B", "-W", "error"]
+  },
+  "cases": [
+    {
+      "id": "U01",
+      "script": "known_answer/units_check.py",
+      "args": [],
+      "kind": "units",
+      "pass_marker": "UNIT CHECKS: 336 checks, 0 failed",
+      "oracle": "exact_and_sampled",
+      "timeout_seconds": 180,
+      "expected": {"plain": "pass", "optimized": "pass", "warnings": "pass"}
+    },
+    {
+      "id": "R01",
+      "script": "known_answer/review_witnesses.py",
+      "args": [],
+      "kind": "review",
+      "pass_marker": "UNGUARDED: none",
+      "oracle": "exact",
+      "timeout_seconds": 180,
+      "expected": {"plain": "pass", "optimized": "pass", "warnings": "pass"}
+    },
+    {
+      "id": "K1",
+      "script": "known_answer/k1_exact_checks.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K1",
+      "oracle": "exact",
+      "timeout_seconds": 600,
+      "expected": {"plain": "pass", "optimized": "pass", "warnings": "pass"}
+    },
+    {
+      "id": "K2",
+      "script": "known_answer/k2_nothing_in_noise.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K2",
+      "oracle": "sampled",
+      "timeout_seconds": 600,
+      "expected": {"plain": "fail"}
+    },
+    {
+      "id": "K3",
+      "script": "known_answer/k3_planted_structure.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K3",
+      "oracle": "sampled",
+      "timeout_seconds": 300,
+      "expected": {"plain": "fail"}
+    },
+    {
+      "id": "K4",
+      "script": "known_answer/k4_transfer.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K4",
+      "oracle": "sampled",
+      "timeout_seconds": 2400,
+      "expected": {"plain": "pass"}
+    },
+    {
+      "id": "K5",
+      "script": "known_answer/k5_scale_flow.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K5",
+      "oracle": "sampled",
+      "timeout_seconds": 180,
+      "expected": {"plain": "operational_failure", "optimized": "operational_failure", "warnings": "operational_failure"}
+    },
+    {
+      "id": "K6",
+      "script": "known_answer/k6_gate_checks.py",
+      "args": ["smoke"],
+      "kind": "summary",
+      "summary_id": "K6",
+      "oracle": "exact",
+      "timeout_seconds": 180,
+      "expected": {"plain": "pass", "optimized": "pass", "warnings": "pass"}
+    }
+  ]
+}

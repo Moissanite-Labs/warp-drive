@@ -1,0 +1,33 @@
+UNIT CHECKS of the building blocks (known answers)
+python 3.14.6 numpy 2.5.4
+-- ranks and normal scores
+inverse normal implementation: statistics.NormalDist(0.0, 1.0).inv_cdf (AS 241), lower half, odd reflection
+-- pattern counts on hand-made series
+-- surrogates from normal scores: identity under increasing maps, polarity
+-- segment rule
+-- nets and lags
+-- binomial tails, thresholds, Holm, per-run levels (exact)
+-- transfer: tau0, levels, detectors, floors, adverse
+-- scale flow
+-- refusals and seeds
+-- Law 2b instances (statistics only; not on the confirmatory path)
+-- guards found missing by an outside review of the frozen-plan code (each check fails if its guard is removed)
+SUMMARY T SMOKE FAIL | x
+SUMMARY T SMOKE PASS | x
+-- Amendment 2: ties, exact tau0, constant segments, K1 and K5 constructions (each check fails if its rule is removed)
+-- outcome decision procedure, every state
+  T3 INVALID                  5832000 states (0 also meet a lower-ranked condition)
+  T3 EVIDENCE AGAINST          638528 states (11200 also meet a lower-ranked condition)
+  T3 SUPPORTED                     64 states (64 also meet a lower-ranked condition)
+  T3 NET-DEPENDENT                448 states (448 also meet a lower-ranked condition)
+  T3 PARTIAL                   129867 states (0 also meet a lower-ranked condition)
+  T3 DOES NOT DISCRIMINATE     465205 states (0 also meet a lower-ranked condition)
+  T3 INCONCLUSIVE             4597888 states (0 also meet a lower-ranked condition)
+  T1 INVALID                  5832 states
+  T1 EVIDENCE AGAINST           25 states
+  T1 SUPPORTED                   1 states
+  T1 PARTIAL                   456 states
+  T1 DOES NOT DISCRIMINATE    2434 states
+  T1 INCONCLUSIVE             2916 states
+UNIT CHECKS: 336 checks, 0 failed
+PASS

@@ -1,0 +1,5 @@
+# Evidence under research/ includes raw *.jsonl receipts and *.log outputs.
+# The root .gitignore drops those patterns; re-include them here so evidence
+# files are committed with their SHA256SUMS.
+!*.jsonl
+!*.log

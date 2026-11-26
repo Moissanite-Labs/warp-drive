@@ -1,0 +1,148 @@
+--- verifier constructor ---
+    78	        single_bounds: CertificateBounds,
+    79	        joint_bounds: CertificateBounds,
+    80	        canary_suite: CanarySuite,
+    81	        llama_client: LlamaServerClient,
+    82	        ledger: SignedLedger,
+    83	        canary_slot_id: int = 0,
+    84	        canary_max_tokens: int = 256,
+    85	        canary_runner_override: Any | None = None,
+    86	        pinned_zone_manifest_id: str | None = None,
+    87	        pinned_zone_manifest: Mapping[str, Any] | None = None,
+    88	        require_loaded_adapter_files: bool = False,
+    89	        allow_legacy_implicit_kv_flush: bool = False,
+    90	    ) -> None:
+    91	        self._lock = threading.RLock()
+    92	        self.pinned_checkpoint = pinned_checkpoint
+    93	        self.pinned_lineage = pinned_lineage
+    94	        self.live_runtime_flags = live_runtime_flags
+    95	        self.single_bounds = single_bounds
+    96	        self.joint_bounds = joint_bounds
+    97	        self.canary_suite = canary_suite
+    98	        self.llama_client = llama_client
+    99	        self.ledger = ledger
+   100	        self.require_loaded_adapter_files = bool(require_loaded_adapter_files)
+   101	        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+   102	        self.canary_runner = (
+   103	            canary_runner_override
+   104	            if canary_runner_override is not None
+--- CanaryRunner constructor ---
+   484	        suite: CanarySuite,
+   485	        *,
+   486	        canary_slot_id: int = 0,
+   487	        seed: int = 42,
+   488	        max_tokens: int = 256,
+   489	        top_p: float = 1.0,
+   490	        allow_legacy_implicit_kv_flush: bool = False,
+   491	    ) -> None:
+   492	        self.llama_client = llama_client
+   493	        self.suite = suite
+   494	        self.canary_slot_id = canary_slot_id
+   495	        self.seed = seed
+   496	        self.max_tokens = max_tokens
+   497	        self.top_p = float(top_p)
+   498	        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+   499	
+   500	    def run(
+   501	        self,
+   502	        bundles: Sequence[AdapterBundle],
+   503	        *,
+--- ExternalCommandCanaryRunner constructor ---
+   735	        timeout_seconds: float = 30.0,
+   736	        min_preservation: int = 4,
+   737	        allow_legacy_implicit_kv_flush: bool = False,
+   738	    ) -> None:
+   739	        if not command:
+   740	            raise CanaryConfigError("external canary command must be non-empty")
+   741	        if min_preservation < 1:
+   742	            raise CanaryConfigError("min_preservation must be >= 1")
+   743	        self.llama_client = llama_client
+   744	        self.command = tuple(str(c) for c in command)
+   745	        self._pinned_suite_sha256: str | None = None
+   746	        if suite_sha256_hint is not None:
+   747	            if not isinstance(suite_sha256_hint, str) or not SHA256_RE.match(suite_sha256_hint):
+   748	                raise CanaryConfigError("suite_sha256_hint must be a 64-char lowercase hex sha256 digest")
+   749	            self._pinned_suite_sha256 = suite_sha256_hint
+   750	        self.suite_sha256 = suite_sha256_hint or hashlib.sha256(" ".join(self.command).encode("utf-8")).hexdigest()
+   751	        self.canary_slot_id = canary_slot_id
+   752	        self.timeout_seconds = float(timeout_seconds)
+   753	        self.min_preservation = int(min_preservation)
+   754	        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
+   755	
+   756	    def run(
+   757	        self,
+   758	        bundles: Sequence[AdapterBundle],
+--- CLI strict validation ---
+    48	        cfg["llama_server_url"],
+    49	        timeout_seconds=float(cfg.get("llama_timeout_seconds", 10.0)),
+    50	        require_localhost=bool(cfg.get("require_localhost", True)),
+    51	    )
+    52	
+    53	    zone_manifest_obj = None
+    54	    if cfg.get("zone_manifest_path"):
+    55	        zone_manifest_obj = loads_strict_json(Path(cfg["zone_manifest_path"]).read_text(encoding="utf-8"))
+    56	
+    57	    raw_req_files = cfg.get("require_loaded_adapter_files", True)
+    58	    if type(raw_req_files) is not bool:
+    59	        raise ValueError("require_loaded_adapter_files must be a boolean")
+    60	    raw_legacy_kv = cfg.get("allow_legacy_implicit_kv_flush", False)
+    61	    if type(raw_legacy_kv) is not bool:
+    62	        raise ValueError("allow_legacy_implicit_kv_flush must be a boolean")
+    63	
+    64	    modeld = WarpModeld(
+    65	        pinned_checkpoint=checkpoint,
+    66	        pinned_lineage=lineage,
+--- ledger repair writes ---
+   431	def repair_ledger(
+   432	    ledger_path: str | Path,
+   433	    archive_dir: str | Path,
+   434	    signer: ReceiptSigner,
+   435	    *,
+   436	    confirmation: str,
+   437	) -> dict[str, Any]:
+   438	    """Explicit operator-only ledger repair that preserves prior history read-only before reseeding.
+   439	
+   440	    Never deletes or overwrites prior ledger evidence. Moves any existing ledger file into a
+   441	    timestamped read-only archive with a SHA-256 digest file, then initializes a fresh ledger.
+   442	    """
+   443	    if not isinstance(confirmation, str) or len(confirmation.strip()) < 8:
+   444	        raise ValueError("explicit operator confirmation (at least 8 chars) is required for ledger repair")
+   445	
+   446	    src = Path(ledger_path)
+   447	    arch_root = Path(archive_dir)
+   448	    arch_root.mkdir(parents=True, exist_ok=True)
+   449	
+   450	    archived_path: str | None = None
+   451	    archived_sha256: str | None = None
+   452	
+   453	    if src.exists():
+   454	        raw = src.read_bytes()
+   455	        archived_sha256 = hashlib.sha256(raw).hexdigest()
+   456	        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+   457	        dest = arch_root / f"{src.stem}.{stamp}.archived.jsonl"
+   458	        excl_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+   459	        dest_fd = os.open(dest, excl_flags, 0o400)
+   460	        try:
+   461	            _write_all_and_fsync(dest_fd, raw)
+   462	        finally:
+   463	            os.close(dest_fd)
+   464	        os.chmod(dest, 0o400)
+   465	        digest_file = arch_root / f"{src.stem}.{stamp}.archived.sha256"
+   466	        digest_bytes = f"{archived_sha256}  {dest.name}\n".encode("utf-8")
+   467	        dig_fd = os.open(digest_file, excl_flags, 0o400)
+   468	        try:
+   469	            _write_all_and_fsync(dig_fd, digest_bytes)
+   470	        finally:
+   471	            os.close(dig_fd)
+   472	        os.chmod(digest_file, 0o400)
+   473	        src.unlink()
+   474	        archived_path = str(dest)
+   475	
+   476	    fresh = SignedLedger(src, signer)
+   477	    return {
+   478	        "ok": True,
+   479	        "archived_path": archived_path,
+   480	        "archived_sha256": archived_sha256,
+   481	        "new_ledger_path": str(fresh.path),
+   482	        "new_head_sha256": fresh.head_sha256,
+   483	    }

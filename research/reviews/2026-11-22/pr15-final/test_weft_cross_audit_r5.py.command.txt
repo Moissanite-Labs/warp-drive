@@ -1,0 +1,1 @@
+python3 -I -B -W error studies/expedition-trust-boundary-verifier/test_weft_cross_audit_r5.py

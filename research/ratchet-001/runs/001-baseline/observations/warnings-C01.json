@@ -1,0 +1,1 @@
+{"case":"C01","error_type":null,"mode":"warnings","outcome":"kill","output":{"accepted":false,"conversation_losses":0,"conversation_wins":3,"independent_conversations":3,"lead_ratio":{"den":4,"num":15},"reasons":["SUPERMARTINGALE_THRESHOLD_NOT_MET"],"threshold":{"den":1,"num":120}},"returncode":0,"schema":"warp-drive.ratchet-001.observation.v1","timed_out":false}

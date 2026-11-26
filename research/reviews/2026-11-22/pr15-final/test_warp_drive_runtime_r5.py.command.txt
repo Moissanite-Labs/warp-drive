@@ -1,0 +1,1 @@
+python3 -I -B -W error studies/expedition-trust-boundary-verifier/test_warp_drive_runtime_r5.py

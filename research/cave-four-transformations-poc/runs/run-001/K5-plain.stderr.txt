@@ -1,0 +1,21 @@
+<target>/known_answer/../src/nets.py:78: RuntimeWarning: overflow encountered in exp
+  return np.exp((x - x.mean()) / sd)
+Traceback (most recent call last):
+  File "<target>/known_answer/k5_scale_flow.py", line 161, in <module>
+    main()
+    ~~~~^^
+  File "<target>/known_answer/k5_scale_flow.py", line 147, in main
+    r = one_seed(s)
+  File "<target>/known_answer/k5_scale_flow.py", line 51, in one_seed
+    j, m = stream_jobs(ser[(case, role)], case, role)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<target>/known_answer/k5_scale_flow.py", line 24, in stream_jobs
+    return flow.stream_units(x, ("K5b:" + case, role, "native"), N=N)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<target>/known_answer/../src/flow.py", line 110, in stream_units
+    cut = segments.cut_segments(ser, N=N, start=start)
+  File "<target>/known_answer/../src/segments.py", line 41, in cut_segments
+    x = gates.validate_series(x, N + pad)
+  File "<target>/known_answer/../src/gates.py", line 34, in validate_series
+    raise GateError("GATE_MISSING: series has missing or non-finite values")
+gates.GateError: GATE_MISSING: series has missing or non-finite values
