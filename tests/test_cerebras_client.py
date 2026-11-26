@@ -11,6 +11,7 @@ import io
 import json
 import unittest
 import urllib.error
+from pathlib import Path
 from unittest import mock
 
 from warp_modeld.cerebras_client import (
@@ -128,6 +129,32 @@ def propose_with_served_model(served_model: object, **client_kwargs: object) -> 
 
 
 class TestCandidateSchema(unittest.TestCase):
+    def test_schema_matches_provider_contract(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "schemas" / "cerebras-candidate.schema.json"
+        schema = json.loads(path.read_text())
+        # Frozen demo-2026-11-22 experiment contract (main, PR #64/A8): exactly these
+        # seven keys, all required, no additional properties.
+        self.assertEqual(
+            set(schema["properties"]),
+            {"eta", "lambda", "lora_scale", "quantization", "rank", "target_layer", "target_tensor"},
+        )
+        self.assertEqual(
+            schema["properties"]["quantization"]["enum"], ["bf16", "f16", "f32", "int8", "int4"]
+        )
+        self.assertEqual(set(schema["required"]), set(schema["properties"]))
+        self.assertIs(schema["additionalProperties"], False)
+        # Provider intent kept from #41: the schema must not admit any acceptance-evidence
+        # field, so the proposing model cannot supply Stage 2 evidence.
+        evidence_markers = (
+            "receipt", "codebook", "certificate", "checker", "siliquant", "verdict",
+            "margin", "evidence", "proof", "bound", "weft", "digest", "passed",
+        )
+        schema_keys = [str(key) for key in schema["properties"]] + [str(key) for key in schema["required"]]
+        for key in schema_keys:
+            lowered = key.lower()
+            for marker in evidence_markers:
+                self.assertNotIn(marker, lowered, f"schema key {key!r} looks like acceptance evidence")
+
     def test_valid_candidate(self) -> None:
         cfg = validate_candidate(valid_candidate())
         self.assertEqual(cfg.to_dict(), valid_candidate())
