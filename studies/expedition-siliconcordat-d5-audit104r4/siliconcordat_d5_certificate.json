@@ -1,0 +1,300 @@
+{
+  "audit_gate": {
+    "certified": true,
+    "invariant_a_ok": true,
+    "invariant_b_ok": true,
+    "invariant_c_ok": true,
+    "portal_conservation_ok": true,
+    "violations": []
+  },
+  "audit_id": "AUDIT-104",
+  "certificate_sha256": "78e6bbccb2728f61276133890eb478e0fbdc333d6a4e9d333bffd25c546da234",
+  "execution_mode": "live_portal_recount",
+  "honest_tier": "N0",
+  "law2b_invariants": {
+    "invariant_a_anti_homogenization": {
+      "diverse_with_rogue_outlier_blocked": {
+        "alpha_effective": "1/5",
+        "archive_size": 2,
+        "candidates": [
+          {
+            "capped_novelty_sq": "9/2",
+            "cluster": "symbolic",
+            "fitness": "9/10",
+            "id": "cand-alpha",
+            "passed_invariants": true,
+            "raw_novelty_sq": "9/2",
+            "selection_score": "9/5"
+          },
+          {
+            "capped_novelty_sq": "13/2",
+            "cluster": "spectral",
+            "fitness": "4/5",
+            "id": "cand-beta",
+            "passed_invariants": true,
+            "raw_novelty_sq": "13/2",
+            "selection_score": "21/10"
+          },
+          {
+            "capped_novelty_sq": "10/1",
+            "cluster": "rogue",
+            "fitness": "1/10",
+            "id": "cand-rogue-outlier",
+            "passed_invariants": false,
+            "raw_novelty_sq": "39801/2",
+            "selection_score": "21/10"
+          }
+        ],
+        "cluster_renyi2": "1/2",
+        "cohort_size": 3,
+        "cohort_spread_sq": "8/1",
+        "distinct_vectors": 2,
+        "diversity_scope": "FEASIBLE_COHORT_ONLY",
+        "effective_diversity_d2": "2/1",
+        "eligible_count": 2,
+        "epistemic_tag": "UNVERIFIED_HYPOTHESIS",
+        "gate_passed": true,
+        "min_pair_dist_sq": "8/1",
+        "selected_candidate_id": "cand-beta",
+        "vector_dim": 2,
+        "veto_reasons": [],
+        "zone": "ZONE_A_SOCRATIC_DISCOVERY"
+      },
+      "monoculture_echo_chamber_vetoed": {
+        "alpha_effective": "1/5",
+        "archive_size": 2,
+        "candidates": [
+          {
+            "capped_novelty_sq": "1/2",
+            "cluster": "same",
+            "fitness": "9/10",
+            "id": "clone-1",
+            "passed_invariants": true,
+            "raw_novelty_sq": "1/2",
+            "selection_score": "1/1"
+          },
+          {
+            "capped_novelty_sq": "1/2",
+            "cluster": "same",
+            "fitness": "9/10",
+            "id": "clone-2",
+            "passed_invariants": true,
+            "raw_novelty_sq": "1/2",
+            "selection_score": "1/1"
+          },
+          {
+            "capped_novelty_sq": "1/2",
+            "cluster": "same",
+            "fitness": "9/10",
+            "id": "clone-3",
+            "passed_invariants": true,
+            "raw_novelty_sq": "1/2",
+            "selection_score": "1/1"
+          }
+        ],
+        "cluster_renyi2": "1/1",
+        "cohort_size": 3,
+        "cohort_spread_sq": "0/1",
+        "distinct_vectors": 1,
+        "diversity_scope": "FEASIBLE_COHORT_ONLY",
+        "effective_diversity_d2": "1/1",
+        "eligible_count": 3,
+        "epistemic_tag": "UNVERIFIED_HYPOTHESIS",
+        "gate_passed": false,
+        "min_pair_dist_sq": "0/1",
+        "selected_candidate_id": null,
+        "vector_dim": 2,
+        "veto_reasons": [
+          "MONOCULTURE_DISTINCT_VECTORS_BELOW_MIN",
+          "MONOCULTURE_COHORT_SPREAD_BELOW_MIN",
+          "MONOCULTURE_RENYI2_DIVERSITY_BELOW_MIN"
+        ],
+        "zone": "ZONE_A_SOCRATIC_DISCOVERY"
+      }
+    },
+    "invariant_b_monotone_ratchet": {
+      "calibration_gap_witness": {
+        "calibration_gap_proved": true,
+        "drift_ratio_perm_over_flip": "11/2",
+        "flip_drift_sq": "8/1",
+        "flip_norm_only_falsely_accepts": true,
+        "flip_r2": "-19/5",
+        "flip_r2_dec4": "-3.8000",
+        "perm_drift_sq": "44/1",
+        "perm_norm_only_falsely_rejects": true,
+        "perm_r2": "1/1",
+        "radius_sq": "16/1"
+      },
+      "trace_witness": {
+        "behavior_floor": "4/5",
+        "budget_max": "10/1",
+        "committed_count": 2,
+        "dim": 2,
+        "final_best_behavior": "9/10",
+        "final_committed_weights": [
+          "2/1",
+          "1/1"
+        ],
+        "final_drift_sq": "5/1",
+        "radius_sq": "16/1",
+        "require_monotone_behavior": true,
+        "rollback_count": 3,
+        "total_spent": "9/1",
+        "total_steps": 5,
+        "trace": [
+          {
+            "active_equals_committed": true,
+            "behavior_score": "17/20",
+            "candidate_drift_sq": "2/1",
+            "committed": true,
+            "cost": "2/1",
+            "cumulative_spent": "2/1",
+            "edge_snapped": false,
+            "rejection_reasons": [],
+            "step_id": "s1-valid-improve"
+          },
+          {
+            "active_equals_committed": true,
+            "behavior_score": "-19/5",
+            "candidate_drift_sq": "5/1",
+            "committed": false,
+            "cost": "2/1",
+            "cumulative_spent": "4/1",
+            "edge_snapped": true,
+            "rejection_reasons": [
+              "BEHAVIOR_FLOOR_BREACH",
+              "BEHAVIOR_REGRESSION"
+            ],
+            "step_id": "s2-behavior-collapse-inside-norm"
+          },
+          {
+            "active_equals_committed": true,
+            "behavior_score": "19/20",
+            "candidate_drift_sq": "37/1",
+            "committed": false,
+            "cost": "2/1",
+            "cumulative_spent": "6/1",
+            "edge_snapped": true,
+            "rejection_reasons": [
+              "NORM_RADIUS_EXCEEDED"
+            ],
+            "step_id": "s3-norm-radius-exceeded"
+          },
+          {
+            "active_equals_committed": true,
+            "behavior_score": "9/10",
+            "candidate_drift_sq": "5/1",
+            "committed": true,
+            "cost": "3/1",
+            "cumulative_spent": "9/1",
+            "edge_snapped": false,
+            "rejection_reasons": [],
+            "step_id": "s4-valid-monotone-step"
+          },
+          {
+            "active_equals_committed": true,
+            "behavior_score": "99/100",
+            "candidate_drift_sq": "8/1",
+            "committed": false,
+            "cost": "2/1",
+            "cumulative_spent": "9/1",
+            "edge_snapped": true,
+            "rejection_reasons": [
+              "BUDGET_EXCEEDED"
+            ],
+            "step_id": "s5-budget-exceeded"
+          }
+        ]
+      }
+    },
+    "invariant_c_splicer_protocol": {
+      "adversarial_violation_witness": {
+        "airlock_boundary": "ZONE_A_TO_ZONE_B_BLINDED_LOCK",
+        "airlock_leaked_fields": [
+          "zone_a_transcript"
+        ],
+        "capability": "bounded_ratchet_gate",
+        "compliant": false,
+        "core_file_count": 1,
+        "max_host_files_touched": 2,
+        "non_vendor_host_files_touched": 2,
+        "splice_version": "0.1.0",
+        "unmapped_foreign_imports": [
+          "unmapped_third_party_pkg"
+        ],
+        "verifier_blinded_from_zone_a": false,
+        "violations": [
+          "UNMAPPED_FOREIGN_DEPENDENCY",
+          "LOCKFILE_MUTATION_WITHOUT_OVERRIDE",
+          "ONE_WAY_VISIBILITY_BREACH",
+          "IMMUTABLE_CORE_MUTATED",
+          "AIRLOCK_ZONE_A_LEAKAGE_BREACH"
+        ],
+        "visibility_leaks": [
+          "aletheia/cli.py"
+        ]
+      },
+      "compliant_graft_witness": {
+        "airlock_boundary": "ZONE_A_TO_ZONE_B_BLINDED_LOCK",
+        "airlock_leaked_fields": [],
+        "capability": "bounded_ratchet_gate",
+        "compliant": true,
+        "core_file_count": 1,
+        "max_host_files_touched": 2,
+        "non_vendor_host_files_touched": 2,
+        "splice_version": "0.1.0",
+        "unmapped_foreign_imports": [],
+        "verifier_blinded_from_zone_a": true,
+        "violations": [],
+        "visibility_leaks": []
+      }
+    },
+    "reply91_decay_refutation": {
+      "base_decay": "1/20",
+      "calm_tension": "0/1",
+      "d5_reply91_multiplier": "-98001/2000",
+      "d5_reply91_multiplier_dec4": "-49.0005",
+      "d5_reply91_pressure": "100001/20",
+      "d5_reply91_sign_flip_blowup": true,
+      "eps": "1/100000",
+      "law2b_bounded_mult_at_calm": "19/20",
+      "law2b_bounded_mult_at_peak": "1/1",
+      "law2b_strictly_stable": true
+    }
+  },
+  "live_portal_recounted": true,
+  "payload_sha256": "f1c33328c822d864a000c2a269b5bb080852d11e8dd65906d25467818868d402",
+  "portal_summary": {
+    "author": "ahrazzle",
+    "created_at": "2026-10-31T07:21:31Z",
+    "discussion_number": 5,
+    "markdown_line_count": 3891,
+    "pseudocode_defect_counts": {
+      "comment11_uninitialized_mov_cr3_rax": 2,
+      "replies73_101_hash_sum_collision_bug": 7,
+      "reply112_fake_fpga_bitstream_magic": 2,
+      "reply91_adaptive_decay_blowup_formula": 1,
+      "reply91_symp_matrix_scalar_overwrite": 4
+    },
+    "pseudocode_defect_total": 16,
+    "replies": 20,
+    "spliceware_marker_count": 1,
+    "title": "the agentic age",
+    "top_level_comments": 11,
+    "total_entries_incl_op": 32,
+    "updated_at": "2026-11-18T04:09:30Z"
+  },
+  "provenance": {
+    "companion_issues_audited": [
+      "Moissanite-Labs/siliconcordat#15",
+      "Moissanite-Labs/siliconcordat#16",
+      "Moissanite-Labs/siliconcordat#18"
+    ],
+    "discussion_5_full_md_bytes": 296398,
+    "discussion_5_full_md_sha256": "7cd8d8b7eeb7b174bfc40ff7affa6a58353e670ee9572ee16ba3ce160002e950",
+    "discussion_5_raw_json_bytes": 309530,
+    "discussion_5_raw_json_sha256": "e5c2b543f7a2cec2a3db56d34f890bdbf5e7cfc658e6fe737439acfc20d73b27",
+    "pinned_inputs_verified": true
+  },
+  "schema_version": "audit-104.siliconcordat-d5.v1"
+}
