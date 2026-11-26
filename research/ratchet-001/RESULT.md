@@ -4,6 +4,8 @@ Status: `N0`; no promotion and no verifier-improvement claim.
 
 ## Frozen inputs and evidence
 
+Note (2026-11-26): `python3 evaluation/run.py verify --run-dir runs/001-baseline` cannot run on this copy (FileNotFoundError for the missing `runs/001-baseline/receipts.jsonl`). The receipt-chain values below are recorded at run time; `runs/001-baseline/receipts.jsonl` is not in this public copy, so they cannot be re-verified here (see `research/PUBLICATION_GAPS.md`).
+
 - Pull request: 21.
 - Candidate head: `8031effa7ebcdbec5307dc2809212e1d55601639`.
 - Candidate source SHA-256: `4d04687cb70b86a4b91e4661f16d6292b81c4760f60931f9bbf8228ca9dfb15d`.
@@ -12,13 +14,13 @@ Status: `N0`; no promotion and no verifier-improvement claim.
 - Evaluation tree SHA-256: `95f8f2a374e2ef5253be3b3e3b3c489b0238d0451ddd190f935bc235671b00bf`.
 - Baseline evidence commit: `dc4c5f9d07e61cd60e60cd8f2c6d41b4fa8cf677`.
 - Summary SHA-256: `6e11daf4f2d64063b21259cc73b5923607f2bb2d93061e07333dae099d816fce`.
-- Receipt log SHA-256: `e33481b234e8ddf706cb477c77dd54c79e7dbeb829b4ae104d603228a3e46dcb`.
-- Terminal receipt SHA-256: `4f046fbfc2f9a1855c15226d762a09e831e4ab86ea758e2cd0b6a5871078391f`.
+- Receipt log SHA-256: `e33481b234e8ddf706cb477c77dd54c79e7dbeb829b4ae104d603228a3e46dcb` — recorded at run time; `runs/001-baseline/receipts.jsonl` is not in this public copy, so this cannot be re-verified here (see `research/PUBLICATION_GAPS.md`).
+- Terminal receipt SHA-256: `4f046fbfc2f9a1855c15226d762a09e831e4ab86ea758e2cd0b6a5871078391f` — recorded at run time; `runs/001-baseline/receipts.jsonl` is not in this public copy, so this cannot be re-verified here (see `research/PUBLICATION_GAPS.md`).
 - Cases: 44.
 - Executions: 132.
 - Elapsed: 8,232 ms.
 - Cap: 900,000 ms.
-- Receipt verification: `{"chain_valid":true}`.
+- Receipt verification: `{"chain_valid":true}` — recorded at run time; `runs/001-baseline/receipts.jsonl` is not in this public copy, so this cannot be re-verified here (see `research/PUBLICATION_GAPS.md`).
 
 ## Counts
 

@@ -16,8 +16,8 @@ The original local commit is not an ancestor of the public branch because its tr
 ## Public closure
 
 - `POST_BLIND_REPRODUCTIONS.json` SHA-256: `268a73f5a30ae88a37222dcd2def16add055aa7154468170a153ba8bc7c8979e`.
-- `RESULT.md` SHA-256: `d6b289c7c6398d292622fe52252c32a6ba715fcf30045adc973ac6521af331ab`.
+- `RESULT.md` SHA-256: `d6b289c7c6398d292622fe52252c32a6ba715fcf30045adc973ac6521af331ab` (recorded at publication; RESULT.md was later edited only to add the 2026-11-26 publication-gap labels described in `research/PUBLICATION_GAPS.md`, so its current SHA-256 differs and is recorded there).
 
 The only reproduction-data change replaces twenty occurrences of the local ratchet directory prefix with `<workspace>/research/ratchet-001/`. Commands, case identifiers, return codes, stdout, exception types, exception messages, source line numbers, and all scientific observations remain unchanged. The JSON parses after redaction. `RESULT.md` now discloses that redaction. Its result counts and dispositions are unchanged.
 
-The evaluation lock, corpus, candidate copy, requests, observations, chained receipts, summary, setup-failure records, blind review, and N0 verdict were not changed. Evaluation tree SHA-256 remains `95f8f2a374e2ef5253be3b3e3b3c489b0238d0451ddd190f935bc235671b00bf`. Terminal receipt SHA-256 remains `4f046fbfc2f9a1855c15226d762a09e831e4ab86ea758e2cd0b6a5871078391f`. No baseline or blind-review execution was repeated.
+The evaluation lock, corpus, candidate copy, requests, observations, chained receipts, summary, setup-failure records, blind review, and N0 verdict were not changed. Evaluation tree SHA-256 remains `95f8f2a374e2ef5253be3b3e3b3c489b0238d0451ddd190f935bc235671b00bf`. Terminal receipt SHA-256 remains `4f046fbfc2f9a1855c15226d762a09e831e4ab86ea758e2cd0b6a5871078391f` — recorded at run time; `runs/001-baseline/receipts.jsonl` is not in this public copy, so this cannot be re-verified here (see `research/PUBLICATION_GAPS.md`). No baseline or blind-review execution was repeated.

@@ -5,7 +5,35 @@ The root `.gitignore` drops `*.jsonl` and `*.log`. When the ratchet-001 and
 their checksum manifests were silently left out. `research/.gitignore` now
 re-includes both patterns under `research/`, so this cannot recur here.
 
-No checksum manifest, report, result or verdict was edited to fill these gaps.
+No recorded hash, verdict, or count was changed to fill these gaps. What the
+2026-11-26 publication-gap fix changed is listed under "Changed by this fix"
+below: labels in `ratchet-001/RESULT.md`, `ratchet-001/PUBLICATION_REDACTIONS.md`,
+and `pr15-final/PUBLICATION.md`, plus the new `pr15-final/SHA256SUMS.public`
+manifest. No recorded checksum manifest was edited, `pr15-final/REPORT.md` is
+byte-identical to its recorded hash, and no missing file was fabricated.
+
+## Changed by this fix (2026-11-26; labels and one new manifest only)
+
+| File | Recorded SHA-256 (kept visible in the recorded manifest) | SHA-256 in this copy after the labelled edit |
+|---|---|---|
+| `ratchet-001/RESULT.md` | `d6b289c7c6398d292622fe52252c32a6ba715fcf30045adc973ac6521af331ab` (recorded in `ratchet-001/PUBLICATION_REDACTIONS.md`) | `df14c4dade4b335a041124e7cd9a09050532db134afb603a19df676114ceef3f` |
+| `ratchet-001/PUBLICATION_REDACTIONS.md` | none recorded (not listed in any manifest) | `a13de19f7251cd60361ff9f5b4a021d66990379f7abb33d24dd5b553b66002b3` |
+| `reviews/2026-11-22/pr15-final/PUBLICATION.md` | `0423d254a7a09afe9507311808df1b51dabe79eb9ae0822af011135b74b461bf` (in `pr15-final/SHA256SUMS`) | `d9eff33d6c9ed7ebaf25b71f42270953b085eea101b8585b96ea1c6037431b78` (in `pr15-final/SHA256SUMS.public`) |
+| `reviews/2026-11-22/pr15-final/SHA256SUMS.public` | new file created by this fix; no prior recorded value | `c3f39c9a2c9bda71588c88632eddd5e84e72eedeb28b6d4524969df5da5c49be` |
+
+`SHA256SUMS.public` was generated with `sha256sum` in the `pr15-final`
+directory; it covers exactly the files present there except itself, so
+`sha256sum -c SHA256SUMS.public` passes with every entry OK (27 entries).
+Every `SHA256SUMS.public` entry that also appears in `SHA256SUMS` carries the
+same hash except `PUBLICATION.md`, the one labelled file above in this
+directory, whose recorded `SHA256SUMS` value is unchanged.
+
+The `SHA256SUMS.local-original` files are recorded manifests of the author's
+local originals and were not edited: `pr20-rereview/SHA256SUMS.local-original`
+additionally lists the author-local `./repo.git/` tree (25 entries), which was
+never part of the public copy, and `pr15-final/SHA256SUMS.local-original`
+records the pre-redaction hashes of `REPORT.md` and `scope.txt` (the redacted
+public replacements are hashed in `SHA256SUMS`).
 
 ## Restored (3 files, byte-identical to the recorded SHA-256)
 
