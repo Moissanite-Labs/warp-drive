@@ -45,7 +45,7 @@ def make_check(kind: str, payload: dict[str, Any], status: str = "PASS") -> dict
 
 def make_artifact() -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "domain": "toy-grid/v1",
+        "domain": "toy-grid.v1",
         "model": {"rules": {"move": "one orthogonal cell"}, "assumptions": ["deterministic"]},
         "initial_state": {"position": [0, 0], "goal": [1, 0]},
         "actions": [{"move": "east"}],
@@ -99,8 +99,8 @@ def make_artifact() -> dict[str, Any]:
             "negative_controls": [
                 {
                     "name": "illegal-west-move",
-                    "mutation": {"action": {"move": "west"}, "expected": "reject"},
-                    "observed": {"rejected": True, "reason": "wall"},
+                    "mutation": '{"action": {"move": "west"}, "expected": "reject"}',
+                    "observed": '{"rejected": true, "reason": "wall"}',
                     "passed": True,
                 }
             ],
@@ -541,8 +541,6 @@ class GameplayGateSchemaMutationTests(unittest.TestCase):
 
     def test_wrong_payload_and_evidence_container_types(self) -> None:
         mutations = [
-            lambda a: a["payload"].update(model=[]),
-            lambda a: a["payload"].update(initial_state=[]),
             lambda a: a["payload"].update(outcome=[]),
             lambda a: a["payload"].update(actions={}),
             lambda a: a["payload"].update(trajectory={}),
@@ -565,7 +563,11 @@ class GameplayGateSchemaMutationTests(unittest.TestCase):
             (lambda a: a["producer"].update(revision="A" * 40), "COMMIT"),
             (lambda a: a["mechanics"][0].update(source_revision="xyz"), "COMMIT"),
             (lambda a: a["claim"].update(id="not ascii 汉"), "ASCII_IDENTIFIER"),
+            (lambda a: a["claim"].update(id="../evil?<script>"), "ASCII_IDENTIFIER"),
             (lambda a: a["payload"].update(domain="has space"), "ASCII_IDENTIFIER"),
+            (lambda a: a["payload"].update(domain="../evil"), "ASCII_IDENTIFIER"),
+            (lambda a: a["payload"].update(domain="toy-grid/v1"), "ASCII_IDENTIFIER"),
+            (lambda a: a["mechanics"][0].update(id="bad id"), "ASCII_IDENTIFIER"),
             (lambda a: a["mechanics"][0].update(path="../rules.yaml"), "MECHANIC_PATH"),
             (lambda a: a["mechanics"][0].update(path="/rules.yaml"), "MECHANIC_PATH"),
             (lambda a: a["mechanics"][0].update(path="rules.json"), "MECHANIC_PATH"),
@@ -588,7 +590,7 @@ class GameplayGateSchemaMutationTests(unittest.TestCase):
             (lambda a: a["evidence"]["checks"][0].update(status=[]), "CHECK_STATUS"),
             (lambda a: a["evidence"]["checks"][0].update(source_labels=[""]), "NONEMPTY_STRING"),
             (lambda a: a["evidence"]["negative_controls"][0].update(passed="PASS"), "BOOLEAN_REQUIRED"),
-            (lambda a: a["source"].update(raw=""), "SOURCE_RAW"),
+            (lambda a: a["source"].update(raw=123), "SOURCE_RAW"),
         ]
         for index, (mutate, code) in enumerate(mutations):
             artifact = make_artifact()
@@ -814,7 +816,7 @@ class GameplayGateTrustMutationTests(unittest.TestCase):
         self.assertIn("SOURCE_IMPORTER_CONFLICT", codes(result))
         self.assertTrue(any(f.code == "SOURCE_CHECK" and "FAIL" in f.message for f in result.source_findings))
 
-    def test_false_live_verdict_does_not_destroy_independent_replay_and_proof(self) -> None:
+    def test_trusted_verifier_refutation_vetoes_every_higher_badge(self) -> None:
         artifact = make_artifact()
         trusted = trusted_results(artifact)
         checks = tuple(
@@ -828,8 +830,9 @@ class GameplayGateTrustMutationTests(unittest.TestCase):
             ),
         )
         self.assertTrue(result.verification_valid)
-        self.assertEqual(result.admitted_badges, (OBSERVED, REPLAYED, MODEL_PROVEN))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
         self.assertEqual(result.source_badges, (OBSERVED, REPLAYED, MODEL_PROVEN, LIVE_CONFIRMED))
+        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
 
     def test_supplying_both_verifier_forms_fails_closed(self) -> None:
         artifact = make_artifact()
@@ -856,6 +859,405 @@ class GameplayGateTrustMutationTests(unittest.TestCase):
         self.assertFalse(result.verification_valid)
         self.assertIn("VERIFIER_FINDINGS", codes(result))
         self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+
+class GameplayGateReviewClosureTests(unittest.TestCase):
+    """Regression tests for the PR #36 review findings (abu-aska, orda-aska)."""
+
+    def assertInvalid(self, result: Any, code: str) -> None:
+        self.assertFalse(result.envelope_valid)
+        self.assertEqual(result.source_badges, ())
+        self.assertEqual(result.admitted_badges, ())
+        self.assertIn(code, codes(result), result.findings)
+
+    # Item 1: negative-control mutation/observed must be nonempty text.
+
+    def test_negative_control_mutation_and_observed_must_be_nonempty_text(self) -> None:
+        for field, value in (
+            ("mutation", ""),
+            ("mutation", "   "),
+            ("mutation", None),
+            ("mutation", {"action": "west"}),
+            ("observed", ""),
+            ("observed", None),
+            ("observed", ["rejected"]),
+        ):
+            artifact = make_artifact()
+            artifact["evidence"]["negative_controls"][0][field] = value
+            with self.subTest(field=field, value=repr(value)):
+                result = intake(artifact)
+                self.assertInvalid(result, "NONEMPTY_STRING")
+                self.assertTrue(
+                    any(f.path == f"$.evidence.negative_controls[0].{field}" for f in result.findings)
+                )
+
+    def test_resealed_control_with_empty_mutation_is_not_envelope_valid(self) -> None:
+        # abu-aska witness: mutation "" / observed null must not stay valid.
+        artifact = make_artifact()
+        artifact["evidence"]["negative_controls"][0]["mutation"] = ""
+        artifact["evidence"]["negative_controls"][0]["observed"] = None
+        result = intake(artifact)
+        self.assertFalse(result.envelope_valid)
+        self.assertEqual(result.admitted_badges, ())
+
+    # Item 2: identifiers, mechanic paths, empty raw, any-type model/initial_state.
+
+    def test_mechanic_path_rejects_nul_and_control_characters(self) -> None:
+        for path in ("mechanics/a\x00b.yaml", "mechanics/a\nb.yaml", "mechanics/a\tb.yaml", "mech\x7f.yaml"):
+            artifact = make_artifact()
+            artifact["mechanics"][0]["path"] = path
+            with self.subTest(path=repr(path)):
+                self.assertInvalid(intake(artifact), "MECHANIC_PATH")
+
+    def test_mechanic_path_accepts_case_insensitive_yaml_extensions(self) -> None:
+        for path in ("profiles/TOY/RULES.YAML", "rules.Yml", "a/b/c.YAML"):
+            artifact = make_artifact()
+            artifact["mechanics"][0]["path"] = path
+            refresh_artifact(artifact)
+            with self.subTest(path=path):
+                self.assertTrue(intake(artifact).envelope_valid)
+
+    def test_mechanic_paths_with_backslash_dot_or_double_slash_are_rejected(self) -> None:
+        for path in ("rules\\evil.yaml", "./rules.yaml", "a//b.yaml", "a/./b.yaml", "//rules.yaml", "a/..\\b.yaml"):
+            artifact = make_artifact()
+            artifact["mechanics"][0]["path"] = path
+            with self.subTest(path=repr(path)):
+                self.assertInvalid(intake(artifact), "MECHANIC_PATH")
+
+    def test_shared_looseness_kept_for_mcproof17_parity(self) -> None:
+        # mcproof#17 also accepts a bare ".yaml" and a drive-prefixed path; the
+        # gate keeps accepting them (documented in the review report).
+        for path in (".yaml", "C:foo.yaml"):
+            artifact = make_artifact()
+            artifact["mechanics"][0]["path"] = path
+            refresh_artifact(artifact)
+            with self.subTest(path=path):
+                self.assertTrue(intake(artifact).envelope_valid)
+
+    def test_empty_raw_source_is_valid_but_non_string_is_rejected(self) -> None:
+        artifact = make_artifact()
+        artifact["source"]["raw"] = ""
+        refresh_source(artifact)
+        result = intake(artifact)
+        self.assertTrue(result.envelope_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        artifact = make_artifact()
+        artifact["source"]["raw"] = None
+        self.assertInvalid(intake(artifact), "SOURCE_RAW")
+
+    def test_payload_model_and_initial_state_may_be_any_json_value(self) -> None:
+        for field, value in (("model", 42), ("model", "a string model"), ("model", None), ("model", [1, 2]), ("initial_state", "start")):
+            artifact = make_artifact()
+            artifact["payload"][field] = value
+            refresh_payload(artifact)
+            with self.subTest(field=field, value=repr(value)):
+                result = intake(artifact)
+                self.assertTrue(result.envelope_valid, result.findings)
+
+    # Item 3: duplicate canonical checks/controls are rejected, not collapsed.
+
+    def test_duplicate_source_checks_are_rejected(self) -> None:
+        artifact = make_artifact()
+        artifact["evidence"]["checks"].append(deepcopy(artifact["evidence"]["checks"][0]))
+        refresh_artifact(artifact)
+        result = intake(artifact)
+        self.assertInvalid(result, "DUPLICATE_SOURCE_CHECK")
+
+    def test_duplicate_source_controls_are_rejected(self) -> None:
+        artifact = make_artifact()
+        artifact["evidence"]["negative_controls"].append(deepcopy(artifact["evidence"]["negative_controls"][0]))
+        refresh_artifact(artifact)
+        result = intake(artifact)
+        self.assertInvalid(result, "DUPLICATE_SOURCE_CONTROL")
+
+    def test_two_identical_checks_plus_one_trusted_result_admit_nothing(self) -> None:
+        # abu-aska witness: two identical model_replay checks and one trusted
+        # result used to admit REPLAYED; the envelope is now invalid outright.
+        artifact = make_artifact()
+        replay = deepcopy(artifact["evidence"]["checks"][0])
+        artifact["evidence"]["checks"] = [replay, deepcopy(replay)]
+        refresh_artifact(artifact)
+        result = intake(artifact, verifier_results=trusted_results(artifact, kinds={"model_replay"}))
+        self.assertFalse(result.envelope_valid)
+        self.assertEqual(result.admitted_badges, ())
+
+    # Item 4: failed-control and verifier-refutation vetoes.
+
+    def test_failed_producer_control_vetoes_higher_badges(self) -> None:
+        # orda-aska witness: controls [true, false], three PASS checks, trusted
+        # results cover only the passing control.
+        artifact = make_artifact()
+        failing = deepcopy(artifact["evidence"]["negative_controls"][0])
+        failing["name"] = "second-control"
+        failing["mutation"] = '{"action": {"move": "north"}}'
+        failing["observed"] = '{"rejected": true}'
+        failing["passed"] = False
+        artifact["evidence"]["negative_controls"].append(failing)
+        refresh_artifact(artifact)
+        passing = TrustedDomainVerification(
+            artifact["artifact_sha256"],
+            tuple(TrustedCheckResult(canonical_sha256(c), True) for c in artifact["evidence"]["checks"]),
+            (TrustedNegativeControlResult(canonical_sha256(artifact["evidence"]["negative_controls"][0]), True),),
+        )
+        result = intake(artifact, verifier_results=passing)
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.source_badges, (OBSERVED,))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("CONTROL_FAIL_VETO", codes(result))
+
+    def test_trusted_control_refutation_vetoes_higher_badges(self) -> None:
+        # abu-aska witness (control half): trusted verifier refutes control[1].
+        artifact = make_artifact()
+        second = deepcopy(artifact["evidence"]["negative_controls"][0])
+        second["name"] = "second-control"
+        second["mutation"] = '{"action": {"move": "north"}}'
+        second["observed"] = '{"rejected": true}'
+        artifact["evidence"]["negative_controls"].append(second)
+        refresh_artifact(artifact)
+        trusted = trusted_results(artifact)
+        controls = (
+            trusted.negative_controls[0],
+            TrustedNegativeControlResult(trusted.negative_controls[1].control_sha256, False),
+        )
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(trusted.artifact_sha256, trusted.checks, controls),
+        )
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+
+    def test_trusted_check_refutation_vetoes_all_higher_badges(self) -> None:
+        # abu-aska witness (full): producer all PASS with two passing controls;
+        # trusted verifier refutes model_proof and control[1] while passing
+        # replay, live, and control[0].  Nothing above OBSERVED may survive.
+        artifact = make_artifact()
+        second = deepcopy(artifact["evidence"]["negative_controls"][0])
+        second["name"] = "second-control"
+        second["mutation"] = '{"action": {"move": "north"}}'
+        second["observed"] = '{"rejected": true}'
+        artifact["evidence"]["negative_controls"].append(second)
+        refresh_artifact(artifact)
+        trusted = trusted_results(artifact)
+        checks = tuple(
+            TrustedCheckResult(r.check_sha256, r.passed if r.check_sha256 != trusted.checks[1].check_sha256 else False)
+            for r in trusted.checks
+        )
+        controls = (
+            trusted.negative_controls[0],
+            TrustedNegativeControlResult(trusted.negative_controls[1].control_sha256, False),
+        )
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(trusted.artifact_sha256, checks, controls),
+        )
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+
+    def test_replay_result_passed_false_vetoes_higher_badges(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        checks = (
+            TrustedCheckResult(trusted.checks[0].check_sha256, False),
+        ) + trusted.checks[1:]
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(trusted.artifact_sha256, checks, trusted.negative_controls),
+        )
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("VERIFIER_FAIL_VETO", codes(result))
+
+    # Item 5: mixed-type result keys must produce a finding, not a TypeError.
+
+    def test_mixed_type_verifier_result_keys_return_a_finding(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        base = {
+            "artifact_sha256": artifact["artifact_sha256"],
+            "checks": [check.__dict__ for check in trusted.checks],
+            "negative_controls": [control.__dict__ for control in trusted.negative_controls],
+        }
+        for mutate in (
+            lambda r: r.update({1: 2}),
+            lambda r: r["checks"][0].update({1: 2}),
+            lambda r: r["negative_controls"][0].update({1: 2}),
+        ):
+            results = deepcopy(base)
+            mutate(results)
+            with self.subTest(mutation=repr(mutate)):
+                result = intake(artifact, verifier_results=results)
+                self.assertTrue(result.envelope_valid)
+                self.assertFalse(result.verification_valid)
+                self.assertIn("VERIFIER_RESULT_KEYS", codes(result))
+                self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    # Item 6: previously untested guards.
+
+    def test_unknown_control_result_is_rejected(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        forged = TrustedNegativeControlResult(sha("not a source control"), True)
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(
+                trusted.artifact_sha256, trusted.checks, trusted.negative_controls + (forged,)
+            ),
+        )
+        self.assertFalse(result.verification_valid)
+        self.assertIn("UNKNOWN_VERIFIER_CONTROL", codes(result))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    def test_duplicate_control_result_is_rejected(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        result = intake(
+            artifact,
+            verifier_results=TrustedDomainVerification(
+                trusted.artifact_sha256,
+                trusted.checks,
+                trusted.negative_controls + trusted.negative_controls,
+            ),
+        )
+        self.assertFalse(result.verification_valid)
+        self.assertIn("DUPLICATE_VERIFIER_RESULT", codes(result))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    def test_second_same_kind_check_left_unverified_blocks_the_badge(self) -> None:
+        artifact = make_artifact()
+        second_replay = make_check("model_replay", artifact["payload"])
+        second_replay["source_labels"] = ["VERIFIED", "SECOND"]
+        artifact["evidence"]["checks"].insert(1, second_replay)
+        refresh_artifact(artifact)
+        # Trusted results verify only the first model_replay check.
+        results = TrustedDomainVerification(
+            artifact["artifact_sha256"],
+            (TrustedCheckResult(canonical_sha256(artifact["evidence"]["checks"][0]), True),),
+            tuple(TrustedNegativeControlResult(canonical_sha256(c), True) for c in artifact["evidence"]["negative_controls"]),
+        )
+        result = intake(artifact, verifier_results=results)
+        self.assertTrue(result.verification_valid)
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+        self.assertIn("MISSING_CHECK_VERIFICATION", codes(result))
+
+    def test_live_only_artifact_stays_observed(self) -> None:
+        artifact = make_artifact()
+        artifact["evidence"]["checks"] = [make_check("live_execution", artifact["payload"])]
+        refresh_artifact(artifact)
+        result = intake(artifact, verifier_results=trusted_results(artifact))
+        self.assertTrue(result.envelope_valid)
+        self.assertEqual(result.source_badges, (OBSERVED,))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    def test_checker_artifact_sha256_format_is_enforced(self) -> None:
+        for value in ("A" * 64, "xyz", "0" * 64, 123):
+            artifact = make_artifact()
+            artifact["evidence"]["checks"][0]["checker"]["artifact_sha256"] = value
+            with self.subTest(value=repr(value)[:20]):
+                result = intake(artifact)
+                self.assertInvalid(result, "SHA256")
+                self.assertTrue(
+                    any(f.path == "$.evidence.checks[0].checker.artifact_sha256" for f in result.findings)
+                )
+
+    def test_empty_control_name_is_rejected(self) -> None:
+        artifact = make_artifact()
+        artifact["evidence"]["negative_controls"][0]["name"] = ""
+        result = intake(artifact)
+        self.assertInvalid(result, "NONEMPTY_STRING")
+        self.assertTrue(any(f.path == "$.evidence.negative_controls[0].name" for f in result.findings))
+
+    def test_empty_limitations_array_is_rejected(self) -> None:
+        artifact = make_artifact()
+        artifact["evidence"]["limitations"] = []
+        result = intake(artifact)
+        self.assertInvalid(result, "NONEMPTY_ARRAY")
+
+    def test_nested_array_limit_is_enforced(self) -> None:
+        artifact = make_artifact()
+        artifact["payload"]["outcome"] = {"rows": [[1, 2, 3, 4, 5]]}
+        result = intake(artifact, limits=GateLimits(max_array_items=4))
+        self.assertInvalid(result, "ARRAY_LIMIT")
+        self.assertTrue(any(f.path == "$.payload.outcome.rows[0]" for f in result.findings), result.findings)
+
+    def test_depth_boundary_is_exact(self) -> None:
+        # $.payload.outcome.<key> sits at depth 4, so max_depth - 4 wrappers fit.
+        wrappers = DEFAULT_LIMITS.max_depth - 4
+        for count, valid in ((wrappers, True), (wrappers + 1, False)):
+            artifact = make_artifact()
+            deep: Any = True
+            for _ in range(count):
+                deep = [deep]
+            artifact["payload"]["outcome"] = {"deep": deep}
+            if valid:
+                # The over-deep variant cannot be resealed: canonical_sha256
+                # itself rejects it, and intake reports DEPTH_LIMIT first.
+                refresh_payload(artifact)
+            with self.subTest(count=count):
+                result = intake(artifact)
+                self.assertEqual(result.envelope_valid, valid, result.findings)
+                if not valid:
+                    self.assertIn("DEPTH_LIMIT", codes(result))
+
+    def test_verifier_findings_limit_is_enforced(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        results = TrustedDomainVerification(
+            trusted.artifact_sha256, trusted.checks, trusted.negative_controls, ("one", "two")
+        )
+        result = intake(artifact, verifier_results=results, limits=GateLimits(max_verifier_findings=1))
+        self.assertFalse(result.verification_valid)
+        self.assertIn("VERIFIER_FINDINGS", codes(result))
+        self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    def test_exact_verifier_result_types_are_enforced(self) -> None:
+        artifact = make_artifact()
+        trusted = trusted_results(artifact)
+        artifact_digest = artifact["artifact_sha256"]
+        controls = [control.__dict__ for control in trusted.negative_controls]
+        cases = [
+            ({"artifact_sha256": artifact_digest, "checks": [42], "negative_controls": controls}, "VERIFIER_RESULT_OBJECT"),
+            (
+                {
+                    "artifact_sha256": artifact_digest,
+                    "checks": [{"check_sha256": trusted.checks[0].check_sha256, "passed": True, "findings": "not-a-list"}],
+                    "negative_controls": controls,
+                },
+                "VERIFIER_FINDINGS",
+            ),
+            (
+                {
+                    "artifact_sha256": artifact_digest,
+                    "checks": [{"check_sha256": trusted.checks[0].check_sha256}],
+                    "negative_controls": controls,
+                },
+                "VERIFIER_RESULT_KEYS",
+            ),
+        ]
+        for results, code in cases:
+            with self.subTest(code=code):
+                result = intake(artifact, verifier_results=results)
+                self.assertFalse(result.verification_valid)
+                self.assertIn(code, codes(result))
+                self.assertEqual(result.admitted_badges, (OBSERVED,))
+
+    def test_callback_receives_a_deep_copy_of_nested_payload(self) -> None:
+        artifact = make_artifact()
+        original_move = artifact["payload"]["model"]["rules"]["move"]
+        seen: list[dict[str, Any]] = []
+
+        def verifier(received: dict[str, Any]) -> TrustedDomainVerification:
+            seen.append(received)
+            received["payload"]["model"]["rules"]["move"] = "mutated"
+            received["evidence"]["checks"][0]["status"] = "FAIL"
+            return trusted_results(artifact)
+
+        result = intake(artifact, verifier=verifier)
+        self.assertEqual(result.admitted_badges, (OBSERVED, REPLAYED, MODEL_PROVEN, LIVE_CONFIRMED))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(artifact["payload"]["model"]["rules"]["move"], original_move)
+        self.assertEqual(artifact["evidence"]["checks"][0]["status"], "PASS")
 
 
 if __name__ == "__main__":

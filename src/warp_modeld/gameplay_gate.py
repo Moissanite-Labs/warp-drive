@@ -4,7 +4,8 @@ The artifact, its raw source, labels, statuses, and negative-control assertions 
 untrusted.  This module parses data and verifies commitments; it never parses the
 raw source as instructions and never executes a model replay, proof, or game.
 
-``OBSERVED`` is the only badge derived by structural validation alone.  Higher
+``OBSERVED`` is the only badge derived by structural validation alone; it means the
+artifact is well formed and digest consistent, not that gameplay was observed.  Higher
 badges additionally require results from a caller-trusted domain verifier.  Each
 result is bound to the artifact digest and to the canonical digest of the exact
 check or negative control.  Thus ``VERIFIED`` text and self-asserted ``PASS`` are
@@ -35,7 +36,7 @@ INT64_MAX = (1 << 63) - 1
 ZERO_SHA256 = "0" * 64
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-ASCII_ID_RE = re.compile(r"^[\x21-\x7e]+$")
+IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_GATE_FINDINGS = 128
 
@@ -339,8 +340,8 @@ class _EnvelopeValidator:
         if type(value) is not str or not value.strip():
             self.add("NONEMPTY_STRING", path, "expected a nonempty string")
             return False
-        if identifier and not ASCII_ID_RE.fullmatch(value):
-            self.add("ASCII_IDENTIFIER", path, "expected a nonempty ASCII identifier without whitespace")
+        if identifier and not IDENTIFIER_RE.fullmatch(value):
+            self.add("ASCII_IDENTIFIER", path, "expected an identifier matching ^[A-Za-z0-9_.:-]+$")
             return False
         return True
 
@@ -394,9 +395,10 @@ class _EnvelopeValidator:
         payload = document["payload"]
         if self.object(payload, "$.payload", _PAYLOAD_KEYS):
             self.text(payload["domain"], "$.payload.domain", identifier=True)
-            for field in ("model", "initial_state", "outcome"):
-                if type(payload[field]) is not dict:
-                    self.add("OBJECT_REQUIRED", f"$.payload.{field}", "expected an object")
+            # ``model`` and ``initial_state`` may be any JSON value (mcproof#17
+            # schema allows any jsonValue there); only ``outcome`` stays an object.
+            if type(payload["outcome"]) is not dict:
+                self.add("OBJECT_REQUIRED", "$.payload.outcome", "expected an object")
             for field in ("actions", "trajectory"):
                 self.array(payload[field], f"$.payload.{field}")
             for field in ("model_sha256", "initial_state_sha256", "actions_sha256", "trajectory_sha256"):
@@ -418,6 +420,8 @@ class _EnvelopeValidator:
                     if not self.object(control, path, _CONTROL_KEYS):
                         continue
                     self.text(control["name"], f"{path}.name")
+                    self.text(control["mutation"], f"{path}.mutation")
+                    self.text(control["observed"], f"{path}.observed")
                     if type(control["passed"]) is not bool:
                         self.add("BOOLEAN_REQUIRED", f"{path}.passed", "expected a real boolean")
 
@@ -447,19 +451,41 @@ class _EnvelopeValidator:
         if self.object(source, "$.source", frozenset({"media_type", "raw_sha256", "raw"})):
             self.text(source["media_type"], "$.source.media_type")
             self.sha(source["raw_sha256"], "$.source.raw_sha256")
-            if type(source["raw"]) is not str or not source["raw"]:
-                self.add("SOURCE_RAW", "$.source.raw", "raw source must be a nonempty string")
+            if type(source["raw"]) is not str:
+                self.add("SOURCE_RAW", "$.source.raw", "raw source must be a string (it may be empty)")
+
+        evidence_doc = document["evidence"]
+        if type(evidence_doc) is dict:
+            for field, entry_path, code in (
+                ("checks", "$.evidence.checks", "DUPLICATE_SOURCE_CHECK"),
+                ("negative_controls", "$.evidence.negative_controls", "DUPLICATE_SOURCE_CONTROL"),
+            ):
+                entries = evidence_doc.get(field)
+                if type(entries) is list:
+                    self._reject_duplicate_entries(entries, entry_path, code)
 
         if self.findings:
             return False
         self._verify_commitments(document)
         return not self.findings
 
+    def _reject_duplicate_entries(self, entries: list[Any], path: str, code: str) -> None:
+        seen: set[str] = set()
+        for index, entry in enumerate(entries):
+            digest = _canonical_sha256_unchecked(entry)
+            if digest in seen:
+                self.add(code, f"{path}[{index}]", "duplicate canonical entry; identical entries are rejected, not collapsed")
+            else:
+                seen.add(digest)
+
     @staticmethod
     def _repository_yaml_path(value: Any) -> bool:
         if type(value) is not str or not value or "\\" in value or value.startswith("/"):
             return False
-        if not (value.endswith(".yaml") or value.endswith(".yml")):
+        if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+            return False
+        lowered = value.lower()
+        if not (lowered.endswith(".yaml") or lowered.endswith(".yml")):
             return False
         parts = value.split("/")
         return all(part not in {"", ".", ".."} for part in parts)
@@ -524,8 +550,12 @@ def _source_summary(document: dict[str, Any]) -> tuple[tuple[str, ...], tuple[Fi
     badges = [OBSERVED]
     # A single source failure is an aggregation veto, not merely an absent
     # passing check.  Otherwise a passing replay could hide a failing proof or
-    # live execution that covers the same payload commitments.
+    # live execution that covers the same payload commitments.  The same holds
+    # for a failed negative control: one failed control vetoes every higher
+    # source badge, mirroring the check veto.
     if any(check["status"] == "FAIL" for check in evidence["checks"]):
+        return tuple(badges), tuple(findings)
+    if any(not control["passed"] for control in evidence["negative_controls"]):
         return tuple(badges), tuple(findings)
     if passing_control and "model_replay" in passing_kinds:
         badges.append(REPLAYED)
@@ -575,9 +605,15 @@ class _TrustedResultsValidator:
             self.differences.append(Finding(code, path, message))
 
     def _exact_keys(self, value: dict[str, Any], path: str, required: set[str], optional: set[str]) -> bool:
-        actual = set(value)
-        missing = sorted(required - actual)
-        unknown = sorted(actual - required - optional)
+        try:
+            actual = set(value)
+        except TypeError:
+            self.add("VERIFIER_RESULT_KEYS", path, "result keys must be hashable strings", fatal=True)
+            return False
+        # Keys may be of mixed types (e.g. an int key); sort by repr so this
+        # returns a finding instead of raising TypeError.
+        missing = sorted(map(repr, required - actual))
+        unknown = sorted(map(repr, actual - required - optional))
         if missing or unknown:
             self.add("VERIFIER_RESULT_KEYS", path, f"missing keys {missing}; unknown keys {unknown}", fatal=True)
             return False
@@ -914,6 +950,7 @@ def intake_gameplay_evidence(
         differences.extend(result_validator.differences)
 
     source_failure = any(check["status"] == "FAIL" for check in artifact["evidence"]["checks"])
+    control_failure = any(not control["passed"] for control in artifact["evidence"]["negative_controls"])
     if verification_valid and source_failure:
         # Independent PASS results for other checks cannot aggregate around a
         # source FAIL.  Keep OBSERVED and the preserved source findings, but
@@ -925,8 +962,32 @@ def intake_gameplay_evidence(
                 "a source FAIL suppresses every higher badge; independent PASS results cannot replace it",
             )
         )
+    if verification_valid and control_failure:
+        # A failed negative control vetoes aggregation exactly like a source
+        # FAIL: no higher badge may survive it.
+        findings.append(
+            Finding(
+                "CONTROL_FAIL_VETO",
+                "$.evidence.negative_controls",
+                "a failed negative control suppresses every higher badge",
+            )
+        )
+    verifier_refuted = verification_valid and (
+        any(not result.passed for result in result_validator.check_results.values())
+        or any(not result.passed for result in result_validator.control_results.values())
+    )
+    if verifier_refuted:
+        # A trusted verifier that explicitly refutes any check or negative
+        # control vetoes every higher badge, mirroring SOURCE_FAIL_VETO.
+        findings.append(
+            Finding(
+                "VERIFIER_FAIL_VETO",
+                "$.trusted_verification",
+                "a trusted verifier result with passed=false suppresses every higher badge",
+            )
+        )
 
-    if verification_valid and not source_failure:
+    if verification_valid and not source_failure and not control_failure and not verifier_refuted:
         has_control = result_validator.passing_control()
         if source_badges != (OBSERVED,) and not has_control:
             findings.append(
