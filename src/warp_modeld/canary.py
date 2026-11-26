@@ -413,8 +413,8 @@ def _is_slot_clean_for_banks(
     expected_banks: tuple[str, ...],
 ) -> bool:
     """Verify post-erase slot cleanliness across every expected and reported state bank."""
-    if not hasattr(llama_client, "list_slots"):
-        return True
+    if not callable(getattr(llama_client, "list_slots", None)):
+        return False
     try:
         slots_now = llama_client.list_slots()
     except LlamaClientError:
@@ -442,7 +442,7 @@ def _is_slot_clean_for_banks(
         if st_b is None or not st_b.is_clean:
             return False
     for st_b in sbanks.values():
-        if not st_b.is_clean:
+        if getattr(st_b, "is_clean", False) is not True:
             return False
     return True
 
@@ -541,7 +541,7 @@ class CanaryRunner:
         erase_banks = tuple(required_state_banks) if required_state_banks and len(required_state_banks) > 1 else None
 
         slot_ids: tuple[int, ...] = (self.canary_slot_id,)
-        if hasattr(self.llama_client, "list_slots"):
+        if callable(getattr(self.llama_client, "list_slots", None)):
             try:
                 listed_slots = self.llama_client.list_slots()
                 if len(listed_slots) > 1:
@@ -820,7 +820,7 @@ class ExternalCommandCanaryRunner:
         run_env["WARP_LORA_JSON"] = lora_json_str
 
         slot_ids: tuple[int, ...] = (self.canary_slot_id,)
-        if hasattr(self.llama_client, "list_slots"):
+        if callable(getattr(self.llama_client, "list_slots", None)):
             try:
                 listed = self.llama_client.list_slots()
                 if listed:
