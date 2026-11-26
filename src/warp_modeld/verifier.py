@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hmac
+from pathlib import Path
 import threading
 import time
 from typing import Any, Mapping, Sequence
@@ -17,8 +18,10 @@ from .certificate import (
     verify_stack_division_free,
 )
 from .errors import (
+    CheckpointMismatchError,
     KillSwitchEngagedError,
     LatticeFlushError,
+    StaleLineageError,
     StateFlushError,
     UnverifiedLoraOverrideError,
     WarpError,
@@ -30,6 +33,7 @@ from .fingerprint import (
     Plane1Lineage,
     RuntimeFlags,
     Stage1Report,
+    compute_file_sha256,
     sha256_json,
     validate_zone_manifest_id,
     verify_stage1,
@@ -81,6 +85,8 @@ class WarpModeld:
         canary_runner_override: Any | None = None,
         pinned_zone_manifest_id: str | None = None,
         pinned_zone_manifest: Mapping[str, Any] | None = None,
+        require_loaded_adapter_files: bool = False,
+        allow_legacy_implicit_kv_flush: bool = False,
     ) -> None:
         self._lock = threading.RLock()
         self.pinned_checkpoint = pinned_checkpoint
@@ -91,6 +97,8 @@ class WarpModeld:
         self.canary_suite = canary_suite
         self.llama_client = llama_client
         self.ledger = ledger
+        self.require_loaded_adapter_files = bool(require_loaded_adapter_files)
+        self.allow_legacy_implicit_kv_flush = bool(allow_legacy_implicit_kv_flush)
         self.canary_runner = (
             canary_runner_override
             if canary_runner_override is not None
@@ -99,6 +107,7 @@ class WarpModeld:
                 canary_suite,
                 canary_slot_id=canary_slot_id,
                 max_tokens=canary_max_tokens,
+                allow_legacy_implicit_kv_flush=self.allow_legacy_implicit_kv_flush,
             )
         )
 
@@ -203,14 +212,51 @@ class WarpModeld:
         if loaded:
             self.llama_client.set_lora_adapters([{"id": item.id, "scale": 0.0} for item in loaded])
 
+    def _verify_loaded_adapters_binding(
+        self,
+        bundles: Sequence[AdapterBundle],
+        loaded: Sequence[Any],
+    ) -> None:
+        """Verify every bundle's llama_adapter_id is loaded and matches on-disk bytes."""
+        loaded_by_id = {item.id: item for item in loaded}
+        for bundle in bundles:
+            loaded_item = loaded_by_id.get(bundle.llama_adapter_id)
+            if loaded_item is None:
+                raise CheckpointMismatchError(
+                    f"adapter {bundle.adapter_id}: llama_adapter_id={bundle.llama_adapter_id} "
+                    "is not loaded on llama-server"
+                )
+            loaded_path_str = str(loaded_item.path or "").strip()
+            loaded_path = Path(loaded_path_str) if loaded_path_str else None
+            if loaded_path is not None and loaded_path.is_file():
+                if bundle.adapter_path is not None:
+                    declared_resolved = Path(bundle.adapter_path).resolve()
+                    loaded_resolved = loaded_path.resolve()
+                    if declared_resolved != loaded_resolved:
+                        raise CheckpointMismatchError(
+                            f"adapter {bundle.adapter_id}: declared adapter_path ({declared_resolved}) "
+                            f"!= llama-server loaded path ({loaded_resolved})"
+                        )
+                actual_sha = compute_file_sha256(loaded_path)
+                if not hmac.compare_digest(actual_sha, bundle.adapter_sha256):
+                    raise CheckpointMismatchError(
+                        f"adapter {bundle.adapter_id}: loaded backend file digest mismatch "
+                        f"(expected {bundle.adapter_sha256}, actual {actual_sha})"
+                    )
+            elif self.require_loaded_adapter_files:
+                raise CheckpointMismatchError(
+                    f"adapter {bundle.adapter_id}: loaded backend path {loaded_path_str!r} "
+                    "does not exist on disk while require_loaded_adapter_files=True"
+                )
+
     def _flush_all_slots(self) -> tuple[tuple[int, ...], tuple[BankFlushReceipt, ...]]:
         """Erase every slot across all required state banks (KV, SSM, horizontal lattice).
 
-        When `pinned_checkpoint.has_horizontal_lattice` is true, requires explicit atomic
-        backend confirmation of BOTH `kv_cache` and `lattice_horizontal_streams` (plus
-        `ssm_recurrent` if present), and verifies post-erase cleanliness across every bank.
-        Any missing or failed horizontal-lattice confirmation raises LatticeFlushError
-        (`ERR_LATTICE_FLUSH_FAILED`).
+        When `pinned_checkpoint.has_horizontal_lattice` or `has_ssm_recurrent` is true,
+        requires explicit atomic backend confirmation of every required bank and verifies
+        post-erase cleanliness across every bank and pre-erase slot ID. Any missing or
+        failed horizontal-lattice confirmation raises LatticeFlushError
+        (`ERR_LATTICE_FLUSH_FAILED`); SSM/KV failures raise StateFlushError.
         """
         required_banks = self.pinned_checkpoint.required_state_banks()
         needs_lattice = STATE_BANK_LATTICE in required_banks
@@ -219,6 +265,10 @@ class WarpModeld:
 
         try:
             slots = self.llama_client.list_slots()
+            if not slots:
+                err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                raise err_cls("llama-server /slots returned empty slot list; refusing unverified zero-slot flush")
+            requested_slot_ids = {slot.id for slot in slots}
             flushed: list[int] = []
             confirmed_by_slot: dict[int, tuple[str, ...]] = {}
 
@@ -231,27 +281,48 @@ class WarpModeld:
 
             for slot, resp in slot_resps:
                 flushed.append(slot.id)
-                raw_confirmed = resp.get("banks_flushed")
-                if isinstance(raw_confirmed, list):
-                    confirmed = tuple(str(b) for b in raw_confirmed)
-                elif not needs_lattice and not needs_ssm:
-                    confirmed = (STATE_BANK_KV,)
+                if not isinstance(resp, dict):
+                    confirmed: tuple[str, ...] = ()
                 else:
-                    confirmed = ()
+                    raw_confirmed = resp.get("banks_flushed")
+                    if isinstance(raw_confirmed, list):
+                        confirmed = tuple(str(b) for b in raw_confirmed)
+                    elif (
+                        raw_confirmed is None
+                        and not needs_lattice
+                        and not needs_ssm
+                        and self.allow_legacy_implicit_kv_flush
+                    ):
+                        confirmed = (STATE_BANK_KV,)
+                    else:
+                        confirmed = ()
 
-                if needs_lattice:
-                    missing_banks = [b for b in required_banks if b not in confirmed]
-                    if missing_banks:
-                        raise LatticeFlushError(
-                            f"slot {slot.id} erase failed to confirm required state banks "
-                            f"{missing_banks} (confirmed={list(confirmed)})"
-                        )
+                missing_banks = [b for b in required_banks if b not in confirmed]
+                if missing_banks:
+                    err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                    raise err_cls(
+                        f"slot {slot.id} erase failed to confirm required state banks "
+                        f"{missing_banks} (confirmed={list(confirmed)})"
+                    )
                 confirmed_by_slot[slot.id] = confirmed
 
             # Re-verify zero residual recurrent state, KV cache tokens, or horizontal lattice taint.
             after = self.llama_client.list_slots()
+            after_ids = {slot.id for slot in after}
+            missing_slots = sorted(requested_slot_ids - after_ids)
+            if missing_slots:
+                err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                raise err_cls(f"post-erase /slots missing pre-erase slot ID(s): {missing_slots}")
+            unexpected_slots = sorted(after_ids - requested_slot_ids)
+            if unexpected_slots:
+                err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                raise err_cls(f"post-erase /slots returned unexpected unerased slot ID(s): {unexpected_slots}")
+
             receipts: list[BankFlushReceipt] = []
             for slot in after:
+                if slot.is_processing:
+                    err_cls = LatticeFlushError if needs_lattice else StateFlushError
+                    raise err_cls(f"slot {slot.id} is still processing after erase")
                 if needs_lattice:
                     lattice_bank = slot.state_banks.get(STATE_BANK_LATTICE)
                     if (
@@ -268,10 +339,11 @@ class WarpModeld:
                         )
                 if needs_ssm:
                     ssm_bank = slot.state_banks.get(STATE_BANK_SSM)
-                    if slot.ssm_state_tainted or (ssm_bank is not None and not ssm_bank.is_clean):
+                    if slot.ssm_state_tainted or ssm_bank is None or not ssm_bank.is_clean:
                         raise StateFlushError(
-                            f"slot {slot.id} retained SSM recurrent state after erase "
-                            f"(ssm_tainted={slot.ssm_state_tainted})"
+                            f"slot {slot.id} retained or failed to confirm clean SSM recurrent state after erase "
+                            f"(ssm_tainted={slot.ssm_state_tainted}, "
+                            f"bank={ssm_bank.to_dict() if ssm_bank else None})"
                         )
                 if (
                     slot.recurrent_state_tainted
@@ -288,7 +360,7 @@ class WarpModeld:
                     BankFlushReceipt(
                         slot_id=slot.id,
                         banks_requested=required_banks,
-                        banks_confirmed=confirmed_by_slot.get(slot.id, required_banks),
+                        banks_confirmed=confirmed_by_slot.get(slot.id, ()),
                         zone_manifest_id=self.pinned_zone_manifest_id,
                         verified_clean=True,
                     )
@@ -424,6 +496,15 @@ class WarpModeld:
                 self._record_reject(err, adapters=[b.manifest_entry() for b in bundles])
                 raise
 
+            # Pre-Stage 3 backend binding check: ensure every requested llama_adapter_id is
+            # actually loaded on llama-server and matches on-disk SHA-256 (blocks decoy swap).
+            try:
+                loaded_pre = self.llama_client.list_lora_adapters()
+                self._verify_loaded_adapters_binding(bundles, loaded_pre)
+            except WarpError as err:
+                self._record_reject(err, adapters=[b.manifest_entry() for b in bundles])
+                raise
+
             # Stage 3: shadow-load and verifier-owned deterministic canary checks.
             try:
                 currently_verified_ids = frozenset(b.llama_adapter_id for b in self._active_bundles)
@@ -441,55 +522,72 @@ class WarpModeld:
                 raise
 
             # Stage 4 activation: flush all live slots across every required state bank so previous
-            # KV, SSM, or horizontal lattice states cannot mix, then apply verified scales.
+            # KV, SSM, or horizontal lattice states cannot mix, re-verify backend adapter binding,
+            # apply verified scales, and commit the signed ledger receipt atomically before
+            # marking the stack active (quarantine + rollback if activation or ledger fails).
+            manifest_digest = self._compute_slot_manifest_digest(bundles)
+            activated_on_backend = False
             try:
                 flushed, bank_receipts = self._flush_all_slots()
                 loaded = self.llama_client.list_lora_adapters()
+                self._verify_loaded_adapters_binding(bundles, loaded)
                 scale_by_id = {b.llama_adapter_id: b.scale_float for b in bundles}
                 scale_payload = [
                     {"id": item.id, "scale": scale_by_id.get(item.id, 0.0)}
                     for item in loaded
                 ]
                 self.llama_client.set_lora_adapters(scale_payload)
-            except (LlamaClientError, StateFlushError) as exc:
+                activated_on_backend = True
+                receipt = self.ledger.append(
+                    "mount",
+                    checkpoint_fingerprint_sha256=ckpt_digest,
+                    runtime_flags_sha256=flags_digest,
+                    slot_manifest_digest=manifest_digest,
+                    adapters=[b.manifest_entry() for b in bundles],
+                    reason="verified_mount",
+                    slots_flushed=flushed,
+                    details={
+                        "stage2_elapsed_ns": stage2_res.elapsed_ns,
+                        "stage3_elapsed_ms": round(stage3_res.elapsed_ms, 3),
+                        "composed_bound_checked": stage2_res.composed_bound_checked,
+                        "composed_cert_verified": stage2_res.composed_cert_verified,
+                        "canary_suite_sha256": stage3_res.suite_sha256,
+                        "preservation_passed": stage3_res.preservation_passed,
+                        "preservation_total": stage3_res.preservation_total,
+                        "canaries_passed": len(stage3_res.outcomes),
+                        "zone_manifest_id": self.pinned_zone_manifest_id,
+                        "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
+                        "bank_flush_receipts": [r.to_dict() for r in bank_receipts],
+                    },
+                )
+            except Exception as exc:
+                if activated_on_backend:
+                    try:
+                        self._zero_all_lora_scales()
+                        self._flush_all_slots()
+                    except Exception:
+                        pass
+                if isinstance(exc, CheckpointMismatchError):
+                    self._record_reject(exc, adapters=[b.manifest_entry() for b in bundles])
+                    raise
                 err = exc if isinstance(exc, StateFlushError) else (
-                    LatticeFlushError(f"activation failed: {exc}")
+                    LatticeFlushError(f"activation or ledger commit failed: {exc}")
                     if self.pinned_checkpoint.has_horizontal_lattice
-                    else StateFlushError(f"activation failed: {exc}")
+                    else StateFlushError(f"activation or ledger commit failed: {exc}")
                 )
                 self._state_quarantined = True
                 self._quarantine_error_cls = type(err)
                 self._active_bundles = []
                 self._slot_manifest_digest = None
-                self._record_reject(err, adapters=[b.manifest_entry() for b in bundles])
+                try:
+                    self._record_reject(err, adapters=[b.manifest_entry() for b in bundles])
+                except Exception:
+                    pass
                 raise err from exc
 
-            manifest_digest = self._compute_slot_manifest_digest(bundles)
             self._active_bundles = list(bundles)
             self._slot_manifest_digest = manifest_digest
 
-            receipt = self.ledger.append(
-                "mount",
-                checkpoint_fingerprint_sha256=ckpt_digest,
-                runtime_flags_sha256=flags_digest,
-                slot_manifest_digest=manifest_digest,
-                adapters=[b.manifest_entry() for b in bundles],
-                reason="verified_mount",
-                slots_flushed=flushed,
-                details={
-                    "stage2_elapsed_ns": stage2_res.elapsed_ns,
-                    "stage3_elapsed_ms": round(stage3_res.elapsed_ms, 3),
-                    "composed_bound_checked": stage2_res.composed_bound_checked,
-                    "composed_cert_verified": stage2_res.composed_cert_verified,
-                    "canary_suite_sha256": stage3_res.suite_sha256,
-                    "preservation_passed": stage3_res.preservation_passed,
-                    "preservation_total": stage3_res.preservation_total,
-                    "canaries_passed": len(stage3_res.outcomes),
-                    "zone_manifest_id": self.pinned_zone_manifest_id,
-                    "required_state_banks": list(self.pinned_checkpoint.required_state_banks()),
-                    "bank_flush_receipts": [r.to_dict() for r in bank_receipts],
-                },
-            )
             return MountResult(
                 slot_manifest_digest=manifest_digest,
                 active_adapters=tuple(b.manifest_entry() for b in bundles),
@@ -618,10 +716,12 @@ class WarpModeld:
         with self._lock:
             if self._state_quarantined:
                 raise self._quarantine_error_cls("refusing inference while slot state is quarantined")
-            if raw_params is not None and "lora" in raw_params:
+            if raw_params is not None and any(isinstance(k, str) and k.lower() == "lora" for k in raw_params):
                 raise UnverifiedLoraOverrideError(
                     "callers may not pass raw 'lora' overrides to warp_infer; mount through Stage 1-4 verifier"
                 )
+            if self._is_active_stack_stale():
+                raise StaleLineageError("active adapter stack is stale relative to pinned lineage; remount required")
             if expected_zone_manifest_id is not None:
                 validate_zone_manifest_id(expected_zone_manifest_id)
                 if self.pinned_zone_manifest_id is None or not hmac.compare_digest(
@@ -672,10 +772,12 @@ class WarpModeld:
         with self._lock:
             if self._state_quarantined:
                 raise self._quarantine_error_cls("refusing completion while slot state is quarantined")
-            if raw_params is not None and "lora" in raw_params:
+            if raw_params is not None and any(isinstance(k, str) and k.lower() == "lora" for k in raw_params):
                 raise UnverifiedLoraOverrideError(
                     "callers may not pass raw 'lora' overrides to warp_complete; mount through Stage 1-4 verifier"
                 )
+            if self._is_active_stack_stale():
+                raise StaleLineageError("active adapter stack is stale relative to pinned lineage; remount required")
             if expected_zone_manifest_id is not None:
                 validate_zone_manifest_id(expected_zone_manifest_id)
                 if self.pinned_zone_manifest_id is None or not hmac.compare_digest(
