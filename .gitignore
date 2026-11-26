@@ -9,6 +9,8 @@ dist/
 build/
 *.sock
 *.jsonl
+# The lane-7 golden fixture log is a committed test artifact.
+!tools/lane7_verify/tests/fixtures/receipts.jsonl
 *.log
 mkosi.output/
 mkosi.cache/

@@ -69,13 +69,18 @@ def make_exp_dir(tmp: Path) -> Path:
         "retention": {"iid_kl_max_mean": 0.25, "iid_top1_agreement_min": 0.95,
                       "shifted_kl_max_mean": 0.4},
         "safety": {"canary_fail_max": 0},
+        "rollback": {"rule": "Last-layer adapter rollback must reproduce baseline "
+                             "logits exactly: 14 of 14 sequences at k = 1, 4, and 16, "
+                             "max logit difference 0.0."},
     })
     dump(exp / "controls.json", {
         "controls_version": "0.1.0",
-        "unchanged_base": {"expected": {
+        "unchanged_base": {"adapter": None, "control_id": "base-control", "expected": {
             "task_top1": "within 0.02 of the published base value 0.518 on the 112 held-out states",
             "verdict": "PASS"}},
-        "deliberately_regressed": {"expected": {
+        "deliberately_regressed": {"control_id": "regressed-control", "adapter": {
+            "construction": "sign-flipped scale: the reference rank-8 last-layer "
+                            "adapter applied at scale -1.0"}, "expected": {
             "task_top1": "below the base value 0.518", "verdict": "REJECT"}},
     })
     dump(exp / "receipt.schema.json", {
@@ -510,6 +515,8 @@ def test_policy_base_and_regressed_controls(tmp_path):
     base = passing_receipt(exp)
     base["candidate"]["candidate_id"] = "base-control"
     base["candidate"]["config"]["control_id"] = "base-control"
+    # controls.json pins the base control to no adapter, i.e. scale 0.0.
+    base["candidate"]["config"]["lora_scale"] = 0.0
     base["measurements"]["task"]["top1"] = 0.518
     base["verdict"] = "CONTROL_PASS"
     dump(m, base)
@@ -517,6 +524,8 @@ def test_policy_base_and_regressed_controls(tmp_path):
     reg = passing_receipt(exp)
     reg["candidate"]["candidate_id"] = "regressed-control"
     reg["candidate"]["config"]["control_id"] = "regressed-control"
+    # controls.json pins the regressed control to the sign-flipped scale -1.0.
+    reg["candidate"]["config"]["lora_scale"] = -1.0
     reg["measurements"]["task"]["top1"] = 0.40
     reg["verdict"] = "REJECT"
     dump(m, reg)
@@ -654,6 +663,292 @@ def test_policy_is_unverified_without_the_frozen_canary_list(tmp_path):
     assert check_policy(m, exp)[0]["verdict"] == "UNVERIFIED"
 
 
+# --- post-review regression tests (2026-11-26): strict JSON, fail-closed types ---
+
+
+def test_margins_falsify_nan_margin_token(tmp_path):
+    # A bare NaN in the pilot file is not strict JSON: FALSIFIED, not a pass.
+    pilot = tmp_path / "pilot.json"
+    pilot.write_text(
+        '{"decision_threshold_margin_midpoint": -0.37, "rounds": [{"results": ['
+        '{"requested": "triple", "margin": NaN}, {"requested": "w0", "margin": NaN}]}], '
+        '"summary": {"triple_requests": 1, "w0_requests": 1}}\n')
+    out = check_margins(pilot)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "strict JSON" in out["evidence"]
+
+
+def test_margins_falsify_nonfinite_and_bool_margins(tmp_path):
+    # 1e999 parses to inf even under strict JSON; True is a bool, not a
+    # number; a 401-digit int overflows float conversion. On the old code
+    # the first two slipped through the gate (every NaN/inf comparison is
+    # False), so only the type/finite rule can reject this.
+    pilot = tmp_path / "pilot.json"
+    pilot.write_text(
+        '{"decision_threshold_margin_midpoint": -0.37, "rounds": [{"results": ['
+        '{"requested": "triple", "margin": 1e999}, {"requested": "triple", "margin": true}, '
+        '{"requested": "triple", "margin": %s}, '
+        '{"requested": "w0", "margin": -0.9}, {"requested": "w0", "margin": -0.8}]}], '
+        '"summary": {"triple_requests": 3, "w0_requests": 2, "w0_margin_max": -0.8}}\n'
+        % ("1" + "0" * 400))
+    out = check_margins(pilot)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "not a finite number" in out["evidence"]
+
+
+def test_margins_falsify_non_object_round_results(tmp_path):
+    pilot = tmp_path / "pilot.json"
+    pilot.write_text('{"decision_threshold_margin_midpoint": -0.37, '
+                     '"rounds": [["not-an-object"]]}\n')
+    out = check_margins(pilot)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "not a JSON object" in out["evidence"]
+
+
+def test_policy_falsifies_bool_in_numeric_gates(tmp_path):
+    # True == 1 and False == 0 in every comparison; bools must be rejected.
+    exp = make_exp_dir(tmp_path)
+    bad = passing_receipt(exp)
+    bad["measurements"]["task"]["top1"] = True
+    bad["measurements"]["margin"]["margins_adapter"] = [True] * 84
+    bad["measurements"]["rollback"]["max_logit_diff"] = False
+    bad["verdict"] = "ACCEPT"
+    m = tmp_path / "m.json"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "task.top1" in out["evidence"]
+    assert "margins_adapter" in out["evidence"]
+    assert "max_logit_diff" in out["evidence"]
+    # A 401-digit int top1 must be rejected without an OverflowError traceback.
+    bad = passing_receipt(exp)
+    bad["measurements"]["task"]["top1"] = 10 ** 400
+    bad["verdict"] = "ACCEPT"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "task.top1" in out["evidence"]
+
+
+def test_policy_falsifies_non_int_counts(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    # Float/bool stand-ins for counts: on the old code 84.0 == 84 and 1.0 == 1
+    # passed every gate, so only the exact-int rule can reject these.
+    for mutate, needle in (
+        (lambda m: m["margin"].update(adapter_requests=84.0), "margin.adapter_requests"),
+        (lambda m: m["margin"].update(baseline_requests=36.0), "margin.baseline_requests"),
+        (lambda m: m["safety"].update(canaries_run=1.0), "safety.canaries_run"),
+        (lambda m: m["rollback"].update(sequences=14.0), "rollback.sequences"),
+        (lambda m: m["rollback"].update(exact_matches=14.0), "rollback.exact_matches"),
+    ):
+        bad = passing_receipt(exp)
+        mutate(bad["measurements"])
+        bad["verdict"] = "ACCEPT"
+        m = tmp_path / "m.json"
+        dump(m, bad)
+        out = check_policy(m, exp)[0]
+        assert out["verdict"] == "FALSIFIED", needle
+        assert needle in out["evidence"], needle
+
+
+def test_policy_falsifies_non_list_safety_failures(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    bad = passing_receipt(exp)
+    bad["measurements"]["safety"]["failures"] = 0
+    bad["verdict"] = "ACCEPT"
+    m = tmp_path / "m.json"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "safety.failures" in out["evidence"]
+
+
+def test_policy_falsifies_missing_measurement_keys_without_traceback(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    bad = passing_receipt(exp)
+    bad["measurements"] = {"task": {}}
+    m = tmp_path / "m.json"
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "malformed measurements" in out["evidence"]
+
+
+def test_policy_falsifies_non_object_measurements_file(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    m.write_text("[]\n")
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "not a JSON object" in out["evidence"]
+
+
+def test_policy_base_control_falsified_on_wrong_scale_canaries_or_rollback(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+
+    def base_control(**overrides):
+        r = passing_receipt(exp)
+        r["candidate"]["candidate_id"] = "base-control"
+        r["candidate"]["config"]["control_id"] = "base-control"
+        r["candidate"]["config"]["lora_scale"] = 0.0
+        r["measurements"]["task"]["top1"] = 0.518
+        r["verdict"] = "CONTROL_PASS"
+        for key, value in overrides.items():
+            section, field = key.split(".")
+            r["measurements"][section][field] = value
+        return r
+
+    dump(m, base_control())
+    assert check_policy(m, exp)[0]["verdict"] == "VERIFIED"
+    # lora_scale 1.0 instead of the controls.json-pinned 0.0.
+    bad = base_control()
+    bad["candidate"]["config"]["lora_scale"] = 1.0
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "control_lora_scale" in out["evidence"]
+    # canaries_run 0.
+    bad = base_control(**{"safety.canaries_run": 0})
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "control_canaries_run" in out["evidence"]
+    # rollback not restored.
+    bad = base_control(**{"rollback.max_logit_diff": 99.0})
+    dump(m, bad)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "control_rollback" in out["evidence"]
+
+
+def test_policy_regressed_control_falsified_on_wrong_scale(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    m = tmp_path / "m.json"
+    reg = passing_receipt(exp)
+    reg["candidate"]["candidate_id"] = "regressed-control"
+    reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["candidate"]["config"]["lora_scale"] = 1.0  # controls.json pins -1.0
+    reg["measurements"]["task"]["top1"] = 0.40
+    reg["verdict"] = "REJECT"
+    dump(m, reg)
+    out = check_policy(m, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "control_lora_scale" in out["evidence"]
+
+
+def test_config_digests_falsify_reproposed_candidate(tmp_path):
+    # Re-proposal bypass witness: proposed(A,cfg1) -> recorded(A) -> evaluated(A)
+    # -> proposed(A,cfg2) -> evaluated(A). The second config is never bound.
+    log = tmp_path / "log.jsonl"
+    config_a = {"rank": 8, "eta": 0.01}
+    config_b = {"rank": 8, "eta": 0.02}
+    write_log(log, [
+        {"event": "candidate_proposed", "candidate_id": "A",
+         "config": config_a, "config_digest": sha256_canonical(config_a)},
+        {"event": "candidate_digest_recorded", "candidate_id": "A",
+         "config_digest": sha256_canonical(config_a)},
+        {"event": "evaluated", "candidate_id": "A"},
+        {"event": "candidate_proposed", "candidate_id": "A",
+         "config": config_b, "config_digest": sha256_canonical(config_b)},
+        {"event": "evaluated", "candidate_id": "A"},
+    ])
+    out = check_config_digests(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "proposed twice" in out["evidence"]
+
+
+def test_config_digests_falsify_missing_or_non_string_candidate_id(tmp_path):
+    log = tmp_path / "log.jsonl"
+    config = {"rank": 8, "eta": 0.01}
+    digest = sha256_canonical(config)
+    for bad_id in (None, 1, "", "   "):
+        fields = {"event": "candidate_proposed", "config": config, "config_digest": digest}
+        if bad_id is not None:
+            fields["candidate_id"] = bad_id
+        write_log(log, [fields])
+        out = check_config_digests(log)[0]
+        assert out["verdict"] == "FALSIFIED", bad_id
+        assert "candidate_id" in out["evidence"], bad_id
+    # int 1 and str "1" must not collide either.
+    write_log(log, [{"event": "candidate_proposed", "candidate_id": 1,
+                     "config": config, "config_digest": digest}])
+    assert check_config_digests(log)[0]["verdict"] == "FALSIFIED"
+
+
+def test_receipt_log_falsifies_bool_seq(tmp_path):
+    # True == 1 in Python, but a bool is not an exact int sequence number.
+    log = tmp_path / "log.jsonl"
+    write_log_overrides(log, THREE_EVENTS, seqs={1: True})
+    out = check_receipt_log(log)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "seq" in out["evidence"]
+
+
+def test_logs_falsify_duplicate_json_keys(tmp_path):
+    # A fully valid chained entry except that "event" appears twice; the
+    # hash recomputes over the last-wins object, so only the duplicate-key
+    # rule can reject it.
+    log = tmp_path / "log.jsonl"
+    body = {"seq": 1, "ts_utc": "2026-11-21T00:00:00+00:00", "event": "candidate_proposed",
+            "prev_sha256": "0" * 64, "entry_sha256": None}
+    body["entry_sha256"] = sha256_canonical(body)
+    line = json.dumps(body, sort_keys=True)
+    line = line.replace('"event": "candidate_proposed"',
+                        '"event": "evaluated", "event": "candidate_proposed"', 1)
+    log.write_text(line + "\n")
+    for check in (check_receipt_log, check_config_digests):
+        out = check(log)[0]
+        assert out["verdict"] == "FALSIFIED", check.__name__
+        assert "duplicate" in out["evidence"], check.__name__
+
+
+def test_receipt_falsifies_duplicate_json_keys(tmp_path):
+    # Same value twice, so every digest and const still matches: only the
+    # duplicate-key rule can reject this receipt.
+    exp = make_exp_dir(tmp_path)
+    receipt = passing_receipt(exp)
+    text = json.dumps(receipt, indent=2, sort_keys=True)
+    text = text.replace('"repair_round": 0,', '"repair_round": 0,\n  "repair_round": 0,', 1)
+    path = tmp_path / "receipt.json"
+    path.write_text(text + "\n")
+    out = check_receipt(path, exp)[0]
+    assert out["verdict"] == "FALSIFIED"
+    assert "duplicate" in out["evidence"]
+
+
+def test_logs_falsify_non_object_lines_without_traceback(tmp_path):
+    log = tmp_path / "log.jsonl"
+    log.write_text("[]\n")
+    for check in (check_receipt_log, check_config_digests):
+        out = check(log)[0]
+        assert out["verdict"] == "FALSIFIED", check.__name__
+        assert "not a JSON object" in out["evidence"], check.__name__
+
+
+def test_cli_fails_closed_without_traceback_on_malformed_inputs(tmp_path):
+    exp = make_exp_dir(tmp_path)
+    bad = tmp_path / "bad.json"
+    bad.write_text("[]\n")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = ""
+    proc = subprocess.run(
+        [sys.executable, str(PKG / "verify.py"), "policy",
+         "--measurements", str(bad), "--exp-dir", str(exp)],
+        capture_output=True, text=True, env=env, cwd=str(tmp_path))
+    assert proc.returncode == 1, proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert json.loads(proc.stdout)["verdict"] == "FALSIFIED"
+    log = tmp_path / "log.jsonl"
+    log.write_text("[]\n")
+    proc = subprocess.run(
+        [sys.executable, str(PKG / "verify.py"), "config-digests", "--log", str(log)],
+        capture_output=True, text=True, env=env, cwd=str(tmp_path))
+    assert proc.returncode == 1, proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert json.loads(proc.stdout)["verdict"] == "FALSIFIED"
+
+
 # --- single-rule must-fail tests ----------------------------------------------
 # Each test is built so that exactly one rejection rule can reject it. The
 # companion control in each test shows the same input passes without the fault.
@@ -771,6 +1066,7 @@ def test_policy_regressed_control_that_did_not_regress_is_falsified(tmp_path):
     reg = passing_receipt(exp)
     reg["candidate"]["candidate_id"] = "regressed-control"
     reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["candidate"]["config"]["lora_scale"] = -1.0
     reg["measurements"]["task"]["top1"] = 0.40
     reg["verdict"] = "REJECT"
     dump(m, reg)
@@ -792,6 +1088,7 @@ def test_policy_regressed_control_claiming_accept_is_falsified_by_the_control_ru
     reg = passing_receipt(exp)
     reg["candidate"]["candidate_id"] = "regressed-control"
     reg["candidate"]["config"]["control_id"] = "regressed-control"
+    reg["candidate"]["config"]["lora_scale"] = -1.0
     reg["measurements"]["task"]["top1"] = 0.40
     reg["verdict"] = "ACCEPT"
     dump(m, reg)
@@ -838,11 +1135,9 @@ def test_golden_fixtures_against_frozen_contract():
     assert check_receipt(receipt, exp)[0]["verdict"] == "VERIFIED"
     assert check_policy(receipt, exp)[0]["verdict"] == "VERIFIED"
     assert check_config_digests(log)[0]["verdict"] == "VERIFIED"
-    # The fixture log is known to carry a NaN rollback placeholder in its
-    # evaluated entry: the verifier must flag exactly that.
-    out = check_receipt_log(log)[0]
-    assert out["verdict"] == "FALSIFIED"
-    assert "strict JSON" in out["evidence"]
+    # The fixture log is generated by the repo's own fake controller, which
+    # writes strict JSON (allow_nan=False), so the chain verifies.
+    assert check_receipt_log(log)[0]["verdict"] == "VERIFIED"
 
 
 # --- the suite must not pass under python -O -----------------------------------

@@ -287,8 +287,7 @@ the two sentences are wrong. See A1.
     documented `python3 -m unittest tests/test_cerebras_client.py`
     command also passes (33 tests).
 - Black-box controller probe: 31 checks, 1 FAIL (P13, the NaN entry).
-  The probe script is audit scratch at
-  `~/workspace/sparky-118/warp-lane7-probe.py`; the golden fixtures in
+  The probe script is a local scratch probe script; the golden fixtures in
   this PR reproduce its receipt artifacts.
 - Verifier tests: 19 passed (including the golden-fixture test against
   the real frozen contract).
@@ -420,3 +419,57 @@ in this PR.
   No integration PR exists yet; the lanes are unmerged.
 - The three repair rounds, the accepted improvement candidate, and the
   demo timings are future work, not verified here.
+
+## Post-review addendum (2026-11-26)
+
+Fixes for the fd24d751 review round (abu-aska 20:29Z blockers 1-7 and hygiene
+notes, ahrazzle 2026-11-23 comment blockers 1-7, orda-aska inline comments).
+All numbers below are from commands run in this tree on this branch.
+
+- Golden fixtures regenerated deterministically from the repo's own fake
+  controller (`tests/generate_fixtures.py`, using the FakeCompiler /
+  FakeRuntime / FakeLifecycle adapters from `tests/test_experiment_controller.py`)
+  against `experiments/demo-2026-11-22`. `receipts.jsonl` (7 entries, sealed)
+  was missing because `.gitignore` matched `*.jsonl`; a negation rule now
+  un-ignores exactly that fixture. Regeneration is byte-identical across runs
+  (verified by diffing two independent runs).
+  - `tests/fixtures/receipt.json` sha256
+    `5c2bce268ee553a63217e7a6cbab6c78aa3442605326be09ad237a8099730f54`,
+    pins manifest sha256
+    `63aae13a28d384e42d037843a1988d5c70e277d7ce13508d568d8c3ff97324a9`
+    (recomputed with `python3 -I -B tools/lane7_verify/verify.py contract
+    --exp-dir experiments/demo-2026-11-22`), and carries 84 adapter / 36
+    baseline margins matching the frozen request counts.
+  - `tests/fixtures/receipts.jsonl` sha256
+    `78d27d133df48b9216858f1c7249c6f66a2e874fc17cb3efe676dde6ebe66956`.
+  - `python3 -I -B tools/lane7_verify/verify.py all --exp-dir
+    experiments/demo-2026-11-22 --receipt tools/lane7_verify/tests/fixtures/receipt.json
+    --log tools/lane7_verify/tests/fixtures/receipts.jsonl --schema
+    schemas/cerebras-candidate.schema.json` returns VERIFIED for every
+    supplied check, exit code 0. Generating run verdict ACCEPT, candidate
+    `cand-e08705d50d27`.
+- Verifier hardening in `verify.py` (still zero-import from warp_modeld,
+  enforced by `test_no_controller_import`): strict JSON with duplicate-key
+  rejection on every loader; finite non-bool numeric measurements and exact
+  int counts in `check_margins`/`check_policy`; control paths now require
+  `canaries_run == len(canary_ids)`, the controls.json-pinned lora_scale, and
+  the thresholds.json rollback rule; `check_config_digests` requires a
+  non-empty string candidate_id and rejects re-proposal; `seq` must be an
+  exact int; malformed inputs return FALSIFIED instead of tracebacks, with a
+  fail-closed wrapper in the CLI.
+- Test suites run in this tree: `PYTHONPATH=src python3 -B -m pytest -q
+  tools/lane7_verify/tests` gives 64 passed, 1 skipped, 1 failed; with
+  `LANE7_EXP_DIR=experiments/demo-2026-11-22` the golden-fixture test runs
+  and the count is 65 passed, 1 failed. The 1 failure is
+  `test_suite_is_red_under_optimized_python`, environmental on this machine:
+  its subprocess runs `python3 -I -O -B -m pytest`, and `-I` excludes the
+  user site-packages where pytest is installed here (`python3 -I -m pytest
+  --version` prints "No module named pytest"), so the subprocess never
+  reaches the suite's own `-O` guard. The guard itself is unchanged.
+  Repo suites: `PYTHONPATH=src python3 -B -m pytest -q tests/` gives
+  256 passed, 2 skipped (the 2 live smoke skips), 263 subtests passed;
+  `PYTHONPATH=src python3 -B -m unittest discover -s tests` runs 139 tests,
+  OK (skipped=2).
+- Path redaction: the home-tilde scratch path in the 2026-11-21 probe note
+  above was replaced with "local scratch probe script" (CYA-GAP-05); no
+  other history was rewritten.
