@@ -42,9 +42,12 @@ from warp_modeld.experiment import Measurements, apply_acceptance_policy, load_c
 contract = load_contract(ROOT/"experiments/demo-2026-11-22")
 nan = float("nan")
 m = Measurements(task_top1=nan, task_contested_fix_fraction=nan, task_break_fraction=nan, margin_threshold=-0.37, margins_adapter=(-0.10,0.0,0.18)*28, margins_baseline=(-1.0,-0.9,-0.81)*12, margin_adapter_requests=84, margin_baseline_requests=36, iid_mean_kl=nan, iid_top1_agreement=nan, shifted_mean_kl=nan, safety_canaries_run=9, safety_failures=(), rollback_exact_matches=14, rollback_sequences=14, rollback_max_logit_diff=0.0)
-v = apply_acceptance_policy(m, contract.thresholds, expected_canaries=9)
-say("F3_nan_verdict", v.verdict)
-say("F3_nan_failed", list(v.failed_gates))
+try:
+    v = apply_acceptance_policy(m, contract.thresholds, expected_canaries=9)
+    say("F3_nan_verdict", v.verdict)
+    say("F3_nan_failed", list(v.failed_gates))
+except Exception as e:
+    say("F3_nan_verdict", f"raise:{type(e).__name__}")
 
 # F4 ReceiptLog
 from warp_modeld.experiment import ReceiptLog
@@ -72,11 +75,14 @@ say("F5_no_list_slots_clean", _is_slot_clean_for_banks(NoSlots(), 0, ("kv_cache"
 # F6 llama parser
 from warp_modeld.llama_client import LlamaServerClient
 c = object.__new__(LlamaServerClient)
-c._request = lambda method, path, payload=None: [{"id": True, "path": "/x.gguf", "scale": float("nan")}]
-ads = c.list_lora_adapters()
-say("F6_bool_id", ads[0].id)
-say("F6_nan_scale_isfinite", math.isfinite(ads[0].scale))
-say("F6_nan_abs_gt0", abs(ads[0].scale) > 0.0)
+c._request = lambda method, path, payload=None: [{"id": True, "path": "/x.gguf", "scale": "nan"}]
+try:
+    ads = c.list_lora_adapters()
+    say("F6_bool_id", ads[0].id)
+    say("F6_nan_scale_isfinite", math.isfinite(ads[0].scale))
+    say("F6_nan_abs_gt0", abs(ads[0].scale) > 0.0)
+except Exception as e:
+    say("F6_bool_id", f"raise:{type(e).__name__}")
 
 # F7 mount before digest: dynamic with own fakes
 from warp_modeld.experiment import ExperimentController, CompileResult
@@ -152,17 +158,21 @@ s = json.loads((ROOT/"experiments/demo-2026-11-22/receipt.schema.json").read_tex
 say("SCHEMA_version_type", type(s["properties"]["receipt_schema_version"]).__name__)
 try:
     import jsonschema
-    jsonschema.validators.validator_for(s).check_schema(s)
-    say("SCHEMA_check", "ok")
-except Exception as ex:
-    say("SCHEMA_check", f"raise:{type(ex).__name__}")
-s2 = json.loads(json.dumps(s)); s2["properties"]["receipt_schema_version"] = {"const": "0.1.0"}
-try:
-    import jsonschema
-    jsonschema.validators.validator_for(s2).check_schema(s2)
-    say("SCHEMA_steelman_check", "ok")
-except Exception as ex:
-    say("SCHEMA_steelman_check", f"raise:{type(ex).__name__}")
+except ImportError:
+    say("SCHEMA_check", "skip:jsonschema-not-installed")
+    say("SCHEMA_steelman_check", "skip:jsonschema-not-installed")
+else:
+    try:
+        jsonschema.validators.validator_for(s).check_schema(s)
+        say("SCHEMA_check", "ok")
+    except Exception as ex:
+        say("SCHEMA_check", f"raise:{type(ex).__name__}")
+    s2 = json.loads(json.dumps(s)); s2["properties"]["receipt_schema_version"] = {"const": "0.1.0"}
+    try:
+        jsonschema.validators.validator_for(s2).check_schema(s2)
+        say("SCHEMA_steelman_check", "ok")
+    except Exception as ex:
+        say("SCHEMA_steelman_check", f"raise:{type(ex).__name__}")
 
 # Headline cert + manifest (Lane B/D)
 certd = json.loads((ROOT/"studies/expedition-bounded-controller/bounded_controller_certificate.json").read_text())
@@ -176,7 +186,7 @@ task_bytes = (expdir/"suites/task.json").read_bytes()
 say("MAN_task_match", hashlib.sha256(task_bytes).hexdigest() == man["digests"]["task"])
 comb = b"".join((expdir/f"suites/{n}").read_bytes() for n in ["task.json","retention_iid.json","retention_shifted.json","safety_canaries.json"])
 say("MAN_combined_match", hashlib.sha256(comb).hexdigest() == man["digests"]["combined_suites"])
-say("MAN_file_sha_match", hashlib.sha256((expdir/"manifest.json").read_bytes()).hexdigest() == (expdir/"manifest.sha256").read_text().strip())
+say("MAN_file_sha_match", hashlib.sha256((expdir/"manifest.json").read_bytes()).hexdigest() == (expdir/"manifest.sha256").read_text().split()[0])
 for name, f, key in [("task","suites/task.json","cases"),("iid","suites/retention_iid.json","cases"),("shifted","suites/retention_shifted.json","cases")]:
     d = json.loads((expdir/f).read_text()); say(f"COUNT_{name}", len(d[key]))
 say("COUNT_modules", len(list((ROOT/"src/warp_modeld").glob("*.py"))))

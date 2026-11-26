@@ -43,9 +43,11 @@ wc_total = 0
 for p in mods:
     wc_total += p.read_bytes().count(b"\n")
 out["lines_wc_style"] = wc_total
-# init lines detail
+# init lines detail: digest and size only, never raw text (clear-text logging redaction)
 initp = ROOT / "src/warp_modeld/__init__.py"
-out["init_text_repr"] = repr(initp.read_text(encoding="utf-8")) if initp.exists() else None
+_init_txt = initp.read_text(encoding="utf-8") if initp.exists() else ""
+out["init_sha256"] = hashlib.sha256(_init_txt.encode("utf-8")).hexdigest() if initp.exists() else None
+out["init_bytes"] = len(_init_txt.encode("utf-8"))
 
 # test files
 t_all = sorted((ROOT / "tests").glob("*.py"))
@@ -87,13 +89,15 @@ for rel in order:
 out["combined_digest_recomputed"] = h.hexdigest()
 manifest = json.loads((ROOT / "experiments/demo-2026-11-22/manifest.json").read_text(encoding="utf-8"))
 out["combined_digest_pinned"] = manifest["digests"]["combined_suites"]
-out["manifest_sha256_file"] = (ROOT / "experiments/demo-2026-11-22/manifest.sha256").read_text(encoding="utf-8").strip()
+out["manifest_sha256_file"] = (ROOT / "experiments/demo-2026-11-22/manifest.sha256").read_text(encoding="utf-8").split()[0]
 out["manifest_file_sha256"] = hashlib.sha256((ROOT / "experiments/demo-2026-11-22/manifest.json").read_bytes()).hexdigest()
 
-# LICENSE / NOTICE
+# LICENSE / NOTICE: digest and size only, never raw text (clear-text logging redaction)
 out["LICENSE_exists"] = (ROOT / "LICENSE").exists()
 lic = (ROOT / "LICENSE").read_text(encoding="utf-8", errors="replace") if (ROOT / "LICENSE").exists() else ""
-out["LICENSE_first200"] = lic[:200]
+_lic_b = lic.encode("utf-8", errors="replace")
+out["LICENSE_sha256"] = hashlib.sha256(_lic_b).hexdigest()
+out["LICENSE_bytes"] = len(_lic_b)
 out["NOTICE_exists_root"] = (ROOT / "NOTICE").exists()
 out["NOTICE_paths_tracked"] = [t for t in tracked if "NOTICE" in t]
 out["LICENSE_paths_tracked"] = [t for t in tracked if "LICENSE" in t]
@@ -109,7 +113,9 @@ out["crlf_files"] = crlf
 # tracked artifacts
 arts = [t for t in tracked if "__pycache__" in t or t.endswith(".pyc") or "/dist/" in t or "/build/" in t or t.endswith(".egg-info") or ".egg-info/" in t]
 out["tracked_artifacts"] = arts
-out["gitignore_text"] = (ROOT / ".gitignore").read_text(encoding="utf-8") if (ROOT / ".gitignore").exists() else None
+_gi = ROOT / ".gitignore"
+out["gitignore_sha256"] = hashlib.sha256(_gi.read_bytes()).hexdigest() if _gi.exists() else None
+out["gitignore_bytes"] = _gi.stat().st_size if _gi.exists() else None
 
 # home path leaks: absolute home prefixes in tracked text files, count hits per file (no values beyond path prefix count)
 home_hits_files = {}
@@ -154,8 +160,17 @@ out["pk_marker_files"] = pk_files
 out["pattern_scan_total_hits"] = sum(v["hits"] for v in scan_counts.values())
 out["pattern_scan_patterns"] = len(scan_counts)
 
-# pyproject raw
-out["pyproject_text"] = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+# pyproject: digest plus parsed package facts only, never raw text (clear-text logging redaction)
+_pp_bytes = (ROOT / "pyproject.toml").read_bytes()
+out["pyproject_sha256"] = hashlib.sha256(_pp_bytes).hexdigest()
+out["pyproject_bytes"] = len(_pp_bytes)
+try:
+    import tomllib
+    _proj = tomllib.loads(_pp_bytes.decode("utf-8")).get("project", {})
+    out["pyproject_dependencies_count"] = len(_proj.get("dependencies", []))
+    out["pyproject_requires_python"] = _proj.get("requires-python")
+except Exception as _e:
+    out["pyproject_parse_error"] = type(_e).__name__
 
 # blueprint files count
 bp = sorted([str(p.relative_to(ROOT)) for p in ROOT.rglob("blueprints/**") if p.is_file()])

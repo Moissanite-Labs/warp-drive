@@ -81,29 +81,43 @@ def main(argv):
         f"held_out={leak['held_out_states']} reusing={leak['reusing_train_pair']} fraction={leak['reuse_fraction']!r} verdict={leak['verdict']!r}")
 
     # 2. Schema validity: draft-07 (task), declared draft, 2020-12
-    import jsonschema
-    from jsonschema import Draft7Validator, Draft202012Validator, validators
+    # jsonschema is an optional third-party package that this repo does not declare.
+    # On a stdlib-only host the schema rows are skipped with a clear message instead
+    # of crashing; the manifest digest rows above still ran.
+    try:
+        import jsonschema
+        from jsonschema import Draft7Validator, Draft202012Validator, validators
+    except ImportError:
+        jsonschema = None
+        Draft7Validator = Draft202012Validator = validators = None
     schema_paths = sorted((root / "schemas").glob("*.json")) + [exp / "receipt.schema.json"]
     parsed = {}
     for p in schema_paths:
         rel = str(p.relative_to(root))
-        obj = json.loads(p.read_text(encoding="utf-8"))
-        parsed[rel] = obj
-        declared = obj.get("$schema", "NONE") if isinstance(obj, dict) else "NOT-DICT"
-        for label, cls in [("draft07", Draft7Validator), ("2020-12", Draft202012Validator)]:
+        parsed[rel] = json.loads(p.read_text(encoding="utf-8"))
+    if validators is None:
+        lines.append("SKIP schema_checks jsonschema not installed on this stdlib-only host; schema rows skipped with this message")
+    else:
+        for rel in sorted(parsed):
+            obj = parsed[rel]
+            declared = obj.get("$schema", "NONE") if isinstance(obj, dict) else "NOT-DICT"
+            for label, cls in [("draft07", Draft7Validator), ("2020-12", Draft202012Validator)]:
+                try:
+                    cls.check_schema(obj)
+                    rec(f"schema[{rel} as {label}]", True, f"declared={declared}")
+                except Exception as exc:
+                    rec(f"schema[{rel} as {label}]", False, f"declared={declared} err={type(exc).__name__}: {str(exc)[:160]}")
             try:
-                cls.check_schema(obj)
-                rec(f"schema[{rel} as {label}]", True, f"declared={declared}")
+                validators.validator_for(obj).check_schema(obj)
+                rec(f"schema[{rel} as declared]", True, f"validator={validators.validator_for(obj).__name__}")
             except Exception as exc:
-                rec(f"schema[{rel} as {label}]", False, f"declared={declared} err={type(exc).__name__}: {str(exc)[:160]}")
-        try:
-            validators.validator_for(obj).check_schema(obj)
-            rec(f"schema[{rel} as declared]", True, f"validator={validators.validator_for(obj).__name__}")
-        except Exception as exc:
-            rec(f"schema[{rel} as declared]", False, f"err={type(exc).__name__}: {str(exc)[:160]}")
+                rec(f"schema[{rel} as declared]", False, f"err={type(exc).__name__}: {str(exc)[:160]}")
 
     # 3. Sample payloads (hand-built from schema bodies; zero repo code)
     def validate(name, schema_rel, payload, schema_override=None):
+        if validators is None:
+            lines.append(f"SKIP sample[{name}] jsonschema not installed on this stdlib-only host")
+            return
         schema = schema_override if schema_override is not None else parsed[schema_rel]
         cls = validators.validator_for(schema)
         try:
@@ -156,11 +170,14 @@ def main(argv):
     import copy
     repaired = copy.deepcopy(parsed["experiments/demo-2026-11-22/receipt.schema.json"])
     repaired["properties"]["receipt_schema_version"] = {"const": "0.1.0", "type": "string"}
-    try:
-        Draft7Validator.check_schema(repaired)
-        rec("steelman[receipt_repaired_const_check_schema]", True, "draft07 PASS after const repair")
-    except Exception as exc:
-        rec("steelman[receipt_repaired_const_check_schema]", False, f"{type(exc).__name__}: {str(exc)[:140]}")
+    if Draft7Validator is None:
+        lines.append("SKIP steelman[receipt_repaired_const_check_schema] jsonschema not installed on this stdlib-only host")
+    else:
+        try:
+            Draft7Validator.check_schema(repaired)
+            rec("steelman[receipt_repaired_const_check_schema]", True, "draft07 PASS after const repair")
+        except Exception as exc:
+            rec("steelman[receipt_repaired_const_check_schema]", False, f"{type(exc).__name__}: {str(exc)[:140]}")
     validate("hand_full_receipt_vs_repaired", "experiments/demo-2026-11-22/receipt.schema.json", full_receipt, schema_override=repaired)
     validate("repo_mock_vs_repaired", "experiments/demo-2026-11-22/receipt.schema.json", repo_mock, schema_override=repaired)
     # canary id cross-check: safety suite ids must exist in verifier-canaries

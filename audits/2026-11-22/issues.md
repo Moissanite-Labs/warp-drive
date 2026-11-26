@@ -1,6 +1,6 @@
 # Issue drafts, 2026-11-22
 
-Nothing below has been filed. Copy one draft block at a time.
+Fifteen of the drafts below were filed as GitHub issues alongside PR #43 (per the PR body); draft C3 was held back. Copy one draft block at a time.
 
 Each draft follows the same shape: title, labels line, body.
 

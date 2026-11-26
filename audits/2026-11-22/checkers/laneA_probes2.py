@@ -30,6 +30,6 @@ try:
     import test_experiment_controller as tc
     names=[n for n in dir(tc) if "Fake" in n or "fake" in n.lower()]
     rec("P8_order_fakes", "INFO", f"fakes={names[:8]}")
-except Exception as e:
-    rec("P8_order_fakes", "ERR", str(e)[:100])
+except ImportError as e:
+    rec("P8_order_fakes", "SKIP", f"test-module fakes need pytest ({e}); the order check runs in laneA_probes3.py with inline stdlib fakes")
 for l in out: print(l)

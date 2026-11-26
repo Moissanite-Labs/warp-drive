@@ -44,9 +44,12 @@ m = Measurements(task_top1=nan, task_contested_fix_fraction=nan, task_break_frac
     margin_adapter_requests=84, margin_baseline_requests=36,
     iid_mean_kl=nan, iid_top1_agreement=nan, shifted_mean_kl=nan,
     safety_canaries_run=4, safety_failures=(), rollback_exact_matches=14, rollback_sequences=14, rollback_max_logit_diff=0.0)
-v = apply_acceptance_policy(m, thr, expected_canaries=4)
-rec("P2_nan_policy", "FAIL-OPEN-CONFIRMED" if v.verdict=="ACCEPT" else "CLOSED",
-    f"verdict={v.verdict} failed={v.failed_gates} (6 NaN gates)")
+try:
+    v = apply_acceptance_policy(m, thr, expected_canaries=4)
+    rec("P2_nan_policy", "FAIL-OPEN-CONFIRMED" if v.verdict=="ACCEPT" else "CLOSED",
+        f"verdict={v.verdict} failed={v.failed_gates} (6 NaN gates)")
+except Exception as e:
+    rec("P2_nan_policy", "CLOSED", f"raise:{type(e).__name__}: {str(e)[:100]}")
 
 # P3: ReceiptLog append trusts tampered prev without verify
 from warp_modeld.experiment import ReceiptLog

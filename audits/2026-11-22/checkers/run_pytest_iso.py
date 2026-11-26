@@ -6,5 +6,10 @@ from pathlib import Path
 _R = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_R / "src"))
 sys.path.insert(0, str(_R))
-import pytest
+try:
+    import pytest
+except ImportError:
+    print("SKIP: pytest is not importable in this isolated run (python3 -I -B on a stdlib-only host); "
+          "run 'PYTHONPATH=src python3 -B -m pytest <args>' on a host where pytest is installed")
+    sys.exit(0)
 sys.exit(pytest.main(sys.argv[1:]))

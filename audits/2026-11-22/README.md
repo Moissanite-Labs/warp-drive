@@ -6,7 +6,7 @@
 - Head: 063aaeeba9638c51c7f3fbb4ea86d5af11a3ee67.
 - Branch for this record: audit/2026-11-22 from origin/main.
 - Head check: the value above matched the claim time value 063aaee.
-- Claim record: Divan bus seq 1737 by amp-vela.
+- Claim record: kept in the team's internal coordination log, not published here.
 - Tracked files on main: 97.
 - Parent repo: siliconcordat/warp main e3899d3.
 - Fork state: ahead 45, behind 0. The parent head is an ancestor.
@@ -31,7 +31,7 @@
 - Checkers ran in three modes. The modes are python3 -I -B, python3 -I -O -B, and python3 -I -B -W error.
 - Checkers hold no bare asserts on validation paths. Files use LF only.
 - Failed runs stay on record. Nothing was deleted to hide a failure.
-- Nobody committed, pushed, filed issues, or commented on GitHub in this audit.
+- The audit tooling itself made no commits, pushes, or comments on GitHub. Fifteen of the drafts in issues.md were filed as GitHub issues alongside PR #43 (per the PR body); draft C3 was held back.
 
 ## Verdict in stated scope
 
@@ -64,7 +64,7 @@
 | C2 | Merge gate has no required checks and no suite run | Medium | Exact | Confirmed, ruleset 27494833 |
 | C3 | Label needs decision is missing and two issues lack an owner | Low | Exact | Confirmed |
 
-Severity counts: High 3, Medium 6, Low 6, Question 1. Total actionable findings: 16. F8 counts as a question, not a counted defect.
+Severity counts: High 3, Medium 6, Low 6, Question 1. That is 15 counted defects plus 1 open product question, 16 items in total. F8 is the question and is not counted as a defect.
 
 ## What passed, with counts
 
@@ -89,16 +89,19 @@ Run all checkers from the repo root. Lane B needs the repo root as its sole argu
 
 | File | -I -B | -I -O -B | -I -B -W error | Output hash prefix |
 | --- | --- | --- | --- | --- |
-| checkers/laneA_probes.py | rc 0 | rc 0 | rc 0 | 27aef84f4366123d |
-| checkers/laneA_probes2.py | rc 0 | rc 0 | rc 0 | 3c7e7655f930aa1a |
-| checkers/laneA_probes3.py | rc 0 | rc 0 | rc 0 | c5647e7973b6bb61 |
-| checkers/laneB_checker.py . | rc 0 | rc 0 | rc 0 | d617ba7bdc21 |
-| checkers/laneD_checker.py | rc 0 | rc 0 | rc 0 | 7055aaa4b67337c7 |
-| checkers/falsify_probe.py | rc 0 | rc 0 | rc 0 | 57895e7c9884c9b1 |
-| checkers/run_pytest_iso.py tests/test_stage2_certificate.py -q | 9 passed | 9 passed | 9 passed | per run tail |
+| checkers/laneA_probes.py | rc 0 | rc 0 | rc 0 | b83b604fd74fa61b |
+| checkers/laneA_probes2.py | rc 0 | rc 0 | rc 0 | c33b7b4b33db0c73 |
+| checkers/laneA_probes3.py | rc 0 | rc 0 | rc 0 | 2fe67b13b5acb530 |
+| checkers/laneB_checker.py . | rc 0 | rc 0 | rc 0 | cde2c29ab82e8633 |
+| checkers/laneD_checker.py | rc 0 | rc 0 | rc 0 | not pinned (output embeds HEAD) |
+| checkers/falsify_probe.py | rc 0 | rc 0 | rc 0 | 25704d5baf093611 |
+| checkers/run_pytest_iso.py tests/test_stage2_certificate.py -q | SKIP without pytest | SKIP without pytest | SKIP without pytest | per run tail |
 
-- Output hashes above match across the three modes for each row.
-- Byte counts sit in MANIFEST.sha256. Run shasum -a 256 -c MANIFEST.sha256 from this folder.
+- Output hashes above match across the three modes for each row. Hash prefixes are from the 2026-11-26 re-run on this branch after the review fixes to the checkers. Audited-head prefixes were laneA_probes 27aef84f4366123d, laneA_probes2 3c7e7655f930aa1a, laneA_probes3 c5647e7973b6bb61, laneB d617ba7bdc21, falsify_probe 57895e7c9884c9b1.
+- laneD_checker.py output embeds git rev-parse HEAD and git ls-files, so its hash changes with every commit and is not pinned. The audited-head prefix was 7055aaa4b67337c7.
+- Checkers run on stdlib-only Python. pytest and jsonschema are not declared dependencies of this repo, so rows that can use them print a SKIP line with a clear message when the package is absent: laneB_checker.py and falsify_probe.py skip schema validation without jsonschema, laneA_probes2.py prints SKIP for the test-module fakes (laneA_probes3.py uses inline stdlib fakes instead), and run_pytest_iso.py prints SKIP without pytest under -I. Where pytest is importable, run_pytest_iso.py prints the per-run tail: 9 passed, 5 subtests passed for tests/test_stage2_certificate.py -q.
+- unittest discover needs pytest importable for tests/test_experiment_controller.py; on a stdlib-only host that module fails to import and the run reports an error instead of the OK count.
+- MANIFEST.sha256 lists SHA-256 digests and file names only, no byte counts. Run sha256sum -c MANIFEST.sha256 from this folder.
 - Falsify probe v1 failed on a probe bug. The failure is noted in findings.md. No lane verdict rests on v1.
 - Lane B checker v1 failed on the schema defect before its repaired form was added. The failure stays noted.
 
@@ -121,7 +124,7 @@ Run all checkers from the repo root. Lane B needs the repo root as its sole argu
 - PR 37 carries those fixes. Its body closes issues 16, 19, and 31. All three issues stay open until a merge.
 - PR 41 holds the same 3 files as PR 37 plus more. PR 41 has no closing words. A PR 41 merge alone would not close those issues.
 - PR 37 latest review is CHANGES_REQUESTED at its head. No later push answers it. PR 41 has no reviews yet.
-- PR 11 lane 7 fail open list was triaged on the bus at seq 1731. It is not refiled here.
+- PR 11 lane 7 fail open list was triaged separately before this audit. It is not refiled here.
 - PR 11 still shows CHANGES_REQUESTED at its head with no answering push. Issue 7 points to PR 11. Live proof waits for an RTX host.
 - PR 36 cross repo fixture digests sit on hold. The digests are declared, not measured. They are not refiled here.
 - README line 77 stale count stays in scope. It is finding D1. No open issue owns it.
@@ -136,7 +139,18 @@ Run all checkers from the repo root. Lane B needs the repo root as its sole argu
 
 - README.md: this report.
 - findings.md: one section per confirmed or narrowed finding.
-- issues.md: ready to file issue drafts. Nothing has been filed.
+- issues.md: issue drafts. Fifteen were filed as GitHub issues alongside PR #43 (per the PR body); draft C3 was held back.
 - checkers/: seven rerunnable scripts. Each passed the three modes above.
 - MANIFEST.sha256: hash list for this folder. It excludes itself.
+
+## Status at 2026-11-26
+
+Main has since merged fixes for some findings. Each item below was verified on 2026-11-26 on this branch (main 3a458acb merged in) by running the named checker under python3 -I -B from the repo root. The verdicts above are unchanged and still describe the audited head 063aaee.
+
+- F3 closed on main (PR #59 merged): falsify_probe.py prints F3_nan_verdict=raise:ControllerError, and laneA_probes.py prints P2_nan_policy: CLOSED with raise:ControllerError.
+- F4 closed on main (PR #59 merged): falsify_probe.py prints F4_append_after_tamper=raise:ControllerError, and laneA_probes.py prints P3_receiptlog_tamper_append: CLOSED.
+- D1 closed on main (root README reconciled): the stale 53 passing count line is gone from the root README; laneD_checker.py reports readme_needle_lines with an empty list for the 53 passing needle, and the root README documents both runners with the pytest-optional note.
+- D2 closed on main (root README reconciled): the live timing figures are now labeled a past unarchived author-host live run of 2026-11-19 with no committed receipt, which matches the finding text above.
+- Still open on this tree, confirmed by the same 2026-11-26 checker runs: F1, F2, F5, F6, F7, F9, F10, S1 (see the falsify_probe.py, laneA_probes.py, laneA_probes2.py, and laneA_probes3.py lines), plus the GitHub-surface findings C1, C2, C3, which cannot be re-verified from a local checkout.
+- D2 attribution note carried from the PR #43 review: the live timing figures trace to the parent siliconcordat/warp repo's Wave 4 run records outside this fork; this repo holds no local receipt for them.
 

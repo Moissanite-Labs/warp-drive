@@ -5,24 +5,29 @@ import sys, json, tempfile
 from pathlib import Path
 import pathlib as _pl
 _R = _pl.Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(_R / "src")); sys.path.insert(0, str(_R / "tests"))
-import test_experiment_controller as tc
-from warp_modeld.experiment import ExperimentController, ReceiptLog, load_contract
-contract = load_contract(tc.EXP)
+sys.path.insert(0, str(_R / "src"))
+# Inline stdlib fakes only: this checker must run on a stdlib-only Python host
+# (no pytest, no tests/ imports), like falsify_probe.py does.
+from warp_modeld.experiment import ExperimentController, ReceiptLog, load_contract, CompileResult
+contract = load_contract(_R / "experiments" / "demo-2026-11-22")
 with tempfile.TemporaryDirectory() as td:
     logpath = Path(td)/"r.jsonl"
     seen = {}
-    class OrderRuntime(tc.FakeRuntime):
+    class FakeCompiler:
+        def compile(self, cand, parent):
+            return CompileResult(adapter_sha256="c"*64, command="x", command_version="v", timing_ms=1.0, compiler_repo=contract.compiler_repo, compiler_commit=contract.compiler_commit)
+    class OrderRuntime:
         def mount_adapter(self, sha, scale):
             events = []
             if logpath.is_file():
                 events = [json.loads(l).get("event") for l in logpath.read_text().splitlines() if l.strip()]
             seen["events_at_mount"] = events
-            return super().mount_adapter(sha, scale)
-    ctl = ExperimentController(contract=contract, compiler=tc.FakeCompiler(), runtime=OrderRuntime(),
-        lifecycle=tc.FakeLifecycle(), receipts=ReceiptLog(logpath), environment=tc.ENVIRONMENT)
+            return 1.0
+    class FakeLifecycle: pass
+    ctl = ExperimentController(contract=contract, compiler=FakeCompiler(), runtime=OrderRuntime(),
+        lifecycle=FakeLifecycle(), receipts=ReceiptLog(logpath), environment={})
     cand = ctl.propose({"eta": 0.01, "lora_scale": 1.0})
-    ctl.compile_and_bind(cand, actual_parent_sha256=tc.PARENT_SHA)
+    ctl.compile_and_bind(cand, actual_parent_sha256=contract.parent_sha256)
     print(f"P8_mount_before_digest_record: events_at_mount={seen['events_at_mount']} digest_recorded_before_mount={'candidate_digest_recorded' in seen['events_at_mount']}")
 # P9 cerebras bool/edges: rank True, strength True, rounds True, NaN measurement
 from warp_modeld.cerebras_client import validate_candidate, validate_failure_report, validate_propose_context
