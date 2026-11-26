@@ -684,5 +684,81 @@ class TestFixedPromptFixtures(unittest.TestCase):
             validate_propose_context({**valid_context(), "checkpoint_path": "/tmp/model.gguf"})
 
 
+class TestDataHygiene(unittest.TestCase):
+    def test_nan_constraint_rejected(self) -> None:
+        with self.assertRaises(CerebrasSchemaError):
+            validate_propose_context(
+                {**valid_context(), "constraints": {"max": float("nan")}}
+            )
+
+    def test_infinite_constraints_rejected(self) -> None:
+        for value in (float("inf"), -float("inf")):
+            with self.assertRaises(CerebrasSchemaError):
+                validate_propose_context(
+                    {**valid_context(), "constraints": {"max": value}}
+                )
+
+    def test_clean_constraint_still_valid(self) -> None:
+        cleaned = validate_propose_context(
+            {**valid_context(), "constraints": {"max": 0.5}}
+        )
+        self.assertEqual(cleaned["constraints"], {"max": 0.5})
+
+    def test_strict_encoder_rejects_non_finite(self) -> None:
+        from warp_modeld.cerebras_client import _json_dumps
+
+        for value in (float("nan"), float("inf"), -float("inf")):
+            with self.assertRaises(ValueError):
+                _json_dumps({"x": value})
+
+    def test_subclass_float_constraint_rejected(self) -> None:
+        class SubFloat(float):
+            pass
+
+        for value in (SubFloat("nan"), SubFloat("inf"), SubFloat("-inf")):
+            with self.assertRaises(CerebrasSchemaError):
+                validate_propose_context(
+                    {**valid_context(), "constraints": {"max": value}}
+                )
+
+    def test_subclass_key_and_value_rejected(self) -> None:
+        class SubInt(int):
+            pass
+
+        class SubStr(str):
+            pass
+
+        with self.assertRaises(CerebrasSchemaError):
+            validate_propose_context(
+                {**valid_context(), "constraints": {SubInt(1): "x"}}
+            )
+        with self.assertRaises(CerebrasSchemaError):
+            validate_propose_context(
+                {**valid_context(), "constraints": {"max": SubStr("1.0")}}
+            )
+
+    def test_huge_int_constraint_key_rejected(self) -> None:
+        with self.assertRaises(CerebrasSchemaError) as ctx:
+            validate_propose_context(
+                {**valid_context(), "constraints": {10**5000: "x"}}
+            )
+        self.assertLess(len(str(ctx.exception)), 200)
+
+    def test_huge_int_constraint_value_rejected(self) -> None:
+        with self.assertRaises(CerebrasSchemaError) as ctx:
+            validate_propose_context(
+                {**valid_context(), "constraints": {"max": 10**5000}}
+            )
+        self.assertLess(len(str(ctx.exception)), 200)
+
+    def test_plain_scalar_constraints_still_valid(self) -> None:
+        cleaned = validate_propose_context(
+            {**valid_context(), "constraints": {"flag": True, "max": 3, "name": "x", "ratio": 0.5}}
+        )
+        self.assertEqual(
+            cleaned["constraints"], {"flag": True, "max": 3, "name": "x", "ratio": 0.5}
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
