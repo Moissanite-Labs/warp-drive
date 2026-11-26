@@ -1,0 +1,9 @@
+diff --git a/studies/expedition-proper-kl-audit/probe_s2_nullmodem_tokenpage_results.json b/studies/expedition-proper-kl-audit/probe_s2_nullmodem_tokenpage_results.json
+index 2914fa6..3fc275b 100644
+--- a/studies/expedition-proper-kl-audit/probe_s2_nullmodem_tokenpage_results.json
++++ b/studies/expedition-proper-kl-audit/probe_s2_nullmodem_tokenpage_results.json
+@@ -13,3 +13,3 @@
+       "g1_legend_delta_floored_PR5_bits": -1.9675,
+-      "g1_legend_delta_proper_KL_emp_bits": 1.767,
++      "g1_legend_delta_proper_KL_emp_bits": 9999.0,
+       "g1_legend_title_pos01_pred_vs_gold": [

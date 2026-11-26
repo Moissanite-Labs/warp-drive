@@ -1,0 +1,27 @@
+{
+  "schema": "warp-drive-iteration-summary/v1",
+  "date": "2026-11-21",
+  "preregistration_commit": "3e2c8675514fe2d2b6b59706edf73f5cfa8e6273",
+  "research_base": "38a7072f8d23fe865b4d48d1da285a6db4fc14d1",
+  "coordination_issue": 14,
+  "results": [
+    {"id": "lane7", "source": "warp-drive#11", "commit": "8ae84b7b264b055c8511b138a9a0b528cab6b0a3", "verdict": "VERIFIED", "novelty": "N1", "scope": "local verifier event-order defect; no live model claim"},
+    {"id": "T1", "source": "aletheia#1", "commit": "58207b422ca31c29bb498bc7aebb2ebc4f1fe41c", "verdict": "VERIFIED", "novelty": "N0", "scope": "tooling reproducibility only"},
+    {"id": "T2", "source": "warp-drive#8 and #10", "commit": "c526b8d3d73d018bb159312a9cf63adfc80e324d", "verdict": "FALSIFIED", "novelty": "N1", "scope": "mocked controller integration; PR8 merge readiness unresolved"},
+    {"id": "T3", "source": "warp-drive#9", "commit": "bf8de4b0e3f0451a496a76d87a537003b3377931", "verdict": "FALSIFIED", "novelty": "N1", "scope": "mocked client boundaries; live provider UNVERIFIED"},
+    {"id": "T4", "source": "tokenpage#13", "commit": "a694232ecd2dca2b568e7c6dda8d38e3515dcf78", "verdict": "PARTIAL", "novelty": "N1", "scope": "no-argument discovery checked zero studies; no discovered-study mutation control; numerical research not falsified"},
+    {"id": "T5", "source": "spectral-inertia main", "commit": "8394da989912bbc3a0e8702124aeec1d05b4801f", "verdict": "VERIFIED", "novelty": "N0", "scope": "854 integer matrices plus 6 rational-cleared matrices; no universal theorem"},
+    {"id": "T6", "source": "warp-drive merged Bareiss study", "commit": "38a7072f8d23fe865b4d48d1da285a6db4fc14d1", "verdict": "VERIFIED", "novelty": "N0", "scope": "three small singular PSD fixtures returned; naive helper did not separate the indefinite control"},
+    {"id": "followup-pr12", "source": "warp-drive#12", "commit": "10ae3b33402d9e5ef6f74cf9d8bf5d4c462cd931", "verdict": "FALSIFIED", "novelty": "N1", "scope": "singleton composed-certificate soundness only"},
+    {"id": "followup-pr13", "source": "warp-drive#13", "commit": "1ffda956d76745e61c53aff0e727036069fb13ec", "verdict": "FALSIFIED", "novelty": "N1", "scope": "mocked trust boundaries and provider receipt control flow"}
+  ],
+  "live_model_evidence": false,
+  "paid_provider_calls": 0,
+  "new_actions_workflows": 0,
+  "tokenpage_prose_contradiction_preserved": true,
+  "tokenpage_raw_qa_sha256": "8cc8f1ce33be37a2d2ece4b5dab0722db5772460478551bb2007d319b0508334",
+  "tokenpage_no_legend_kl_from_raw_qa": "-6.651510759217704",
+  "tokenpage_prose_no_legend_kl": "unreproduced transcription",
+  "completed_trials_rerun_during_collection": false,
+  "pr12_singleton_spot_check_rerun_by_parent": true
+}

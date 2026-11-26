@@ -1,0 +1,77 @@
+{
+  "checked_matrices": 860,
+  "coverage": {
+    "nonsingular": 624,
+    "nonzero_diagonal": 822,
+    "producer_1x1_only": 772,
+    "producer_2x2": 82,
+    "singular": 230,
+    "zero_diagonal": 32
+  },
+  "external_oracle": "Bareiss on positive integer denominator-cleared real symmetric matrices only",
+  "inertia_histogram": {
+    "(0, 0, 2)": 1,
+    "(0, 0, 3)": 1,
+    "(0, 1, 1)": 8,
+    "(0, 1, 2)": 13,
+    "(0, 2, 0)": 11,
+    "(0, 2, 1)": 9,
+    "(0, 3, 0)": 1,
+    "(1, 0, 1)": 10,
+    "(1, 0, 2)": 13,
+    "(1, 1, 0)": 89,
+    "(1, 1, 1)": 169,
+    "(1, 2, 0)": 257,
+    "(2, 0, 0)": 10,
+    "(2, 0, 1)": 9,
+    "(2, 1, 0)": 258,
+    "(3, 0, 0)": 1
+  },
+  "max_rational_clearing_scale": 30,
+  "negative_control": {
+    "code": "INERTIA_CLAIM_MISMATCH",
+    "killed": true
+  },
+  "producer_optimizer_isolated_replay": {
+    "bareiss": [
+      1,
+      1,
+      1
+    ],
+    "certificate": "P=[0,1,2], L=I, D=M (no producer/search/optimizer used)",
+    "descartes": [
+      1,
+      1,
+      1
+    ],
+    "inertia": [
+      1,
+      1,
+      1
+    ],
+    "matrix": [
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "sturm": [
+      1,
+      1,
+      1
+    ]
+  },
+  "scope": "all real symmetric 2x2 matrices with entries [-2,2], all real symmetric 3x3 matrices with entries [-1,0,1], plus 6 rational-cleared matrices",
+  "verdict": "N0_NO_COUNTEREXAMPLE"
+}

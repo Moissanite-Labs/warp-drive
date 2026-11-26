@@ -1,0 +1,20 @@
+{
+  "checked_studies_clean_and_mutated": 0,
+  "clean_and_mutated_harness_exit": 0,
+  "clean_artifact_delta": 1.767,
+  "independently_recomputed_g1_legend_delta": 1.767,
+  "mutated_artifact_delta": 9999.0,
+  "mutation_is_numerically_false": true,
+  "named_study_exit": 1,
+  "research_control_verdict": "VERIFIED",
+  "research_replay_digests": [
+    "b0cba027918e623b6f1169499eb49693aa47bede08c0c58411542bd91c9408f8",
+    "b0cba027918e623b6f1169499eb49693aa47bede08c0c58411542bd91c9408f8"
+  ],
+  "selected_claim": "no-argument study harness certifies every added study and detects committed-result drift",
+  "unrounded_unfloored_empirical_kl": {
+    "no_legend": -6.651510759217704,
+    "with_legend": -4.8844556181300325
+  },
+  "verdict": "FALSIFIED"
+}

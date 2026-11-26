@@ -1,0 +1,4 @@
+issue18_zero_lattice_width	REJECTED	TypeError: CheckpointFingerprint.__init__() got an unexpected keyword argument 'model_sha256'
+issue17_receipt_clean_without_ssm	REJECTED	StateFlushError: BankFlushReceipt cannot claim verified_clean=True with unconfirmed banks: ['ssm_recurrent']
+issue17_unknown_bank_false_equals_zero	REJECTED	StateFlushError: unknown state bank: 'not_a_bank'
+control_clean_kv_receipt	ACCEPTED	True

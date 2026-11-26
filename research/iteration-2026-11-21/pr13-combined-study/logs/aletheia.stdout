@@ -1,0 +1,18 @@
+[aletheia] status=PASS
+  passed: True
+  target: /private/tmp/warp-drive-pr13-review.dZEg30/repo/studies/expedition-bounded-controller
+  files_scanned: 7
+  py_files_scanned: 4
+  json_files_scanned: 1
+  crlf_count: 0
+  pycache_count: 0
+  leak_count: 0
+  syntax_error_count: 0
+  bare_assert_count: 0
+  unseeded_rng_warning_count: 0
+  json_error_count: 0
+  r4_scripts_checked: 2
+  r4_scripts_passed: 2
+  lean_files_checked: 0
+  lean_findings_count: 0
+  lean_notices_count: 0

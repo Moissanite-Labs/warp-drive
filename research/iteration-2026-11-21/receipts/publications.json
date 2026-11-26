@@ -1,0 +1,84 @@
+{
+  "schema": "warp-drive-iteration-publications/v1",
+  "verified_on": "2026-11-21",
+  "reviews": [
+    {
+      "pull_request": 8,
+      "head": "f9c9acce18434262bded9dd6263f46b80f6b89b1",
+      "state": "COMMENTED",
+      "review_id": 6008687628,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/8#pullrequestreview-6008687628",
+      "author": "orda-aska",
+      "body_path": "t2-contract-controller/pr8-review.md",
+      "body_sha256": "091945853c1949bdb8ce289b1185ea21a980441bdbe260e2a30ab86423a10165",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 9,
+      "head": "bf8de4b0e3f0451a496a76d87a537003b3377931",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6008687749,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/9#pullrequestreview-6008687749",
+      "author": "orda-aska",
+      "body_path": "t3-cerebras/review.md",
+      "body_sha256": "648860a7535b011883c036197660194c7589c573063850fd58beff91f714e2b8",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 10,
+      "head": "c526b8d3d73d018bb159312a9cf63adfc80e324d",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6008687913,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/10#pullrequestreview-6008687913",
+      "author": "orda-aska",
+      "body_path": "t2-contract-controller/pr10-review.md",
+      "body_sha256": "65cd667758b616ce5b1863f0ba3ef669d12371b5664dfa541d3d00af6fb51119",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 11,
+      "head": "8ae84b7b264b055c8511b138a9a0b528cab6b0a3",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6008512066,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/11#pullrequestreview-6008512066",
+      "author": "orda-aska",
+      "body_path": "lane7-review.md",
+      "body_sha256": "0a5b48f0377384ce4e67cc9f368a8ff499027f77aa0e6f48f638fc214564cb06",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 12,
+      "head": "10ae3b33402d9e5ef6f74cf9d8bf5d4c462cd931",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6008791249,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/12#pullrequestreview-6008791249",
+      "author": "orda-aska",
+      "body_path": "pr12-combined-study/review.md",
+      "body_sha256": "c1a1a8eaeb3d7afbf2cb1b5fdb2389eff099e7408820156c083fd0418c226e5b",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 13,
+      "head": "1ffda956d76745e61c53aff0e727036069fb13ec",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6008688018,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/13#pullrequestreview-6008688018",
+      "author": "orda-aska",
+      "body_path": "pr13-combined-study/review.md",
+      "body_sha256": "e8077a51a740dc58e68d8d794cd8a06c07b2dde760f7cc5b5df6abe2e4e344eb",
+      "exact_readback_matches": 1
+    },
+    {
+      "pull_request": 15,
+      "head": "e6ad0967c2386eb3e3bdc7d81ff3a47808d53a1e",
+      "state": "CHANGES_REQUESTED",
+      "review_id": 6009464930,
+      "url": "https://github.com/Moissanite-Labs/warp-drive/pull/15#pullrequestreview-6009464930",
+      "author": "orda-aska",
+      "body_path": "pr15-review/review.md",
+      "body_sha256": "0ca68f96d01e37e9f89ea05a574879ba94b38fd35a3837a355aaf3c17f4d9169",
+      "exact_readback_matches": 1,
+      "submitted_at": "2026-11-22T01:44:10Z"
+    }
+  ]
+}
