@@ -77,11 +77,28 @@ def _require_adapter_id(value: Any) -> int:
 
 def _require_adapter_scale(value: Any) -> float:
     """Accept only a finite exact number. Numeric strings and NaN are rejected."""
+    if type(value) is int and value.bit_length() > 1023:
+        # float() on a huge int raises OverflowError; reject it as a scale first.
+        raise LlamaClientError(
+            f"adapter scale int is too large for a float, got int with {value.bit_length()} bits"
+        )
     if type(value) not in (int, float) or not math.isfinite(float(value)):
         raise LlamaClientError(
             f"adapter scale must be a finite number, got {type(value).__name__}"
         )
     return float(value)
+
+
+def _require_lora_entry(entry: Any) -> dict[str, Any]:
+    """Validate one adapter entry and return the coerced {id, scale} payload item."""
+    if not isinstance(entry, dict) or "id" not in entry or "scale" not in entry:
+        raise LlamaClientError(
+            "each lora adapter entry must be a dict with 'id' and 'scale' keys"
+        )
+    return {
+        "id": _require_adapter_id(entry["id"]),
+        "scale": _require_adapter_scale(entry["scale"]),
+    }
 
 
 @dataclass(frozen=True)
@@ -201,23 +218,20 @@ class LlamaServerClient:
         for entry in res:
             if not isinstance(entry, dict) or "id" not in entry:
                 raise LlamaClientError("malformed adapter item in /lora-adapters")
+            path = entry.get("path", "")
+            if not isinstance(path, str):
+                raise LlamaClientError("adapter path in /lora-adapters must be a string")
             adapters.append(
                 LlamaAdapterInfo(
                     id=_require_adapter_id(entry["id"]),
-                    path=str(entry.get("path", "")),
+                    path=path,
                     scale=_require_adapter_scale(entry.get("scale", 0.0)),
                 )
             )
         return adapters
 
     def set_lora_adapters(self, adapters: list[dict[str, Any]]) -> dict[str, Any]:
-        payload = [
-            {
-                "id": _require_adapter_id(item["id"]),
-                "scale": _require_adapter_scale(item["scale"]),
-            }
-            for item in adapters
-        ]
+        payload = [_require_lora_entry(item) for item in adapters]
         res = self._request("POST", "/lora-adapters", payload)
         return res if isinstance(res, dict) else {"result": res}
 
@@ -329,7 +343,7 @@ class LlamaServerClient:
             "seed": seed,
             "max_tokens": max_tokens,
             "cache_prompt": cache_prompt,
-            "lora": [{"id": int(a["id"]), "scale": float(a["scale"])} for a in lora],
+            "lora": [_require_lora_entry(a) for a in lora],
         }
         if id_slot is not None:
             payload["id_slot"] = int(id_slot)
@@ -358,7 +372,7 @@ class LlamaServerClient:
             "seed": seed,
             "n_predict": int(n_predict),
             "cache_prompt": cache_prompt,
-            "lora": [{"id": int(a["id"]), "scale": float(a["scale"])} for a in lora],
+            "lora": [_require_lora_entry(a) for a in lora],
         }
         if int(n_probs) > 0:
             payload["n_probs"] = int(n_probs)

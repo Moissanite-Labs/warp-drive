@@ -410,11 +410,17 @@ def validate_propose_context(context: Any) -> dict[str, Any]:
         if not isinstance(constraints, dict):
             raise CerebrasSchemaError("constraints must be an object")
         for key, value in constraints.items():
-            if not isinstance(key, str) or not isinstance(value, (str, int, float, bool)):
-                raise CerebrasSchemaError(f"constraint {key!r} must map to a plain scalar, got {_describe_value(value)}")
+            if type(key) is not str or type(value) not in (str, int, float, bool):
+                raise CerebrasSchemaError(
+                    f"constraint {_describe_value(key)} must map to a plain scalar, got {_describe_value(value)}"
+                )
+            if type(value) is int and value.bit_length() > 1023:
+                raise CerebrasSchemaError(
+                    f"constraint {_describe_value(key)} is an int too large to encode, got {_describe_value(value)}"
+                )
             if type(value) is float and not math.isfinite(value):
                 raise CerebrasSchemaError(
-                    f"constraint {key!r} must be finite, got {_describe_value(value)}"
+                    f"constraint {_describe_value(key)} must be finite, got {_describe_value(value)}"
                 )
         cleaned["constraints"] = dict(constraints)
     return cleaned
